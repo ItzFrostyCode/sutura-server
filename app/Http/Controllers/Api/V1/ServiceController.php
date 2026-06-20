@@ -35,7 +35,17 @@ class ServiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $service->update($request->all());
+        $validated = $request->validate([
+            'name'           => ['sometimes', 'required', 'string', 'max:191'],
+            'description'    => ['nullable', 'string'],
+            'category'       => ['nullable', 'string', 'max:191'],
+            'base_price'     => ['sometimes', 'required', 'numeric', 'min:0'],
+            'estimated_days' => ['sometimes', 'required', 'integer', 'min:0'],
+            'is_active'      => ['sometimes', 'boolean'],
+            'custom_fields'  => ['nullable', 'array'],
+        ]);
+
+        $service->update($validated);
 
         return response()->json([
             'success' => true,

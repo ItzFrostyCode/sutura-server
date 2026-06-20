@@ -20,41 +20,41 @@ class OrderReadyNotification extends Notification implements ShouldQueue
     }
 
     /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
+     * Delivery channels — database + mail.
      */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['database', 'mail'];
     }
 
     /**
-     * Get the mail representation of the notification.
+     * Mail representation.
      */
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-                    ->subject('Your Bespoke Garment is Ready for Pickup!')
-                    ->greeting('Hello ' . $notifiable->name . ',')
-                    ->line('Great news! Your order (' . $this->jobOrder->order_number . ') from ' . $this->jobOrder->shop->name . ' is now ready.')
-                    ->line('Please visit the shop to fit your garment. If everything is perfect, you can pay your remaining balance of ₱' . number_format($this->jobOrder->balance, 2) . ' and take it home.')
-                    ->line('If any final adjustments are needed, our tailors will handle them on-site.')
-                    ->action('View Your Order', url(env('FRONTEND_URL', 'http://localhost:3000') . '/dashboard'))
-                    ->line('Thank you for trusting us with your custom tailoring!');
+            ->subject('Your Bespoke Garment is Ready for Pickup!')
+            ->greeting('Hello ' . $notifiable->name . ',')
+            ->line('Great news! Your order (' . $this->jobOrder->order_number . ') from ' . $this->jobOrder->shop->name . ' is now ready.')
+            ->line('Please visit the shop to fit your garment. If everything is perfect, you can pay your remaining balance of ₱' . number_format($this->jobOrder->balance, 2) . ' and take it home.')
+            ->line('If any final adjustments are needed, our tailors will handle them on-site.')
+            ->action('View Your Order', url(env('FRONTEND_URL', 'http://localhost:3000') . '/dashboard'))
+            ->line('Thank you for trusting us with your custom tailoring!');
     }
 
     /**
-     * Get the array representation of the notification.
-     *
-     * @return array<string, mixed>
+     * Database payload — used by the NotificationBell on the frontend.
      */
     public function toArray(object $notifiable): array
     {
         return [
-            'type' => 'order_ready',
-            'job_order_id' => $this->jobOrder->id,
-            'message' => 'Your order ' . $this->jobOrder->order_number . ' is ready for pickup.'
+            'type'          => 'order_ready',
+            'title'         => 'Order Ready for Pickup',
+            'message'       => 'Order ' . $this->jobOrder->order_number . ' is ready for pickup.',
+            'action_url'    => '/dashboard/jobs/' . $this->jobOrder->id,
+            'job_order_id'  => $this->jobOrder->id,
+            'order_number'  => $this->jobOrder->order_number,
+            'customer_name' => $this->jobOrder->customer?->name,
         ];
     }
 }

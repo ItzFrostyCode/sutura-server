@@ -62,19 +62,24 @@ Route::prefix('v1')->group(function () {
             
             // Shared Access (Owner, Manager, Staff)
             Route::middleware('role:shop_owner,branch_manager,staff')->group(function () {
-                // Measurements (Staff need this to sew)
+                // Measurements
                 Route::get('/measurements', [MeasurementController::class, 'index']);
                 Route::get('/measurements/{measurement}', [MeasurementController::class, 'show']);
-                Route::post('/measurements', [MeasurementController::class, 'store']); // if staff can create
+                Route::post('/measurements', [MeasurementController::class, 'store']);
                 Route::put('/measurements/{measurement}', [MeasurementController::class, 'update']);
                 Route::delete('/measurements/{measurement}', [MeasurementController::class, 'destroy']);
-                
+
                 // Job Orders
                 Route::get('/jobs', [JobOrderController::class, 'index']);
                 Route::get('/jobs/{jobOrder}', [JobOrderController::class, 'show']);
                 Route::put('/jobs/{jobOrder}', [JobOrderController::class, 'update']);
                 Route::delete('/jobs/{jobOrder}', [JobOrderController::class, 'destroy']);
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
+
+                // Appointments — read + status transitions (role enforcement inside controller)
+                Route::get('/appointments', [AppointmentController::class, 'index']);
+                Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
+                Route::post('/appointments/{appointment}/complete', [AppointmentController::class, 'complete']);
             });
 
             // Owner & Branch Manager Access
@@ -89,10 +94,8 @@ Route::prefix('v1')->group(function () {
                 Route::put('/customers/{customer}', [CustomerController::class, 'update']);
                 Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
 
-                // Appointments
-                Route::get('/appointments', [AppointmentController::class, 'index']);
+                // Appointments — create and cancel (owner/manager only)
                 Route::post('/appointments', [AppointmentController::class, 'store']);
-                Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
                 Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy']);
 
                 // Analytics

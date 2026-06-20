@@ -14,8 +14,12 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'role' => \App\Http\Middleware\CheckRole::class,
+            'role'      => \App\Http\Middleware\CheckRole::class,
+            'last.seen' => \App\Http\Middleware\UpdateLastSeenAt::class,
         ]);
+
+        // Stamp last_seen_at on every authenticated API request
+        $middleware->appendToGroup('api', \App\Http\Middleware\UpdateLastSeenAt::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

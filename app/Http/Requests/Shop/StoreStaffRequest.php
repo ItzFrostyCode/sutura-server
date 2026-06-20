@@ -18,7 +18,7 @@ class StoreStaffRequest extends FormRequest
             'email' => ['required', 'string', 'email', 'max:191', 'unique:users'],
             'password' => ['required', 'string', 'min:8'],
             'phone' => ['nullable', 'string', 'max:20'],
-            'role' => ['required', 'in:head_tailor,tailor,assistant,receptionist'],
+            'role' => ['required', 'in:head_tailor,tailor,cutter,seamstress,assistant,receptionist,quality_control'],
             'specialization' => ['nullable', 'string', 'max:255'],
             'hired_at' => ['nullable', 'date'],
         ];

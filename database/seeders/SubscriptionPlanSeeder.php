@@ -12,68 +12,81 @@ class SubscriptionPlanSeeder extends Seeder
      */
     public function run(): void
     {
+        // ---------------------------------------------------------------
+        // BASIC — ₱299/mo
+        // ---------------------------------------------------------------
         SubscriptionPlan::updateOrCreate(
             ['slug' => 'basic'],
             [
-                'name' => 'Basic Tier',
-                'description' => 'Perfect for small tailoring shops just getting started.',
-                'price_monthly' => 499.00,
-                'price_yearly' => 4990.00,
-                'max_staff' => 3,
-                'max_services' => 10,
+                'name'                       => 'Basic',
+                'description'                => 'Perfect for independent tailors just getting started online.',
+                'price_monthly'              => 299.00,
+                'price_yearly'               => 2990.00,
+                'max_staff'                  => 1,
+                'max_services'               => 10,
                 'max_appointments_per_month' => 50,
-                'features' => json_encode([
-                    'Basic Shop Profile',
-                    'Up to 3 Staff Members',
-                    'Up to 10 Services',
-                    '50 Appointments per month',
-                    'Standard Email Support'
+                'features'                   => json_encode([
+                    'Customer Management',
+                    'Appointment Scheduling',
+                    'Order Tracking',
+                    'Measurement Recording',
+                    'Text-Only Profile',
+                    'Manual Updates (Web Portal)',
+                    'Standard Search Listing',
                 ]),
-                'is_active' => true,
+                'is_active'                  => true,
             ]
         );
 
+        // ---------------------------------------------------------------
+        // PRO — ₱799/mo
+        // ---------------------------------------------------------------
         SubscriptionPlan::updateOrCreate(
             ['slug' => 'pro'],
             [
-                'name' => 'Pro Tier',
-                'description' => 'Ideal for growing shops with multiple staff and higher order volume.',
-                'price_monthly' => 999.00,
-                'price_yearly' => 9990.00,
-                'max_staff' => 10,
-                'max_services' => 50,
-                'max_appointments_per_month' => 300,
-                'features' => json_encode([
-                    'Premium Shop Profile',
-                    'Up to 10 Staff Members',
-                    'Up to 50 Services',
-                    '300 Appointments per month',
-                    'Priority Support',
-                    'Advanced Analytics'
+                'name'                       => 'Pro',
+                'description'                => 'Grow faster with visibility tools, portfolio, and team management.',
+                'price_monthly'              => 799.00,
+                'price_yearly'               => 7990.00,
+                'max_staff'                  => 5,
+                'max_services'               => 50,
+                'max_appointments_per_month' => 200,
+                'features'                   => json_encode([
+                    'All Basic Plan Features',
+                    'Boosted Search Visibility',
+                    'Visual Portfolio Gallery',
+                    'Direct Customer Inquiries',
+                    'Visual Dashboard & Analytics',
+                    'SMS/Email Notifications',
+                    'Measurement History',
+                    'Multi-User Access',
+                    'Staff Management',
                 ]),
-                'is_active' => true,
+                'is_active'                  => true,
             ]
         );
 
+        // ---------------------------------------------------------------
+        // PREMIUM — ₱1,999/mo
+        // ---------------------------------------------------------------
         SubscriptionPlan::updateOrCreate(
-            ['slug' => 'enterprise'],
+            ['slug' => 'premium'],
             [
-                'name' => 'Enterprise Tier',
-                'description' => 'For large scale tailoring operations and multiple branches.',
-                'price_monthly' => 1999.00,
-                'price_yearly' => 19990.00,
-                'max_staff' => -1, // Unlimited
-                'max_services' => -1, // Unlimited
+                'name'                       => 'Premium',
+                'description'                => 'Top-tier visibility, custom branding, and advanced reporting for serious shops.',
+                'price_monthly'              => 1999.00,
+                'price_yearly'               => 19990.00,
+                'max_staff'                  => -1, // Unlimited
+                'max_services'               => -1, // Unlimited
                 'max_appointments_per_month' => -1, // Unlimited
-                'features' => json_encode([
-                    'Unlimited Staff',
-                    'Unlimited Services',
-                    'Unlimited Appointments',
-                    '24/7 Dedicated Support',
-                    'Multi-Branch Management',
-                    'Custom Reporting'
+                'features'                   => json_encode([
+                    'All Pro Plan Features',
+                    'Custom Branding',
+                    'Featured Shop Visibility (Top Placement)',
+                    'Sales Reports & Income Exports',
+                    'Advanced Dashboard',
                 ]),
-                'is_active' => true,
+                'is_active'                  => true,
             ]
         );
     }

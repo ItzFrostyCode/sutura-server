@@ -42,12 +42,26 @@ class JobOrderController extends Controller
     {
         $validated = $request->validated();
         $validated['order_number'] = strtoupper(Str::random(8)) . '-' . time();
+        $validated['order_type'] = $validated['order_type'] ?? 'walk_in';
+
+        // Auto-assign branch if creator is staff or branch manager and not explicitly set
+        $staffProfile = $request->user()->staffProfile;
+        if ($staffProfile && empty($validated['shop_branch_id'])) {
+            $validated['shop_branch_id'] = $staffProfile->shop_branch_id;
+        }
 
         $jobOrder = $shop->jobOrders()->create($validated);
+        $jobOrder->load(['customer:id,name', 'service']);
+
+        // Notify shop owner of the new job order
+        $shopOwner = $shop->owner;
+        if ($shopOwner) {
+            $shopOwner->notify(new \App\Notifications\NewJobOrderNotification($jobOrder));
+        }
 
         return response()->json([
             'success' => true,
-            'data' => $jobOrder->load(['customer:id,name', 'service'])
+            'data' => $jobOrder
         ], 201);
     }
 
@@ -126,6 +140,12 @@ class JobOrderController extends Controller
             'recorded_by' => $request->user()->id,
             'notes' => $validated['notes'] ?? null
         ]);
+
+        // Notify shop owner of the payment
+        $shopOwner = $shop->owner;
+        if ($shopOwner) {
+            $shopOwner->notify(new \App\Notifications\PaymentReceivedNotification($jobOrder, $paymentAmount));
+        }
 
         return response()->json([
             'success' => true,

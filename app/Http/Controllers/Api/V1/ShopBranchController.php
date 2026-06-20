@@ -36,13 +36,20 @@ class ShopBranchController extends Controller
         }
 
         $branch = ShopBranch::create([
-            'shop_id' => $shop->id,
-            'name' => $request->name,
-            'address' => $request->address,
-            'city' => $request->city,
-            'contact_number' => $request->contact_number,
-            'is_main' => $branchCount === 0,
+            'shop_id'          => $shop->id,
+            'name'             => $request->name,
+            'address'          => $request->address,
+            'city'             => $request->city,
+            'contact_number'   => $request->contact_number,
+            'latitude'         => $request->latitude,
+            'longitude'        => $request->longitude,
+            'operating_hours'  => $request->operating_hours,
+            'status'           => 'active',
+            'is_main'          => $branchCount === 0,
         ]);
+
+        // Load counts so the frontend card renders correct values immediately
+        $branch->loadCount(['staffProfiles', 'jobOrders']);
 
         return response()->json(['success' => true, 'message' => 'Branch added successfully.', 'data' => $branch]);
     }
@@ -58,6 +65,10 @@ class ShopBranchController extends Controller
             'address' => 'required|string|max:255',
             'city' => 'required|string|max:255',
             'contact_number' => 'nullable|string',
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
+            'operating_hours' => 'nullable|string|max:255',
+            'status' => 'nullable|in:active,inactive',
         ]);
 
         $branch->update([
@@ -65,6 +76,10 @@ class ShopBranchController extends Controller
             'address' => $request->address,
             'city' => $request->city,
             'contact_number' => $request->contact_number,
+            'latitude' => $request->latitude,
+            'longitude' => $request->longitude,
+            'operating_hours' => $request->operating_hours,
+            'status' => $request->status ?? $branch->status,
         ]);
 
         return response()->json(['success' => true, 'message' => 'Branch updated successfully.', 'data' => $branch]);

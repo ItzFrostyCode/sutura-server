@@ -11,15 +11,17 @@ class JobOrder extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'order_number', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
+        'order_number', 'order_type', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
         'assigned_staff_id', 'measurement_id', 'total_amount',
-        'balance', 'payment_status', 'status', 'due_date', 'notes'
+        'balance', 'payment_status', 'status', 'due_date', 'notes',
+        'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
     ];
 
     protected $casts = [
         'total_amount' => 'decimal:2',
         'balance' => 'decimal:2',
         'due_date' => 'date',
+        'custom_order_data' => 'array',
     ];
 
     public function shop(): BelongsTo

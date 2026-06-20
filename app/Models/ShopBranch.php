@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class ShopBranch extends Model
 {
     protected $fillable = [
-        'shop_id', 'name', 'address', 'city', 'latitude', 'longitude', 'contact_number', 'is_main'
+        'shop_id', 'name', 'address', 'city', 'latitude', 'longitude', 'contact_number', 'is_main', 'operating_hours', 'status'
     ];
 
     public function shop()

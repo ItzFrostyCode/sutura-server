@@ -19,6 +19,7 @@ class StoreServiceRequest extends FormRequest
             'category' => ['nullable', 'string', 'max:100'],
             'base_price' => ['required', 'numeric', 'min:0'],
             'estimated_days' => ['required', 'integer', 'min:1'],
+            'custom_fields' => ['nullable', 'array'],
         ];
     }
 }

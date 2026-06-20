@@ -12,7 +12,7 @@ class CustomerController extends Controller
 {
     public function index(Request $request, Shop $shop): JsonResponse
     {
-        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('staff')) {
+        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('branch_manager') && !$request->user()->hasRole('staff')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -53,7 +53,7 @@ class CustomerController extends Controller
 
     public function store(Request $request, Shop $shop): JsonResponse
     {
-        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('staff')) {
+        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('branch_manager') && !$request->user()->hasRole('staff')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -86,7 +86,7 @@ class CustomerController extends Controller
 
     public function update(Request $request, Shop $shop, User $customer): JsonResponse
     {
-        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('staff')) {
+        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('branch_manager') && !$request->user()->hasRole('staff')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -116,7 +116,7 @@ class CustomerController extends Controller
 
     public function destroy(Request $request, Shop $shop, User $customer): JsonResponse
     {
-        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('staff')) {
+        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('branch_manager') && !$request->user()->hasRole('staff')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

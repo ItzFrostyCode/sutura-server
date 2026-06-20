@@ -7,6 +7,7 @@ use App\Http\Requests\Shop\StoreShopRequest;
 use App\Http\Requests\Shop\UpdateShopRequest;
 use App\Models\Shop;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class ShopController extends Controller
@@ -19,10 +20,26 @@ class ShopController extends Controller
 
         $shop = Shop::create($validated);
 
+        // Auto-assign the Premium plan as the default subscription for new shops.
+        // In production this would be gated behind a real payment step.
+        $premiumPlan = \App\Models\SubscriptionPlan::where('slug', 'premium')
+            ->where('is_active', true)
+            ->first();
+
+        if ($premiumPlan) {
+            \App\Models\ShopSubscription::create([
+                'shop_id'    => $shop->id,
+                'plan_id'    => $premiumPlan->id,
+                'status'     => 'active',
+                'starts_at'  => now(),
+                'ends_at'    => now()->addDays(30),
+            ]);
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Shop registered. Awaiting admin approval.',
-            'data' => $shop
+            'data'    => $shop
         ], 201);
     }
 

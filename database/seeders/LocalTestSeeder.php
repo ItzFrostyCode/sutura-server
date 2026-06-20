@@ -61,16 +61,16 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // Assign Trial Subscription to Shop
-        $basicPlan = \App\Models\SubscriptionPlan::where('slug', 'basic')->first();
-        if ($basicPlan && !$shop->subscription()->exists()) {
+        // Assign Trial Subscription to Shop (Default to Premium plan)
+        $premiumPlan = \App\Models\SubscriptionPlan::where('slug', 'premium')->first();
+        if ($premiumPlan && !$shop->subscription()->exists()) {
             \App\Models\ShopSubscription::create([
                 'shop_id' => $shop->id,
-                'plan_id' => $basicPlan->id,
+                'plan_id' => $premiumPlan->id,
                 'status' => 'trial',
                 'starts_at' => now(),
-                'ends_at' => now()->addDays(14),
-                'trial_ends_at' => now()->addDays(14),
+                'ends_at' => now()->addDays(30),
+                'trial_ends_at' => now()->addDays(30),
             ]);
         }
 

@@ -13,12 +13,13 @@ class Service extends Model
 
     protected $fillable = [
         'shop_id', 'name', 'description', 'category', 
-        'base_price', 'estimated_days', 'is_active'
+        'base_price', 'estimated_days', 'is_active', 'custom_fields'
     ];
 
     protected $casts = [
         'base_price' => 'decimal:2',
         'is_active' => 'boolean',
+        'custom_fields' => 'array',
     ];
 
     public function shop(): BelongsTo

@@ -18,9 +18,14 @@ class UpdateJobOrderRequest extends FormRequest
             'measurement_id' => ['nullable', 'exists:measurements,id'],
             'balance' => ['sometimes', 'numeric', 'min:0'],
             'payment_status' => ['sometimes', 'in:unpaid,partial,paid'],
-            'status' => ['sometimes', 'in:pending,cutting,sewing,fitting,ready_for_pickup,completed,cancelled'],
+            'status' => ['sometimes', 'in:pending,cutting,sewing,fitting,ready_for_pickup,packed,handed_to_courier,completed,cancelled'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
+            'courier_name' => ['nullable', 'string', 'max:100'],
+            'courier_tracking_number' => ['nullable', 'string', 'max:100'],
+            'shipping_address' => ['nullable', 'string', 'max:500'],
+            'custom_order_data' => ['nullable', 'array'],
+            'shop_branch_id' => ['nullable', 'exists:shop_branches,id'],
         ];
     }
 }

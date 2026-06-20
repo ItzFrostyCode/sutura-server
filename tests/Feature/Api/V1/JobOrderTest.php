@@ -77,4 +77,58 @@ class JobOrderTest extends TestCase
             'total_amount' => 5000,
         ]);
     }
+
+    public function test_can_create_service_with_custom_fields_and_job_order_with_custom_data()
+    {
+        // 1. Create a service with custom_fields
+        $customFields = [
+            ['id' => 'f1', 'label' => 'Name on Jersey', 'type' => 'text', 'required' => true],
+            ['id' => 'f2', 'label' => 'Number on Jersey', 'type' => 'number', 'required' => false]
+        ];
+
+        $serviceResponse = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/services", [
+            'name' => 'Custom Jersey Set',
+            'base_price' => 1200,
+            'estimated_days' => 10,
+            'custom_fields' => $customFields
+        ]);
+
+        $serviceResponse->assertStatus(201);
+        $serviceId = $serviceResponse->json('data.id');
+
+        $this->assertDatabaseHas('services', [
+            'id' => $serviceId,
+            'name' => 'Custom Jersey Set'
+        ]);
+
+        // Verify custom_fields is stored
+        $service = Service::find($serviceId);
+        $this->assertEquals($customFields, $service->custom_fields);
+
+        // 2. Create job order with custom_order_data
+        $customOrderData = [
+            'Name on Jersey' => 'Frosty',
+            'Number on Jersey' => '7'
+        ];
+
+        $jobResponse = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+            'customer_id' => $this->customer->id,
+            'service_id' => $serviceId,
+            'total_amount' => 1200,
+            'balance' => 1200,
+            'custom_order_data' => $customOrderData
+        ]);
+
+        $jobResponse->assertStatus(201);
+        $jobId = $jobResponse->json('data.id');
+
+        $this->assertDatabaseHas('job_orders', [
+            'id' => $id = $jobId,
+            'total_amount' => 1200
+        ]);
+
+        // Verify custom_order_data is stored and retrieved
+        $jobOrder = \App\Models\JobOrder::find($jobId);
+        $this->assertEquals($customOrderData, $jobOrder->custom_order_data);
+    }
 }
