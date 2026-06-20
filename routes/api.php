@@ -161,6 +161,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/tickets/{ticket}', [SupportTicketController::class, 'show']);
                 Route::post('/tickets/{ticket}/reply', [SupportTicketController::class, 'reply']);
                 Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close']);
+                Route::post('/support/upload', [FileUploadController::class, 'uploadSupportAttachment']);
             });
         });
 

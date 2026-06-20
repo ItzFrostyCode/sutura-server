@@ -34,4 +34,29 @@ class FileUploadController extends Controller
 
         return response()->json(['success' => false, 'message' => 'No file uploaded'], 400);
     }
+
+    public function uploadSupportAttachment(Request $request, Shop $shop): JsonResponse
+    {
+        if ($request->user()->cannot('view', $shop) && !$request->user()->hasRole('shop_owner')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'file' => 'required|file|mimes:jpeg,png,jpg,webp,mp4,mov,avi,webm|max:51200', // 50MB
+        ]);
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $path = $file->store('shops/' . $shop->id . '/support', 'public');
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'url' => config('app.url') . Storage::url($path)
+                ]
+            ]);
+        }
+
+        return response()->json(['success' => false, 'message' => 'No file uploaded'], 400);
+    }
 }

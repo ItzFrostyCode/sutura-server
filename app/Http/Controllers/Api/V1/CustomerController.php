@@ -59,18 +59,29 @@ class CustomerController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email',
-            'phone' => 'nullable|string|max:20',
+            'email' => 'nullable|email',
+            'phone' => 'required|string|max:20',
         ]);
 
-        $user = User::firstOrCreate(
-            ['email' => $validated['email']],
-            [
+        $email = $validated['email'] ?? null;
+        if (!$email) {
+            $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . '@sutura.com';
+        }
+
+        $user = User::where('email', $email)->first();
+        if ($user) {
+            $user->update([
                 'name' => $validated['name'],
-                'phone' => $validated['phone'],
+                'phone' => $validated['phone'] ?? $user->phone,
+            ]);
+        } else {
+            $user = User::create([
+                'email' => $email,
+                'name' => $validated['name'],
+                'phone' => $validated['phone'] ?? null,
                 'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(12)),
-            ]
-        );
+            ]);
+        }
 
         // Attach to shop if not already attached
         if (!$shop->customers()->where('user_id', $user->id)->exists()) {
@@ -97,14 +108,23 @@ class CustomerController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email',
-            'phone' => 'nullable|string|max:20',
+            'email' => 'nullable|email',
+            'phone' => 'required|string|max:20',
         ]);
+
+        $email = $validated['email'] ?? null;
+        if (!$email) {
+            if ($customer->email && str_starts_with($customer->email, 'walkin_') && str_ends_with($customer->email, '@sutura.com')) {
+                $email = $customer->email;
+            } else {
+                $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . '@sutura.com';
+            }
+        }
 
         $customer->update([
             'name' => $validated['name'],
-            'email' => $validated['email'],
-            'phone' => $validated['phone'],
+            'email' => $email,
+            'phone' => $validated['phone'] ?? null,
         ]);
 
         return response()->json([

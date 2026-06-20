@@ -8,11 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class SupportTicketReply extends Model
 {
     protected $fillable = [
-        'ticket_id', 'user_id', 'message', 'is_admin_reply',
+        'ticket_id', 'user_id', 'message', 'is_admin_reply', 'attachments',
     ];
 
     protected $casts = [
         'is_admin_reply' => 'boolean',
+        'attachments' => 'array',
     ];
 
     public function user(): BelongsTo

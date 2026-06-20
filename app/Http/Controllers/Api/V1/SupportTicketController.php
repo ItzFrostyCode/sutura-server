@@ -32,10 +32,11 @@ class SupportTicketController extends Controller
     public function store(Request $request, $shopId)
     {
         $validated = $request->validate([
-            'subject'  => 'required|string|max:255',
-            'message'  => 'required|string',
-            'type'     => 'required|in:problem,update_request,general,billing',
-            'priority' => 'required|in:low,medium,high,urgent',
+            'subject'     => 'required|string|max:255',
+            'message'     => 'required|string',
+            'type'        => 'required|in:problem,update_request,general,billing',
+            'priority'    => 'required|in:low,medium,high,urgent',
+            'attachments' => 'nullable|array',
         ]);
 
         $ticket = SupportTicket::create([
@@ -76,13 +77,15 @@ class SupportTicketController extends Controller
         $ticket = SupportTicket::where('shop_id', $shopId)->findOrFail($ticketId);
 
         $validated = $request->validate([
-            'message' => 'required|string',
+            'message'     => 'required|string',
+            'attachments' => 'nullable|array',
         ]);
 
         $reply = SupportTicketReply::create([
             'ticket_id'      => $ticket->id,
             'user_id'        => Auth::id(),
             'message'        => $validated['message'],
+            'attachments'    => $validated['attachments'] ?? null,
             'is_admin_reply' => false,
         ]);
 

@@ -53,12 +53,19 @@ class MeasurementController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        // Ideally we would use a FormRequest here, but we'll use inline validation for simplicity
+        // Validate profile_name, metrics, and notes, supporting legacy measurements as well
         $validated = $request->validate([
             'customer_id' => 'sometimes|exists:users,id',
+            'profile_name' => 'sometimes|string|max:100',
+            'metrics' => 'sometimes|array',
             'measurements' => 'sometimes|array',
             'notes' => 'nullable|string'
         ]);
+
+        if (isset($validated['measurements'])) {
+            $validated['metrics'] = $validated['measurements'];
+            unset($validated['measurements']);
+        }
 
         $measurement->update($validated);
 

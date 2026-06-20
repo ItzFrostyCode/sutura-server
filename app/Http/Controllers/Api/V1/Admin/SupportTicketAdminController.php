@@ -63,13 +63,15 @@ class SupportTicketAdminController extends Controller
         $ticket = SupportTicket::findOrFail($ticketId);
 
         $validated = $request->validate([
-            'message' => 'required|string',
+            'message'     => 'required|string',
+            'attachments' => 'nullable|array',
         ]);
 
         $reply = SupportTicketReply::create([
             'ticket_id'      => $ticket->id,
             'user_id'        => Auth::id(),
             'message'        => $validated['message'],
+            'attachments'    => $validated['attachments'] ?? null,
             'is_admin_reply' => true,
         ]);
 

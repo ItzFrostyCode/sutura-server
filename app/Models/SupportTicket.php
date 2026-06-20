@@ -12,12 +12,13 @@ class SupportTicket extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'shop_id', 'user_id', 'subject', 'message',
+        'shop_id', 'user_id', 'subject', 'message', 'attachments',
         'type', 'priority', 'status', 'assigned_to', 'resolved_at',
     ];
 
     protected $casts = [
         'resolved_at' => 'datetime',
+        'attachments' => 'array',
     ];
 
     public function shop(): BelongsTo
