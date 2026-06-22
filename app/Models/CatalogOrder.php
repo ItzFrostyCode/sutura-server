@@ -18,6 +18,11 @@ class CatalogOrder extends Model
         'total_amount',
         'delivery_address',
         'payment_status',
+        'payment_method',
+        'payment_reference',
+        'payment_receipt_path',
+        'courier_name',
+        'courier_tracking_number',
     ];
 
     public function shop()

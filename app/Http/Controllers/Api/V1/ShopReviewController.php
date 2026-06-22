@@ -28,4 +28,66 @@ class ShopReviewController extends Controller
             'data' => $review
         ]);
     }
+
+    public function index(Shop $shop, Request $request): JsonResponse
+    {
+        // View all reviews for a shop
+        $query = $shop->reviews()->with('user:id,name,email');
+
+        if ($request->has('rating')) {
+            $query->where('rating', $request->rating);
+        }
+
+        if ($request->has('is_featured')) {
+            $query->where('is_featured', filter_var($request->is_featured, FILTER_VALIDATE_BOOLEAN));
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $query->latest()->paginate($request->input('per_page', 15))
+        ]);
+    }
+
+    public function update(Request $request, Shop $shop, ShopReview $review): JsonResponse
+    {
+        // Authorize
+        if ($request->user()->cannot('update', $shop) && !$request->user()->hasRole('shop_owner')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        if ($review->shop_id !== $shop->id) {
+            return response()->json(['message' => 'Review not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'reply' => 'nullable|string',
+            'is_featured' => 'boolean'
+        ]);
+
+        $review->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'data' => $review->fresh('user:id,name,email')
+        ]);
+    }
+
+    public function destroy(Request $request, Shop $shop, ShopReview $review): JsonResponse
+    {
+        // Authorize
+        if ($request->user()->cannot('delete', $shop) && !$request->user()->hasRole('shop_owner')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        if ($review->shop_id !== $shop->id) {
+            return response()->json(['message' => 'Review not found'], 404);
+        }
+
+        $review->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Review deleted successfully'
+        ]);
+    }
 }

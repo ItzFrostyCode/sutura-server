@@ -24,6 +24,7 @@ class AppointmentController extends Controller
             'service:id,name',
             'branch:id,name',
             'assignedStaff:id,name',
+            'jobOrder:id,order_number',
         ]);
 
         // Branch manager: filter to their branch only
@@ -75,7 +76,7 @@ class AppointmentController extends Controller
         $data['status']           = 'pending';
 
         $appointment = $shop->appointments()->create($data);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name']);
+        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         // Notify shop owner of new booking
         $shopOwner = $shop->owner;
@@ -170,7 +171,7 @@ class AppointmentController extends Controller
 
         // Perform update
         $appointment->update($data);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name']);
+        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         // ── Notifications ─────────────────────────────────────────────────────
         $customer = $appointment->customer;
@@ -235,7 +236,7 @@ class AppointmentController extends Controller
         }
 
         $appointment->update($updateData);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name']);
+        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         // Notify customer
         $customer = $appointment->customer;
@@ -289,7 +290,7 @@ class AppointmentController extends Controller
         }
 
         $appointment->update(['status' => 'cancelled']);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name']);
+        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         $customer = $appointment->customer;
         if ($customer) {
@@ -300,6 +301,27 @@ class AppointmentController extends Controller
             'success' => true,
             'message' => 'Appointment cancelled.',
             'data'    => $appointment,
+        ]);
+    }
+
+    public function verifyPayment(Request $request, Shop $shop, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        $validated = $request->validate([
+            'payment_status' => 'required|in:pending,paid',
+        ]);
+
+        $appointment->update([
+            'payment_status' => $validated['payment_status']
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment status updated.',
+            'data'    => $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name']),
         ]);
     }
 }

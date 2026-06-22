@@ -27,13 +27,11 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::post('/auth/login', [AuthController::class, 'login'])->name('login');
 
-    // Public Catalog
+    // Public Catalog & Booking
     Route::get('/catalog/{shop:slug}', [CatalogController::class, 'index']);
-    Route::get('/catalog/{shop:slug}/{catalog}', [CatalogController::class, 'show']);
-    
-    // Public Booking
     Route::get('/catalog/{shop:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
     Route::post('/catalog/{shop:slug}/book', [PublicBookingController::class, 'submit']);
+    Route::get('/catalog/{shop:slug}/{catalog}', [CatalogController::class, 'show']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -79,6 +77,7 @@ Route::prefix('v1')->group(function () {
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
                 Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
+                Route::put('/appointments/{appointment}/verify-payment', [AppointmentController::class, 'verifyPayment']);
                 Route::post('/appointments/{appointment}/complete', [AppointmentController::class, 'complete']);
             });
 
@@ -144,6 +143,11 @@ Route::prefix('v1')->group(function () {
                 // Audit Logs
                 Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
+                // Reviews Management
+                Route::get('/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'index']);
+                Route::put('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'update']);
+                Route::delete('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'destroy']);
+
                 // Catalog Management
                 Route::get('/catalog', [CatalogController::class, 'index']);
                 Route::post('/catalog', [CatalogController::class, 'store']);
@@ -154,6 +158,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'index']);
                 Route::post('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'store']);
                 Route::put('/catalog-orders/{order}', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
+                Route::put('/catalog-orders/{order}/verify-payment', [\App\Http\Controllers\CatalogOrderController::class, 'verifyPayment']);
 
                 // Support Tickets (Shop Owner → Admin)
                 Route::get('/tickets', [SupportTicketController::class, 'index']);
@@ -201,6 +206,7 @@ Route::prefix('v1')->group(function () {
 
     // Public Catalog & Shop Profile
     Route::get('/public/shops/{shop:slug}', [\App\Http\Controllers\Api\V1\ShopController::class, 'publicProfile']);
+    Route::post('/public/shops/{shop:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
     Route::get('/shops/{shop}/catalog', [CatalogController::class, 'index']);
     Route::get('/shops/{shop}/catalog/{catalog}', [CatalogController::class, 'show']);
     Route::post('/shops/{shop}/catalog/{catalogItem}/view', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'incrementViews']);

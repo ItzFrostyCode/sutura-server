@@ -23,6 +23,7 @@ class ShopBranchController extends Controller
             'address' => 'required|string|max:255',
             'city' => 'required|string|max:255',
             'contact_number' => 'nullable|string',
+            'guide_image_url' => 'nullable|string|max:500',
         ]);
 
         $shop = Shop::findOrFail($shopId);
@@ -46,6 +47,7 @@ class ShopBranchController extends Controller
             'operating_hours'  => $request->operating_hours,
             'status'           => 'active',
             'is_main'          => $branchCount === 0,
+            'guide_image_url'  => $request->guide_image_url,
         ]);
 
         // Load counts so the frontend card renders correct values immediately
@@ -69,6 +71,7 @@ class ShopBranchController extends Controller
             'longitude' => 'nullable|numeric',
             'operating_hours' => 'nullable|string|max:255',
             'status' => 'nullable|in:active,inactive',
+            'guide_image_url' => 'nullable|string|max:500',
         ]);
 
         $branch->update([
@@ -80,6 +83,7 @@ class ShopBranchController extends Controller
             'longitude' => $request->longitude,
             'operating_hours' => $request->operating_hours,
             'status' => $request->status ?? $branch->status,
+            'guide_image_url' => $request->guide_image_url,
         ]);
 
         return response()->json(['success' => true, 'message' => 'Branch updated successfully.', 'data' => $branch]);

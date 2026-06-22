@@ -26,6 +26,10 @@ class UpdateJobOrderRequest extends FormRequest
             'shipping_address' => ['nullable', 'string', 'max:500'],
             'custom_order_data' => ['nullable', 'array'],
             'shop_branch_id' => ['nullable', 'exists:shop_branches,id'],
+            'is_outsourced' => ['sometimes', 'boolean'],
+            'partner_shop_name' => ['nullable', 'string', 'max:255'],
+            'is_rush' => ['sometimes', 'boolean'],
+            'rush_fee' => ['sometimes', 'numeric', 'min:0'],
         ];
     }
 }

@@ -15,7 +15,8 @@ class Shop extends Model
         'owner_id', 'name', 'slug', 'description', 'address', 
         'city', 'province', 'postal_code', 'phone', 'email', 
         'logo_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
-        'currency', 'booking_policy', 'booking_questions', 'latitude', 'longitude', 'business_type', 'operating_hours',
+        'currency', 'booking_policy', 'booking_questions', 'latitude', 'longitude', 'social_links', 'gallery_images',
+        'business_type', 'operating_hours',
         'security_deposit', 'rental_duration_days', 'overdue_penalty_per_day', 'fitting_fee', 'fitting_limit',
         'reschedule_fee_percent', 'change_reserved_hours', 'change_reserved_fee_percent', 'supported_couriers'
     ];
@@ -60,6 +61,11 @@ class Shop extends Model
     public function apparelSpecializations(): HasMany
     {
         return $this->hasMany(ApparelSpecialization::class);
+    }
+
+    public function branches(): HasMany
+    {
+        return $this->hasMany(ShopBranch::class);
     }
 
     public function appointments(): HasMany

@@ -59,4 +59,25 @@ class FileUploadController extends Controller
 
         return response()->json(['success' => false, 'message' => 'No file uploaded'], 400);
     }
+
+    public function uploadPublicReceipt(Request $request, Shop $shop): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
+        ]);
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $path = $file->store('shops/' . $shop->id . '/receipts', 'public');
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'url' => config('app.url') . Storage::url($path)
+                ]
+            ]);
+        }
+
+        return response()->json(['success' => false, 'message' => 'No file uploaded'], 400);
+    }
 }

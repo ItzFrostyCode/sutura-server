@@ -15,6 +15,7 @@ class StaffProfile extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'hired_at' => 'date',
+        'specialization' => 'array',
     ];
 
     public function user(): BelongsTo

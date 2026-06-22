@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('catalog_orders', function (Blueprint $table) {
             $table->id();
             $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('catalog_item_id')->constrained('catalog')->cascadeOnDelete();
+            $table->foreignId('catalog_item_id')->constrained('catalog_items')->cascadeOnDelete();
             $table->foreignId('customer_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('type'); // walkin, online
             $table->string('status'); // pending, ready, out_for_delivery, completed

@@ -15,6 +15,7 @@ class JobOrder extends Model
         'assigned_staff_id', 'measurement_id', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
+        'is_outsourced', 'partner_shop_name', 'is_rush', 'rush_fee',
     ];
 
     protected $casts = [
@@ -22,6 +23,9 @@ class JobOrder extends Model
         'balance' => 'decimal:2',
         'due_date' => 'date',
         'custom_order_data' => 'array',
+        'is_outsourced' => 'boolean',
+        'is_rush' => 'boolean',
+        'rush_fee' => 'decimal:2',
     ];
 
     public function shop(): BelongsTo
@@ -36,8 +40,14 @@ class JobOrder extends Model
 
     public function service(): BelongsTo
     {
-        return $this->belongsTo(Service::class);
+        return $this->belongsTo(Service::class)->withTrashed();
     }
+
+    public function appointments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Appointment::class);
+    }
+
 
     public function assignedStaff(): BelongsTo
     {

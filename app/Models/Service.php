@@ -31,4 +31,15 @@ class Service extends Model
     {
         return $this->hasMany(ServicePricing::class, 'service_id');
     }
+
+    public function jobOrders(): HasMany
+    {
+        return $this->hasMany(JobOrder::class);
+    }
+
+    public function appointments(): HasMany
+    {
+        return $this->hasMany(Appointment::class);
+    }
 }
+

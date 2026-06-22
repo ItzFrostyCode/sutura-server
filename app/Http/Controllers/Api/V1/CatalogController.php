@@ -45,12 +45,14 @@ class CatalogController extends Controller
             'fit_guide' => 'nullable|array',
             'features' => 'nullable|array',
             'care_instructions' => 'nullable|string',
+            'external_gallery_url' => 'nullable|url|max:500',
             'images' => 'nullable|array',
             'images.*.url' => 'required|string',
             'images.*.angle' => 'required|string',
             'images.*.is_primary' => 'required|boolean',
             'recommendations' => 'nullable|array',
-            'recommendations.*' => 'exists:catalog_items,id'
+            'recommendations.*.id' => 'required|exists:catalog_items,id',
+            'recommendations.*.type' => 'nullable|string',
         ]);
 
         $item = $shop->catalogItems()->create([
@@ -63,6 +65,7 @@ class CatalogController extends Controller
             'fit_guide' => $validated['fit_guide'] ?? null,
             'features' => $validated['features'] ?? null,
             'care_instructions' => $validated['care_instructions'] ?? null,
+            'external_gallery_url' => $validated['external_gallery_url'] ?? null,
         ]);
 
         if (!empty($validated['images'])) {
@@ -76,9 +79,10 @@ class CatalogController extends Controller
         }
 
         if (!empty($validated['recommendations'])) {
-            foreach ($validated['recommendations'] as $recId) {
+            foreach ($validated['recommendations'] as $rec) {
                 $item->recommendations()->create([
-                    'recommended_item_id' => $recId
+                    'recommended_item_id' => $rec['id'],
+                    'recommendation_type' => $rec['type'] ?? 'similar',
                 ]);
             }
         }
@@ -126,10 +130,14 @@ class CatalogController extends Controller
             'fit_guide' => 'nullable|array',
             'features' => 'nullable|array',
             'care_instructions' => 'nullable|string',
+            'external_gallery_url' => 'nullable|url|max:500',
             'images' => 'nullable|array',
             'images.*.url' => 'required|string',
             'images.*.angle' => 'required|string',
             'images.*.is_primary' => 'required|boolean',
+            'recommendations' => 'nullable|array',
+            'recommendations.*.id' => 'required|exists:catalog_items,id',
+            'recommendations.*.type' => 'nullable|string',
         ]);
 
         $catalog->update([
@@ -142,6 +150,7 @@ class CatalogController extends Controller
             'fit_guide' => array_key_exists('fit_guide', $validated) ? $validated['fit_guide'] : $catalog->fit_guide,
             'features' => array_key_exists('features', $validated) ? $validated['features'] : $catalog->features,
             'care_instructions' => array_key_exists('care_instructions', $validated) ? $validated['care_instructions'] : $catalog->care_instructions,
+            'external_gallery_url' => array_key_exists('external_gallery_url', $validated) ? $validated['external_gallery_url'] : $catalog->external_gallery_url,
         ]);
 
         if (isset($validated['images'])) {
@@ -153,6 +162,18 @@ class CatalogController extends Controller
                     'image_url' => $image['url'],
                     'view_angle' => $image['angle'],
                     'is_primary' => $image['is_primary'],
+                ]);
+            }
+        }
+
+        if (isset($validated['recommendations'])) {
+            // Remove old recommendations
+            $catalog->recommendations()->delete();
+            // Add new recommendations
+            foreach ($validated['recommendations'] as $rec) {
+                $catalog->recommendations()->create([
+                    'recommended_item_id' => $rec['id'],
+                    'recommendation_type' => $rec['type'] ?? 'similar',
                 ]);
             }
         }

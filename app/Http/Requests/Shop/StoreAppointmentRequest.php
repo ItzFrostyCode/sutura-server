@@ -30,6 +30,7 @@ class StoreAppointmentRequest extends FormRequest
             'assigned_staff_id'=> ['nullable', 'exists:users,id'],
             'notes'            => ['nullable', 'string', 'max:2000'],
             'answers'          => ['nullable', 'array'],
+            'job_order_id'     => ['nullable', 'exists:job_orders,id'],
         ];
     }
 
@@ -41,11 +42,13 @@ class StoreAppointmentRequest extends FormRequest
         $validator->after(function (Validator $v) {
             $type      = $this->input('appointment_type');
             $serviceId = $this->input('service_id');
+            $jobOrderId = $this->input('job_order_id');
 
-            if (in_array($type, Appointment::TYPES_REQUIRING_SERVICE) && empty($serviceId)) {
+            // If job_order_id is present, service_id is not strictly required because the job order implies the service.
+            if (in_array($type, Appointment::TYPES_REQUIRING_SERVICE) && empty($serviceId) && empty($jobOrderId)) {
                 $v->errors()->add(
                     'service_id',
-                    "A service is required for appointment type: {$type}."
+                    "A service or job order is required for appointment type: {$type}."
                 );
             }
         });

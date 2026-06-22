@@ -8,11 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ShopReview extends Model
 {
     protected $fillable = [
-        'shop_id', 'user_id', 'rating', 'comment'
+        'shop_id', 'user_id', 'rating', 'comment', 'reply', 'is_featured'
     ];
 
     protected $casts = [
         'rating' => 'integer',
+        'is_featured' => 'boolean',
     ];
 
     public function shop(): BelongsTo

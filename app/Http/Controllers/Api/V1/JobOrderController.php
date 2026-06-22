@@ -50,7 +50,45 @@ class JobOrderController extends Controller
             $validated['shop_branch_id'] = $staffProfile->shop_branch_id;
         }
 
+        // Determine payment status based on total amount and balance
+        $totalAmount = (float)$validated['total_amount'];
+        $balance = (float)$validated['balance'];
+        $initialPayment = $totalAmount - $balance;
+
+        if ($balance <= 0) {
+            $validated['payment_status'] = 'paid';
+        } elseif ($initialPayment > 0) {
+            $validated['payment_status'] = 'partial';
+        } else {
+            $validated['payment_status'] = 'unpaid';
+        }
+
         $jobOrder = $shop->jobOrders()->create($validated);
+
+        // Link to appointment if appointment_id is present
+        if ($request->filled('appointment_id')) {
+            $appointment = \App\Models\Appointment::find($request->appointment_id);
+            if ($appointment && $appointment->shop_id === $shop->id) {
+                $appointment->update([
+                    'job_order_id' => $jobOrder->id,
+                ]);
+                if ($appointment->status === 'pending') {
+                    $appointment->update(['status' => 'confirmed']);
+                }
+            }
+        }
+
+        // Record initial payment history if downpayment occurred
+        if ($initialPayment > 0) {
+            $jobOrder->payments()->create([
+                'amount' => $initialPayment,
+                'payment_method' => $request->input('payment_method') ?? 'cash',
+                'recorded_by' => $request->user()->id,
+                'notes' => 'Initial downpayment recorded during order creation.'
+            ]);
+        }
+
+
         $jobOrder->load(['customer:id,name', 'service']);
 
         // Notify shop owner of the new job order
@@ -73,7 +111,7 @@ class JobOrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments'])
+            'data' => $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name'])
         ]);
     }
 
@@ -150,7 +188,7 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment logged successfully',
-            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments', 'staffStages'])
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages'])
         ]);
     }
 

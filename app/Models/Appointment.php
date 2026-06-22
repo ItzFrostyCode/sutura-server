@@ -44,6 +44,11 @@ class Appointment extends Model
         'status',
         'notes',
         'answers',
+        'job_order_id',
+        'payment_method',
+        'payment_reference',
+        'payment_receipt_path',
+        'payment_status',
     ];
 
     protected $casts = [
@@ -57,6 +62,11 @@ class Appointment extends Model
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    public function jobOrder(): BelongsTo
+    {
+        return $this->belongsTo(JobOrder::class);
     }
 
     public function branch(): BelongsTo

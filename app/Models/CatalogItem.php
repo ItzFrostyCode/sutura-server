@@ -8,7 +8,7 @@ class CatalogItem extends Model
 {
     protected $fillable = [
         'shop_id', 'name', 'price', 'material', 'description', 
-        'fit_guide', 'features', 'care_instructions', 'garment_type', 'listing_type'
+        'fit_guide', 'features', 'care_instructions', 'garment_type', 'listing_type', 'external_gallery_url'
     ];
 
     protected $casts = [

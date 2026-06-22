@@ -10,10 +10,9 @@ use App\Models\Role;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Validator;
+use Illuminate\Validation\Rule;
 
 class PublicBookingController extends Controller
 {
@@ -54,13 +53,16 @@ class PublicBookingController extends Controller
             // Booking details
             'appointment_type' => ['required', 'in:' . implode(',', Appointment::TYPES)],
             'shop_branch_id'   => $branchCount > 1
-                ? ['required', 'exists:shop_branches,id']
-                : ['nullable', 'exists:shop_branches,id'],
-            'service_id'       => ['nullable', 'exists:services,id'],
+                ? ['required', Rule::exists('shop_branches', 'id')->where('shop_id', $shop->id)]
+                : ['nullable', Rule::exists('shop_branches', 'id')->where('shop_id', $shop->id)],
+            'service_id'       => ['nullable', Rule::exists('services', 'id')->where('shop_id', $shop->id)],
             'scheduled_at'     => ['required', 'date', 'after:now'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
             'notes'            => ['nullable', 'string', 'max:2000'],
             'answers'          => ['nullable', 'array'],
+            'payment_method'   => ['nullable', 'string', 'in:cash,gcash,bank_transfer'],
+            'payment_reference'=> ['nullable', 'string', 'max:255'],
+            'payment_receipt_path' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $type = $validated['appointment_type'];
@@ -88,15 +90,17 @@ class PublicBookingController extends Controller
         $durationMinutes = $validated['duration_minutes'] ?? 60;
         $newEnd          = $scheduledAt->copy()->addMinutes($durationMinutes);
 
-        $conflict = $shop->appointments()
+        $confirmedAppointments = $shop->appointments()
             ->where('shop_branch_id', $branchId)
             ->where('status', 'confirmed')
             ->where('scheduled_at', '<', $newEnd)
-            ->whereRaw(
-                "DATE_ADD(scheduled_at, INTERVAL duration_minutes MINUTE) > ?",
-                [$scheduledAt]
-            )
-            ->exists();
+            ->get(['scheduled_at', 'duration_minutes']);
+
+        $conflict = $confirmedAppointments->contains(function (Appointment $appointment) use ($scheduledAt): bool {
+            return Carbon::parse($appointment->scheduled_at)
+                ->addMinutes($appointment->duration_minutes ?? 60)
+                ->gt($scheduledAt);
+        });
 
         if ($conflict) {
             return response()->json([
@@ -133,6 +137,10 @@ class PublicBookingController extends Controller
             'notes'            => $validated['notes'] ?? null,
             'answers'          => $validated['answers'] ?? null,
             'status'           => 'pending',
+            'payment_method'   => $validated['payment_method'] ?? 'cash',
+            'payment_reference'=> $validated['payment_reference'] ?? null,
+            'payment_receipt_path' => $validated['payment_receipt_path'] ?? null,
+            'payment_status'   => 'pending',
         ]);
 
         // Notify shop owner

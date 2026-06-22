@@ -28,6 +28,11 @@ class StoreJobOrderRequest extends FormRequest
             'courier_tracking_number' => ['nullable', 'string', 'max:100'],
             'custom_order_data' => ['nullable', 'array'],
             'shop_branch_id' => ['nullable', 'exists:shop_branches,id'],
+            'is_outsourced' => ['nullable', 'boolean'],
+            'partner_shop_name' => ['nullable', 'string', 'max:255'],
+            'appointment_id' => ['nullable', 'exists:appointments,id'],
+            'is_rush' => ['nullable', 'boolean'],
+            'rush_fee' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 }
