@@ -27,20 +27,15 @@ class AppointmentController extends Controller
             'jobOrder:id,order_number',
         ]);
 
-        // Branch manager: filter to their branch only
-        if ($roles->contains('branch_manager')) {
+        $branchId = null;
+        if ($roles->contains('branch_manager') || ($roles->contains('staff') && !$roles->contains('shop_owner'))) {
             $branchId = $user->staffProfile->shop_branch_id ?? null;
-            if ($branchId) {
-                $query->where('shop_branch_id', $branchId);
-            }
+        } elseif ($request->filled('branch_id')) {
+            $branchId = $request->branch_id;
         }
 
-        // Staff: see only appointments in their branch (not just their assigned ones)
-        if ($roles->contains('staff') && !$roles->contains('shop_owner') && !$roles->contains('branch_manager')) {
-            $branchId = $user->staffProfile->shop_branch_id ?? null;
-            if ($branchId) {
-                $query->where('shop_branch_id', $branchId);
-            }
+        if ($branchId) {
+            $query->where('shop_branch_id', $branchId);
         }
 
         // Optional filters
@@ -94,93 +89,84 @@ class AppointmentController extends Controller
 
     public function update(UpdateAppointmentRequest $request, Shop $shop, Appointment $appointment): JsonResponse
     {
+        $error = null;
+        $status = 200;
+
         if ($appointment->shop_id !== $shop->id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
-        }
+            $error = 'Unauthorized.';
+            $status = 403;
+        } elseif ($appointment->isTerminal()) {
+            $error = "A {$appointment->status} appointment cannot be modified.";
+            $status = 422;
+        } else {
+            $user    = $request->user();
+            $roles   = $user->roles->pluck('name');
+            $isStaff = $roles->contains('staff') && !$roles->contains('shop_owner') && !$roles->contains('branch_manager');
 
-        // Terminal state lock
-        if ($appointment->isTerminal()) {
-            return response()->json([
-                'success' => false,
-                'message' => "A {$appointment->status} appointment cannot be modified.",
-            ], 422);
-        }
+            $data      = $request->validated();
+            $newStatus = $data['status'] ?? null;
 
-        $user    = $request->user();
-        $roles   = $user->roles->pluck('name');
-        $isStaff = $roles->contains('staff') && !$roles->contains('shop_owner') && !$roles->contains('branch_manager');
-
-        $data      = $request->validated();
-        $newStatus = $data['status'] ?? null;
-
-        // ── Role enforcement ──────────────────────────────────────────────────
-        if ($isStaff) {
-            // Staff can ONLY move confirmed → in_progress, or in_progress → completed
-            $staffAllowed = ['in_progress', 'completed'];
-            if ($newStatus && !in_array($newStatus, $staffAllowed)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Staff are not authorized to perform this status change.',
-                ], 403);
+            // ── Role enforcement & State transition check ────────────────────────
+            $error = $this->validateAndEnforceRole($appointment, $isStaff, $newStatus);
+            if ($error) {
+                $status = ($error === 'Staff are not authorized to perform this status change.') ? 403 : 422;
             }
-            // Staff cannot modify schedule or notes
-            unset($data['scheduled_at'], $data['notes'], $data['assigned_staff_id']);
-        }
 
-        // ── State machine ─────────────────────────────────────────────────────
-        if ($newStatus && $newStatus !== $appointment->status) {
-            if (!$appointment->canTransitionTo($newStatus)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Invalid status transition: '{$appointment->status}' → '{$newStatus}'.",
-                ], 422);
+            if ($isStaff) {
+                // Staff cannot modify schedule or notes
+                unset($data['scheduled_at'], $data['notes'], $data['assigned_staff_id']);
             }
-        }
 
-        // ── Reschedule logic ──────────────────────────────────────────────────
-        $isRescheduled = false;
-        if (!empty($data['scheduled_at'])) {
-            $oldAt = $appointment->scheduled_at?->format('Y-m-d H:i:s');
-            $newAt = date('Y-m-d H:i:s', strtotime($data['scheduled_at']));
+            // ── Reschedule logic ──────────────────────────────────────────────────
+            $isRescheduled = false;
+            if (!$error && !empty($data['scheduled_at'])) {
+                $oldAt = $appointment->scheduled_at?->format('Y-m-d H:i:s');
+                $newAt = date('Y-m-d H:i:s', strtotime($data['scheduled_at']));
 
-            if ($oldAt !== $newAt) {
-                // Only pending or confirmed appointments can be rescheduled
-                if (!in_array($appointment->status, ['pending', 'confirmed'])) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Only pending or confirmed appointments can be rescheduled.',
-                    ], 422);
+                if ($oldAt !== $newAt) {
+                    // Only pending or confirmed appointments can be rescheduled
+                    if (!in_array($appointment->status, ['pending', 'confirmed'])) {
+                        $error = 'Only pending or confirmed appointments can be rescheduled.';
+                        $status = 422;
+                    } else {
+                        $isRescheduled = true;
+
+                        // Audit log
+                        $shop->auditLogs()->create([
+                            'user_id'    => $user->id,
+                            'action'     => 'appointment_rescheduled',
+                            'model_type' => Appointment::class,
+                            'model_id'   => $appointment->id,
+                            'payload'    => [
+                                'old_scheduled_at' => $oldAt,
+                                'new_scheduled_at' => $newAt,
+                                'reason'           => $data['notes'] ?? 'Rescheduled by owner/staff',
+                            ],
+                            'ip_address' => $request->ip(),
+                        ]);
+                    }
                 }
-                $isRescheduled = true;
+            }
 
-                // Audit log
-                $shop->auditLogs()->create([
-                    'user_id'    => $user->id,
-                    'action'     => 'appointment_rescheduled',
-                    'model_type' => Appointment::class,
-                    'model_id'   => $appointment->id,
-                    'payload'    => [
-                        'old_scheduled_at' => $oldAt,
-                        'new_scheduled_at' => $newAt,
-                        'reason'           => $data['notes'] ?? 'Rescheduled by owner/staff',
-                    ],
-                    'ip_address' => $request->ip(),
-                ]);
+            if (!$error) {
+                // Perform update
+                $appointment->update($data);
+                $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+
+                // ── Notifications ─────────────────────────────────────────────────────
+                $customer = $appointment->customer;
+                if ($customer) {
+                    if ($isRescheduled) {
+                        $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, 'rescheduled'));
+                    } elseif ($newStatus && $newStatus !== $appointment->getOriginal('status')) {
+                        $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, $newStatus));
+                    }
+                }
             }
         }
 
-        // Perform update
-        $appointment->update($data);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
-
-        // ── Notifications ─────────────────────────────────────────────────────
-        $customer = $appointment->customer;
-        if ($customer) {
-            if ($isRescheduled) {
-                $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, 'rescheduled'));
-            } elseif ($newStatus && $newStatus !== $appointment->getOriginal('status')) {
-                $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, $newStatus));
-            }
+        if ($error) {
+            return response()->json(['success' => false, 'message' => $error], $status);
         }
 
         return response()->json([
@@ -193,108 +179,128 @@ class AppointmentController extends Controller
 
     public function complete(Request $request, Shop $shop, Appointment $appointment): JsonResponse
     {
+        $error = null;
+        $status = 200;
+
         if ($appointment->shop_id !== $shop->id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+            $error = 'Unauthorized.';
+            $status = 403;
+        } elseif ($appointment->status !== 'in_progress') {
+            $error = 'Only in-progress appointments can be marked as completed.';
+            $status = 422;
+        } else {
+            $request->validate([
+                'notes'          => ['nullable', 'string', 'max:2000'],
+                'job_order_id'   => ['nullable', 'exists:job_orders,id'],
+                'measurement_id' => ['nullable', 'exists:measurements,id'],
+            ]);
+
+            $type = $appointment->appointment_type;
+            $jobOrderId = $request->job_order_id ? (int)$request->job_order_id : null;
+
+            // Type-specific rules
+            $error = $this->validateCompleteTypeRules($type, $jobOrderId);
+            if ($error) {
+                $status = 422;
+            } else {
+                // Update appointment
+                $updateData = ['status' => 'completed'];
+                if ($request->filled('notes')) {
+                    $updateData['notes'] = $appointment->notes
+                        ? $appointment->notes . "\n\n[Completion Note] " . $request->notes
+                        : $request->notes;
+                }
+
+                $appointment->update($updateData);
+                $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+
+                // Notify customer
+                $customer = $appointment->customer;
+                if ($customer) {
+                    $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, 'completed'));
+                }
+
+                // Audit log
+                $shop->auditLogs()->create([
+                    'user_id'    => $request->user()->id,
+                    'action'     => 'appointment_completed',
+                    'model_type' => Appointment::class,
+                    'model_id'   => $appointment->id,
+                    'payload'    => [
+                        'type'           => $type,
+                        'job_order_id'   => $request->job_order_id,
+                        'measurement_id' => $request->measurement_id,
+                    ],
+                    'ip_address' => $request->ip(),
+                ]);
+            }
         }
 
-        if ($appointment->status !== 'in_progress') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Only in-progress appointments can be marked as completed.',
-            ], 422);
+        if ($error) {
+            return response()->json(['success' => false, 'message' => $error], $status);
         }
-
-        $request->validate([
-            'notes'          => ['nullable', 'string', 'max:2000'],
-            'job_order_id'   => ['nullable', 'exists:job_orders,id'],
-            'measurement_id' => ['nullable', 'exists:measurements,id'],
-        ]);
-
-        $type = $appointment->appointment_type;
-
-        // Type-specific rules
-        if ($type === 'fitting' && empty($request->job_order_id)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'A fitting appointment must be linked to an existing job order when completing.',
-            ], 422);
-        }
-
-        if ($type === 'pickup' && empty($request->job_order_id)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'A pickup appointment must reference the completed job order.',
-            ], 422);
-        }
-
-        // Update appointment
-        $updateData = ['status' => 'completed'];
-        if ($request->filled('notes')) {
-            $updateData['notes'] = $appointment->notes
-                ? $appointment->notes . "\n\n[Completion Note] " . $request->notes
-                : $request->notes;
-        }
-
-        $appointment->update($updateData);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
-
-        // Notify customer
-        $customer = $appointment->customer;
-        if ($customer) {
-            $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, 'completed'));
-        }
-
-        // Audit log
-        $shop->auditLogs()->create([
-            'user_id'    => $request->user()->id,
-            'action'     => 'appointment_completed',
-            'model_type' => Appointment::class,
-            'model_id'   => $appointment->id,
-            'payload'    => [
-                'type'           => $type,
-                'job_order_id'   => $request->job_order_id,
-                'measurement_id' => $request->measurement_id,
-            ],
-            'ip_address' => $request->ip(),
-        ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Appointment marked as completed.',
             'data'    => $appointment,
         ]);
+    }
+
+    private function validateAndEnforceRole(Appointment $appointment, bool $isStaff, ?string $newStatus): ?string
+    {
+        if ($isStaff) {
+            $staffAllowed = ['in_progress', 'completed'];
+            if ($newStatus && !in_array($newStatus, $staffAllowed)) {
+                return 'Staff are not authorized to perform this status change.';
+            }
+        }
+
+        if ($newStatus && $newStatus !== $appointment->status && !$appointment->canTransitionTo($newStatus)) {
+            return "Invalid status transition: '{$appointment->status}' → '{$newStatus}'.";
+        }
+
+        return null;
+    }
+
+    private function validateCompleteTypeRules(string $type, ?int $jobOrderId): ?string
+    {
+        if ($type === 'fitting' && empty($jobOrderId)) {
+            return 'A fitting appointment must be linked to an existing job order when completing.';
+        }
+        if ($type === 'pickup' && empty($jobOrderId)) {
+            return 'A pickup appointment must reference the completed job order.';
+        }
+        return null;
     }
 
     // ─── Destroy (cancel — owner/manager only) ────────────────────────────────
 
     public function destroy(Request $request, Shop $shop, Appointment $appointment): JsonResponse
     {
+        $error = null;
+        $status = 200;
+
         if ($appointment->shop_id !== $shop->id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+            $error = 'Unauthorized.';
+            $status = 403;
+        } elseif ($appointment->isTerminal()) {
+            $error = "A {$appointment->status} appointment cannot be cancelled.";
+            $status = 422;
+        } elseif (!$appointment->canTransitionTo('cancelled')) {
+            $error = "Cannot cancel an appointment with status '{$appointment->status}'.";
+            $status = 422;
+        } else {
+            $appointment->update(['status' => 'cancelled']);
+            $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+
+            $customer = $appointment->customer;
+            if ($customer) {
+                $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, 'cancelled'));
+            }
         }
 
-        // Cannot cancel terminal appointments
-        if ($appointment->isTerminal()) {
-            return response()->json([
-                'success' => false,
-                'message' => "A {$appointment->status} appointment cannot be cancelled.",
-            ], 422);
-        }
-
-        // State machine check
-        if (!$appointment->canTransitionTo('cancelled')) {
-            return response()->json([
-                'success' => false,
-                'message' => "Cannot cancel an appointment with status '{$appointment->status}'.",
-            ], 422);
-        }
-
-        $appointment->update(['status' => 'cancelled']);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
-
-        $customer = $appointment->customer;
-        if ($customer) {
-            $customer->notify(new \App\Notifications\AppointmentStatusNotification($appointment, 'cancelled'));
+        if ($error) {
+            return response()->json(['success' => false, 'message' => $error], $status);
         }
 
         return response()->json([

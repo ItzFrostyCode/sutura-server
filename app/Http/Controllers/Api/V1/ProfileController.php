@@ -21,6 +21,12 @@ class ProfileController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:20',
+            'bio' => 'nullable|string',
+            'experience' => 'nullable|array',
+            'education' => 'nullable|array',
+            'skills' => 'nullable|array',
+            'social_links' => 'nullable|array',
+            'creations_gallery' => 'nullable|array',
         ]);
 
         $user->update($validated);
@@ -84,7 +90,7 @@ class ProfileController extends Controller
     public function uploadImage(Request $request): JsonResponse
     {
         $request->validate([
-            'type' => 'required|in:avatar,cover',
+            'type' => 'required|in:avatar,cover,creation',
             'file' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
 
@@ -96,13 +102,14 @@ class ProfileController extends Controller
 
         if ($request->type === 'avatar') {
             $user->update(['profile_picture' => $url]);
-        } else {
+        } elseif ($request->type === 'cover') {
             $user->update(['cover_photo' => $url]);
         }
 
         return response()->json([
             'success' => true,
             'message' => 'Image uploaded successfully.',
+            'url' => $url,
             'data' => $user->fresh()
         ]);
     }

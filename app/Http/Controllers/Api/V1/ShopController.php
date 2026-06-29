@@ -56,6 +56,9 @@ class ShopController extends Controller
         $shop->loadCount('reviews');
         $shop->loadAvg('reviews', 'rating');
         $shop->reviews_avg_rating = round($shop->reviews_avg_rating, 1);
+        $shop->load(['branches' => function ($query) {
+            $query->where('status', 'active');
+        }, 'owner']);
 
         return response()->json([
             'success' => true,

@@ -18,6 +18,7 @@ class UpdateShopRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:191'],
             'description' => ['nullable', 'string'],
             'address' => ['sometimes', 'required', 'string', 'max:255'],
+            'landmark' => ['nullable', 'string', 'max:255'],
             'city' => ['sometimes', 'required', 'string', 'max:100'],
             'province' => ['nullable', 'string', 'max:100'],
             'postal_code' => ['nullable', 'string', 'max:20'],

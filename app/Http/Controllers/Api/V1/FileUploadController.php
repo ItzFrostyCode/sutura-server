@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\Storage;
 
 class FileUploadController extends Controller
 {
+    private const SHOPS_DIR = 'shops/';
+    private const NO_FILE_UPLOADED = 'No file uploaded';
+
     public function store(Request $request, Shop $shop): JsonResponse
     {
         if ($request->user()->cannot('view', $shop) && !$request->user()->hasRole('shop_owner')) {
@@ -22,7 +25,7 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store('shops/' . $shop->id . '/catalog', 'public');
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/catalog', 'public');
             
             return response()->json([
                 'success' => true,
@@ -32,7 +35,7 @@ class FileUploadController extends Controller
             ]);
         }
 
-        return response()->json(['success' => false, 'message' => 'No file uploaded'], 400);
+        return response()->json(['success' => false, 'message' => self::NO_FILE_UPLOADED], 400);
     }
 
     public function uploadSupportAttachment(Request $request, Shop $shop): JsonResponse
@@ -41,13 +44,17 @@ class FileUploadController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
+        if ((int)$request->header('Content-Length') > 52428800) {
+            return response()->json(['message' => 'Payload too large'], 413);
+        }
+
         $request->validate([
             'file' => 'required|file|mimes:jpeg,png,jpg,webp,mp4,mov,avi,webm|max:51200', // 50MB
         ]);
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store('shops/' . $shop->id . '/support', 'public');
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/support', 'public');
             
             return response()->json([
                 'success' => true,
@@ -57,7 +64,7 @@ class FileUploadController extends Controller
             ]);
         }
 
-        return response()->json(['success' => false, 'message' => 'No file uploaded'], 400);
+        return response()->json(['success' => false, 'message' => self::NO_FILE_UPLOADED], 400);
     }
 
     public function uploadPublicReceipt(Request $request, Shop $shop): JsonResponse
@@ -68,7 +75,7 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store('shops/' . $shop->id . '/receipts', 'public');
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/receipts', 'public');
             
             return response()->json([
                 'success' => true,
@@ -78,6 +85,6 @@ class FileUploadController extends Controller
             ]);
         }
 
-        return response()->json(['success' => false, 'message' => 'No file uploaded'], 400);
+        return response()->json(['success' => false, 'message' => self::NO_FILE_UPLOADED], 400);
     }
 }

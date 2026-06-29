@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class AuditLog extends Model
 {
     protected $fillable = [
-        'shop_id', 'user_id', 'action', 'model_type', 
+        'shop_id', 'user_id', 'action', 'model_type',
         'model_id', 'payload', 'ip_address'
     ];
 

@@ -35,7 +35,7 @@ class LocalTestSeeder extends Seeder
         $owner = User::firstOrCreate(
             ['email' => 'owner@sutura.com'],
             [
-                'name' => 'Master Tailor',
+                'name' => 'Shop Owner',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ]
@@ -48,14 +48,14 @@ class LocalTestSeeder extends Seeder
         $shop = Shop::firstOrCreate(
             ['owner_id' => $owner->id],
             [
-                'name' => 'Sutura Davao Flagship',
-                'slug' => 'sutura-davao',
-                'description' => 'Premium bespoke tailoring in Davao City.',
-                'address' => 'Poblacion District',
+                'name' => 'SUTURA Tailoring',
+                'slug' => 'sutura-shop',
+                'description' => 'Premium tailoring and bespoke design services.',
+                'address' => '123 Rizal Avenue',
                 'city' => 'Davao City',
                 'province' => 'Davao del Sur',
-                'email' => 'hello@suturadavao.com',
-                'phone' => '+639123456789',
+                'email' => 'hello@suturashop.com',
+                'phone' => '+639000000000',
                 'status' => 'approved', // Bypasses Admin Approval!
                 'approved_at' => now(),
             ]
@@ -77,12 +77,12 @@ class LocalTestSeeder extends Seeder
         // Seed Main Branch
         $mainBranch = \App\Models\ShopBranch::create([
             'shop_id' => $shop->id,
-            'name' => 'Sutura Davao (Main HQ)',
-            'address' => '123 Tailor Street, Poblacion District',
+            'name' => 'SUTURA (Main Branch)',
+            'address' => '123 Rizal Avenue',
             'city' => 'Davao City',
             'latitude' => 7.0702,
             'longitude' => 125.6077,
-            'contact_number' => '+63 912 345 6789',
+            'contact_number' => '+63 900 000 0000',
             'is_main' => true,
         ]);
 
@@ -90,7 +90,7 @@ class LocalTestSeeder extends Seeder
         $staff = User::firstOrCreate(
             ['email' => 'staff@sutura.com'],
             [
-                'name' => 'Head Cutter Staff',
+                'name' => 'Tailoring Staff',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ]

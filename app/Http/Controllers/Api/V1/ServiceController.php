@@ -43,6 +43,7 @@ class ServiceController extends Controller
             'estimated_days' => ['sometimes', 'required', 'integer', 'min:0'],
             'is_active'      => ['sometimes', 'boolean'],
             'custom_fields'  => ['nullable', 'array'],
+            'image_url'      => ['nullable', 'string', 'max:2048'],
         ]);
 
         $service->update($validated);

@@ -12,7 +12,7 @@ class Shop extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'owner_id', 'name', 'slug', 'description', 'address', 
+        'owner_id', 'name', 'slug', 'description', 'address', 'landmark',
         'city', 'province', 'postal_code', 'phone', 'email', 
         'logo_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'currency', 'booking_policy', 'booking_questions', 'latitude', 'longitude', 'social_links', 'gallery_images',

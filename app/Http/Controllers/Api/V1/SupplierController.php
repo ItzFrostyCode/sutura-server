@@ -38,7 +38,9 @@ class SupplierController extends Controller
 
     public function show(Shop $shop, Supplier $supplier)
     {
-        if ($supplier->shop_id !== $shop->id) abort(403);
+        if ($supplier->shop_id !== $shop->id) {
+            abort(403);
+        }
         
         return response()->json([
             'success' => true,
@@ -48,7 +50,9 @@ class SupplierController extends Controller
 
     public function update(Request $request, Shop $shop, Supplier $supplier)
     {
-        if ($supplier->shop_id !== $shop->id) abort(403);
+        if ($supplier->shop_id !== $shop->id) {
+            abort(403);
+        }
 
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
@@ -69,7 +73,9 @@ class SupplierController extends Controller
 
     public function destroy(Shop $shop, Supplier $supplier)
     {
-        if ($supplier->shop_id !== $shop->id) abort(403);
+        if ($supplier->shop_id !== $shop->id) {
+            abort(403);
+        }
         
         $supplier->delete();
         

@@ -21,6 +21,7 @@ class ShopBranchController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'address' => 'required|string|max:255',
+            'landmark' => 'nullable|string|max:255',
             'city' => 'required|string|max:255',
             'contact_number' => 'nullable|string',
             'guide_image_url' => 'nullable|string|max:500',
@@ -40,6 +41,7 @@ class ShopBranchController extends Controller
             'shop_id'          => $shop->id,
             'name'             => $request->name,
             'address'          => $request->address,
+            'landmark'         => $request->landmark,
             'city'             => $request->city,
             'contact_number'   => $request->contact_number,
             'latitude'         => $request->latitude,
@@ -65,6 +67,7 @@ class ShopBranchController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'address' => 'required|string|max:255',
+            'landmark' => 'nullable|string|max:255',
             'city' => 'required|string|max:255',
             'contact_number' => 'nullable|string',
             'latitude' => 'nullable|numeric',
@@ -77,6 +80,7 @@ class ShopBranchController extends Controller
         $branch->update([
             'name' => $request->name,
             'address' => $request->address,
+            'landmark' => $request->landmark,
             'city' => $request->city,
             'contact_number' => $request->contact_number,
             'latitude' => $request->latitude,

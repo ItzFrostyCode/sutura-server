@@ -51,7 +51,9 @@ class InventoryController extends Controller
 
     public function show(Shop $shop, InventoryItem $inventory)
     {
-        if ($inventory->shop_id !== $shop->id) abort(403);
+        if ($inventory->shop_id !== $shop->id) {
+            abort(403);
+        }
         
         return response()->json([
             'success' => true,
@@ -61,7 +63,9 @@ class InventoryController extends Controller
 
     public function update(Request $request, Shop $shop, InventoryItem $inventory)
     {
-        if ($inventory->shop_id !== $shop->id) abort(403);
+        if ($inventory->shop_id !== $shop->id) {
+            abort(403);
+        }
 
         $validated = $request->validate([
             'supplier_id' => 'nullable|exists:suppliers,id',
@@ -84,7 +88,9 @@ class InventoryController extends Controller
 
     public function destroy(Shop $shop, InventoryItem $inventory)
     {
-        if ($inventory->shop_id !== $shop->id) abort(403);
+        if ($inventory->shop_id !== $shop->id) {
+            abort(403);
+        }
         
         $inventory->delete();
         
@@ -93,7 +99,9 @@ class InventoryController extends Controller
 
     public function adjustStock(Request $request, Shop $shop, InventoryItem $inventory)
     {
-        if ($inventory->shop_id !== $shop->id) abort(403);
+        if ($inventory->shop_id !== $shop->id) {
+            abort(403);
+        }
 
         $validated = $request->validate([
             'type' => 'required|in:in,out,adjustment',
@@ -103,7 +111,7 @@ class InventoryController extends Controller
         ]);
 
         $qty = $validated['quantity'];
-        if ($validated['type'] === 'out' && $inventory->current_stock < $qty) {
+        if ($validated['type'] === 'out' && (float)$inventory->current_stock < $qty) {
             return response()->json([
                 'success' => false,
                 'message' => 'Insufficient stock'
@@ -111,12 +119,12 @@ class InventoryController extends Controller
         }
 
         if ($validated['type'] === 'in') {
-            $inventory->current_stock += $qty;
+            $inventory->current_stock = number_format((float)$inventory->current_stock + $qty, 2, '.', '');
         } elseif ($validated['type'] === 'out') {
-            $inventory->current_stock -= $qty;
+            $inventory->current_stock = number_format((float)$inventory->current_stock - $qty, 2, '.', '');
         } else {
-            $diff = $qty - $inventory->current_stock;
-            $inventory->current_stock = $qty; 
+            $diff = $qty - (float)$inventory->current_stock;
+            $inventory->current_stock = number_format($qty, 2, '.', '');
             $qty = abs($diff);
         }
         

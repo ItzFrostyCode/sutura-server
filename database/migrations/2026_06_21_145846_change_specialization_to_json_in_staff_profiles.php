@@ -16,7 +16,7 @@ return new class extends Migration
         $profiles = DB::table('staff_profiles')->get();
         
         Schema::table('staff_profiles', function (Blueprint $table) {
-            // In SQLite, altering column type is tricky. 
+            // In SQLite, altering column type is tricky.
             // Since it's a string(255) in SQLite it is TEXT.
             // We can just keep the column but we need to convert the data to JSON array strings.
             // Actually, we don't need to change the schema in SQLite if we just update the data,

@@ -10,6 +10,8 @@ use Illuminate\Http\JsonResponse;
 
 class CustomerController extends Controller
 {
+    private const SUTURA_DOMAIN = '@sutura.com';
+
     public function index(Request $request, Shop $shop): JsonResponse
     {
         if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('branch_manager') && !$request->user()->hasRole('staff')) {
@@ -28,21 +30,11 @@ class CustomerController extends Controller
             }])
             ->get()
             ->map(function ($user) {
-                $totalSpend = $user->jobOrders->sum('total_amount');
-                $activeJobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
-                $completedJobs = $user->jobOrders->where('status', 'completed')->count();
-                
-                return [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'profile_picture' => $user->profile_picture,
-                    'total_spend' => $totalSpend,
-                    'active_jobs' => $activeJobs,
-                    'completed_jobs' => $completedJobs,
-                    'created_at' => $user->created_at,
-                ];
+                $user->total_spend = $user->jobOrders->sum('total_amount');
+                $user->last_appointment = $user->appointments()
+                    ->orderBy('scheduled_at', 'desc')
+                    ->first();
+                return $user;
             });
 
         return response()->json([
@@ -65,7 +57,7 @@ class CustomerController extends Controller
 
         $email = $validated['email'] ?? null;
         if (!$email) {
-            $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . '@sutura.com';
+            $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . self::SUTURA_DOMAIN;
         }
 
         $user = User::where('email', $email)->first();
@@ -114,10 +106,10 @@ class CustomerController extends Controller
 
         $email = $validated['email'] ?? null;
         if (!$email) {
-            if ($customer->email && str_starts_with($customer->email, 'walkin_') && str_ends_with($customer->email, '@sutura.com')) {
+            if ($customer->email && str_starts_with($customer->email, 'walkin_') && str_ends_with($customer->email, self::SUTURA_DOMAIN)) {
                 $email = $customer->email;
             } else {
-                $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . '@sutura.com';
+                $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . self::SUTURA_DOMAIN;
             }
         }
 

@@ -20,6 +20,8 @@ class StoreServiceRequest extends FormRequest
             'base_price' => ['required', 'numeric', 'min:0'],
             'estimated_days' => ['required', 'integer', 'min:1'],
             'custom_fields' => ['nullable', 'array'],
+            'is_active' => ['sometimes', 'boolean'],
+            'image_url' => ['nullable', 'string', 'max:2048'],
         ];
     }
 }

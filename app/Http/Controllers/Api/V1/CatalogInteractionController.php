@@ -10,10 +10,12 @@ use Illuminate\Http\JsonResponse;
 
 class CatalogInteractionController extends Controller
 {
+    private const NOT_FOUND_MESSAGE = 'Not found';
+
     public function incrementViews(Shop $shop, CatalogItem $catalogItem): JsonResponse
     {
         if ($catalogItem->shop_id !== $shop->id) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
         $catalogItem->increment('views_count');
@@ -24,7 +26,7 @@ class CatalogInteractionController extends Controller
     public function toggleSave(Request $request, Shop $shop, CatalogItem $catalogItem): JsonResponse
     {
         if ($catalogItem->shop_id !== $shop->id) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
         $user = $request->user();
@@ -40,7 +42,7 @@ class CatalogInteractionController extends Controller
         }
 
         return response()->json([
-            'success' => true, 
+            'success' => true,
             'status' => $status,
             'saves_count' => $catalogItem->saves()->count()
         ]);
@@ -49,7 +51,7 @@ class CatalogInteractionController extends Controller
     public function rate(Request $request, Shop $shop, CatalogItem $catalogItem): JsonResponse
     {
         if ($catalogItem->shop_id !== $shop->id) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
         $validated = $request->validate([

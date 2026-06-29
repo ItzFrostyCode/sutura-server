@@ -16,6 +16,8 @@ class AnalyticsController extends Controller
         $branchId = null;
         if ($request->user()->hasRole('branch_manager')) {
             $branchId = $request->user()->staffProfile->shop_branch_id ?? null;
+        } elseif ($request->filled('branch_id')) {
+            $branchId = $request->branch_id;
         }
 
         // Overview Stats
@@ -66,7 +68,6 @@ class AnalyticsController extends Controller
             ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
             ->get();
             
-        $currentMonthName = now()->format('M Y');
         $revenueData = [
             ['month' => "Week 1", 'revenue' => 0],
             ['month' => "Week 2", 'revenue' => 0],
@@ -76,7 +77,9 @@ class AnalyticsController extends Controller
         
         foreach($jobsThisMonth as $job) {
             $week = ceil($job->created_at->day / 7);
-            if ($week > 4) $week = 4; // cap at week 4
+            if ($week > 4) {
+                $week = 4; // cap at week 4
+            }
             $revenue = floatval($job->total_amount) - floatval($job->balance);
             if ($revenue > 0) {
                 $revenueData[$week - 1]['revenue'] += $revenue;
@@ -88,6 +91,62 @@ class AnalyticsController extends Controller
             ->orderBy('created_at', 'desc')
             ->take(5)
             ->get();
+
+        // ── New KPI Metrics ─────────────────────────────────────────────────────
+        $today = now()->toDateString();
+
+        // Overdue: active jobs past due_date
+        $overdueJobs = (clone $shop->jobOrders())
+            ->whereNotIn('status', ['completed', 'cancelled'])
+            ->whereNotNull('due_date')
+            ->whereDate('due_date', '<', $today)
+            ->count();
+
+        // Pending deposit: jobs with unpaid payment status, not cancelled
+        $pendingDepositJobs = (clone $shop->jobOrders())
+            ->where('payment_status', 'unpaid')
+            ->whereNotIn('status', ['cancelled'])
+            ->count();
+
+        // Ready for pickup: walk-in orders at ready_for_pickup status
+        $readyForPickupJobs = (clone $shop->jobOrders())
+            ->where('status', 'ready_for_pickup')
+            ->count();
+
+        // Rush jobs currently active
+        $rushJobsActive = (clone $shop->jobOrders())
+            ->where('is_rush', true)
+            ->whereNotIn('status', ['completed', 'cancelled'])
+            ->count();
+
+        // Today's revenue: sum of payments created today
+        $todayRevenue = \App\Models\Payment::whereHas('jobOrder', function ($q) use ($shop) {
+            $q->where('shop_id', $shop->id);
+        })->whereDate('created_at', $today)->sum('amount');
+
+        // Completion rate
+        $completionRate = $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0;
+
+        // Average order value (from completed jobs)
+        $avgOrderValue = $completedJobs > 0
+            ? round((clone $shop->jobOrders())->where('status', 'completed')->avg('total_amount'), 2)
+            : 0;
+
+        // Today's appointments
+        $todayAppointments = $shop->appointments()
+            ->with(['customer:id,name', 'service:id,name'])
+            ->whereDate('scheduled_at', $today)
+            ->whereNotIn('status', ['cancelled'])
+            ->orderBy('scheduled_at')
+            ->get()
+            ->map(fn($a) => [
+                'id'               => $a->id,
+                'scheduled_at'     => $a->scheduled_at,
+                'appointment_type' => $a->appointment_type,
+                'status'           => $a->status,
+                'customer'         => $a->customer,
+                'service'          => $a->service,
+            ]);
 
         return response()->json([
             'success' => true,
@@ -107,6 +166,15 @@ class AnalyticsController extends Controller
                 'revenue_data'               => $revenueData,
                 'jobs_by_status'             => $jobsByStatus,
                 'recent_jobs'                => $recentJobs,
+                // ── New KPIs ──────────────────────────────────────────────────
+                'overdue_jobs'               => $overdueJobs,
+                'pending_deposit_jobs'       => $pendingDepositJobs,
+                'ready_for_pickup_jobs'      => $readyForPickupJobs,
+                'rush_jobs_active'           => $rushJobsActive,
+                'today_revenue'              => $todayRevenue,
+                'completion_rate'            => $completionRate,
+                'avg_order_value'            => $avgOrderValue,
+                'today_appointments'         => $todayAppointments,
             ]
         ]);
     }

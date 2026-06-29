@@ -23,6 +23,11 @@ use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\SupplierController;
 use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\SupportTicketController;
+
+define('MEASUREMENT_DETAIL_ROUTE', '/measurements/{measurement}');
+define('JOB_DETAIL_ROUTE', '/jobs/{jobOrder}');
+define('TICKETS_ROUTE', '/tickets');
+
 Route::prefix('v1')->group(function () {
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::post('/auth/login', [AuthController::class, 'login'])->name('login');
@@ -62,16 +67,16 @@ Route::prefix('v1')->group(function () {
             Route::middleware('role:shop_owner,branch_manager,staff')->group(function () {
                 // Measurements
                 Route::get('/measurements', [MeasurementController::class, 'index']);
-                Route::get('/measurements/{measurement}', [MeasurementController::class, 'show']);
+                Route::get(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'show']);
                 Route::post('/measurements', [MeasurementController::class, 'store']);
-                Route::put('/measurements/{measurement}', [MeasurementController::class, 'update']);
-                Route::delete('/measurements/{measurement}', [MeasurementController::class, 'destroy']);
+                Route::put(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'update']);
+                Route::delete(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'destroy']);
 
                 // Job Orders
                 Route::get('/jobs', [JobOrderController::class, 'index']);
-                Route::get('/jobs/{jobOrder}', [JobOrderController::class, 'show']);
-                Route::put('/jobs/{jobOrder}', [JobOrderController::class, 'update']);
-                Route::delete('/jobs/{jobOrder}', [JobOrderController::class, 'destroy']);
+                Route::get(JOB_DETAIL_ROUTE, [JobOrderController::class, 'show']);
+                Route::put(JOB_DETAIL_ROUTE, [JobOrderController::class, 'update']);
+                Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
 
                 // Appointments — read + status transitions (role enforcement inside controller)
@@ -161,8 +166,8 @@ Route::prefix('v1')->group(function () {
                 Route::put('/catalog-orders/{order}/verify-payment', [\App\Http\Controllers\CatalogOrderController::class, 'verifyPayment']);
 
                 // Support Tickets (Shop Owner → Admin)
-                Route::get('/tickets', [SupportTicketController::class, 'index']);
-                Route::post('/tickets', [SupportTicketController::class, 'store']);
+                Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
+                Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);
                 Route::get('/tickets/{ticket}', [SupportTicketController::class, 'show']);
                 Route::post('/tickets/{ticket}/reply', [SupportTicketController::class, 'reply']);
                 Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close']);
@@ -197,7 +202,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store']);
 
             // Admin Support Ticket Management
-            Route::get('/tickets', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'index']);
+            Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'index']);
             Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'show']);
             Route::post('/tickets/{ticket}/reply', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'reply']);
             Route::put('/tickets/{ticket}/status', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'updateStatus']);

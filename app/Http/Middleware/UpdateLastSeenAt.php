@@ -24,9 +24,9 @@ class UpdateLastSeenAt
             $cacheKey = "last_seen_{$user->id}";
 
             // Only update DB once per minute per user
-            if (!Cache::has($cacheKey)) {
+            if ($user instanceof \App\Models\User && !Cache::has($cacheKey)) {
                 $user->timestamps = false; // Don't bump updated_at
-                $user->last_seen_at = now();
+                $user->last_seen_at = \Illuminate\Support\Carbon::now();
                 $user->save();
 
                 Cache::put($cacheKey, true, 60); // 60 seconds TTL

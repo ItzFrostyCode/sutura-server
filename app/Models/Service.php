@@ -12,8 +12,8 @@ class Service extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'shop_id', 'name', 'description', 'category', 
-        'base_price', 'estimated_days', 'is_active', 'custom_fields'
+        'shop_id', 'name', 'description', 'category',
+        'base_price', 'estimated_days', 'is_active', 'custom_fields', 'image_url',
     ];
 
     protected $casts = [

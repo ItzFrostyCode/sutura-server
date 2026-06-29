@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'email', 'password', 'phone', 'last_seen_at'])]
+#[Fillable(['name', 'email', 'password', 'phone', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -32,6 +32,11 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'last_seen_at'      => 'datetime',
             'password'          => 'hashed',
+            'experience'        => 'array',
+            'education'         => 'array',
+            'skills'            => 'array',
+            'social_links'      => 'array',
+            'creations_gallery' => 'array',
         ];
     }
 

@@ -17,11 +17,15 @@ class JobOrderController extends Controller
     {
         $query = $shop->jobOrders()->with(['customer:id,name', 'service', 'assignedStaff:id,name']);
 
+        $branchId = null;
         if ($request->user()->hasRole('branch_manager')) {
             $branchId = $request->user()->staffProfile->shop_branch_id ?? null;
-            if ($branchId) {
-                $query->where('shop_branch_id', $branchId);
-            }
+        } elseif ($request->filled('branch_id')) {
+            $branchId = $request->branch_id;
+        }
+
+        if ($branchId) {
+            $query->where('shop_branch_id', $branchId);
         }
 
         if ($request->has('status')) {

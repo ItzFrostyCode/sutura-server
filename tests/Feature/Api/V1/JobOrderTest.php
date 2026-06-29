@@ -15,6 +15,13 @@ class JobOrderTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+    protected Shop $shop;
+    protected User $customer;
+    protected Service $service;
+    protected StaffProfile $staffProfile;
+    protected Measurement $measurement;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -123,7 +130,7 @@ class JobOrderTest extends TestCase
         $jobId = $jobResponse->json('data.id');
 
         $this->assertDatabaseHas('job_orders', [
-            'id' => $id = $jobId,
+            'id' => $jobId,
             'total_amount' => 1200
         ]);
 
