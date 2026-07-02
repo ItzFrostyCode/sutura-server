@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Api\V1\StaffController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\SpecializationController;
+use App\Http\Controllers\Api\V1\ShopSpecialHourController;
 use App\Http\Controllers\Api\V1\ServicePricingController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\MeasurementController;
@@ -24,9 +25,18 @@ use App\Http\Controllers\Api\V1\SupplierController;
 use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\SupportTicketController;
 
-define('MEASUREMENT_DETAIL_ROUTE', '/measurements/{measurement}');
-define('JOB_DETAIL_ROUTE', '/jobs/{jobOrder}');
-define('TICKETS_ROUTE', '/tickets');
+if (!defined('MEASUREMENT_DETAIL_ROUTE')) {
+    define('MEASUREMENT_DETAIL_ROUTE', '/measurements/{measurement}');
+}
+if (!defined('JOB_DETAIL_ROUTE')) {
+    define('JOB_DETAIL_ROUTE', '/jobs/{jobOrder}');
+}
+if (!defined('TICKETS_ROUTE')) {
+    define('TICKETS_ROUTE', '/tickets');
+}
+if (!defined('TICKETS_DETAIL_ROUTE')) {
+    define('TICKETS_DETAIL_ROUTE', '/tickets/{ticket}');
+}
 
 Route::prefix('v1')->group(function () {
     Route::post('/auth/register', [AuthController::class, 'register']);
@@ -35,6 +45,7 @@ Route::prefix('v1')->group(function () {
     // Public Catalog & Booking
     Route::get('/catalog/{shop:slug}', [CatalogController::class, 'index']);
     Route::get('/catalog/{shop:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
+    Route::get('/catalog/{shop:slug}/appointments', [PublicBookingController::class, 'getAppointments']);
     Route::post('/catalog/{shop:slug}/book', [PublicBookingController::class, 'submit']);
     Route::get('/catalog/{shop:slug}/{catalog}', [CatalogController::class, 'show']);
 
@@ -131,6 +142,7 @@ Route::prefix('v1')->group(function () {
                 // Services
                 Route::get('/services', [ServiceController::class, 'index']);
                 Route::post('/services', [ServiceController::class, 'store']);
+                Route::post('/services/populate', [ServiceController::class, 'populate']);
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
                 
@@ -139,6 +151,12 @@ Route::prefix('v1')->group(function () {
                 Route::post('/specializations', [SpecializationController::class, 'store']);
                 Route::put('/specializations/{id}', [SpecializationController::class, 'update']);
                 Route::delete('/specializations/{id}', [SpecializationController::class, 'destroy']);
+
+                // Temporary Special Hours & Announcements
+                Route::get('/special-hours', [ShopSpecialHourController::class, 'index']);
+                Route::post('/special-hours', [ShopSpecialHourController::class, 'store']);
+                Route::put('/special-hours/{specialHour}', [ShopSpecialHourController::class, 'update']);
+                Route::delete('/special-hours/{specialHour}', [ShopSpecialHourController::class, 'destroy']);
                 
                 // Pricing
                 Route::get('/services/{service}/pricing', [ServicePricingController::class, 'index']);
@@ -168,7 +186,7 @@ Route::prefix('v1')->group(function () {
                 // Support Tickets (Shop Owner → Admin)
                 Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
                 Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);
-                Route::get('/tickets/{ticket}', [SupportTicketController::class, 'show']);
+                Route::get(TICKETS_DETAIL_ROUTE, [SupportTicketController::class, 'show']);
                 Route::post('/tickets/{ticket}/reply', [SupportTicketController::class, 'reply']);
                 Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close']);
                 Route::post('/support/upload', [FileUploadController::class, 'uploadSupportAttachment']);
@@ -202,15 +220,15 @@ Route::prefix('v1')->group(function () {
             Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store']);
 
             // Admin Support Ticket Management
-            Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'index']);
-            Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'show']);
+            Route::get(TICKETS_ROUTE, [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'index']);
+            Route::get(TICKETS_DETAIL_ROUTE, [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'show']);
             Route::post('/tickets/{ticket}/reply', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'reply']);
             Route::put('/tickets/{ticket}/status', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'updateStatus']);
         });
     });
 
     // Public Catalog & Shop Profile
-    Route::get('/public/shops/{shop:slug}', [\App\Http\Controllers\Api\V1\ShopController::class, 'publicProfile']);
+    Route::get('/public/shops/{shop:slug}', [ShopController::class, 'publicProfile']);
     Route::post('/public/shops/{shop:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
     Route::get('/shops/{shop}/catalog', [CatalogController::class, 'index']);
     Route::get('/shops/{shop}/catalog/{catalog}', [CatalogController::class, 'show']);

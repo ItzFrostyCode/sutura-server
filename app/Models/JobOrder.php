@@ -11,8 +11,8 @@ class JobOrder extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'order_number', 'order_type', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
-        'assigned_staff_id', 'measurement_id', 'total_amount',
+        'order_number', 'intake_channel', 'fulfillment_type', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
+        'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
         'is_outsourced', 'partner_shop_name', 'is_rush', 'rush_fee',
@@ -41,6 +41,11 @@ class JobOrder extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class)->withTrashed();
+    }
+
+    public function catalogItem(): BelongsTo
+    {
+        return $this->belongsTo(CatalogItem::class, 'catalog_item_id');
     }
 
     public function appointments(): \Illuminate\Database\Eloquent\Relations\HasMany

@@ -18,13 +18,21 @@ class CatalogController extends Controller
     {
         $items = $shop->catalogItems()
             ->with(['images', 'recommendations.recommendedItem'])
-            ->withCount(['saves', 'reviews'])
+            ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
             ->withAvg('reviews', 'rating')
             ->get();
             
-        // Format the average rating nicely
+        // Format the average rating nicely and attach dynamic sales performance metrics
         $items->each(function($item) {
             $item->reviews_avg_rating = round($item->reviews_avg_rating, 1);
+            
+            // Sum up total amounts from both Ready-to-Wear catalog orders and custom Job orders
+            $catalogRev = (float) $item->catalogOrders()->sum('total_amount');
+            $jobRev = (float) $item->jobOrders()->sum('total_amount');
+            $item->total_revenue = $catalogRev + $jobRev;
+            
+            // Sum order counts
+            $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
         });
 
         return response()->json(['success' => true, 'data' => $items]);
@@ -104,9 +112,17 @@ class CatalogController extends Controller
         }
 
         $catalog->load(['images', 'recommendations.recommendedItem.images']);
-        $catalog->loadCount(['saves', 'reviews']);
+        $catalog->loadCount(['saves', 'reviews', 'catalogOrders', 'jobOrders']);
         $catalog->loadAvg('reviews', 'rating');
         $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);
+
+        // Sum up total amounts from both Ready-to-Wear catalog orders and custom Job orders
+        $catalogRev = (float) $catalog->catalogOrders()->sum('total_amount');
+        $jobRev = (float) $catalog->jobOrders()->sum('total_amount');
+        $catalog->total_revenue = $catalogRev + $jobRev;
+        
+        // Sum order counts
+        $catalog->order_count = $catalog->catalog_orders_count + $catalog->job_orders_count;
 
         return response()->json(['success' => true, 'data' => $catalog]);
     }

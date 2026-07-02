@@ -14,6 +14,8 @@ class UpdateJobOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'intake_channel' => ['sometimes', 'in:walk_in,online'],
+            'fulfillment_type' => ['sometimes', 'in:pickup,shipping'],
             'assigned_staff_id' => ['nullable', 'exists:users,id'],
             'measurement_id' => ['nullable', 'exists:measurements,id'],
             'balance' => ['sometimes', 'numeric', 'min:0'],
@@ -25,11 +27,19 @@ class UpdateJobOrderRequest extends FormRequest
             'courier_tracking_number' => ['nullable', 'string', 'max:100'],
             'shipping_address' => ['nullable', 'string', 'max:500'],
             'custom_order_data' => ['nullable', 'array'],
+            'custom_order_data.*' => ['nullable'],
+            'custom_order_data.team_name' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.team_roster' => ['nullable', 'array'],
+            'custom_order_data.team_roster.*.name' => ['required_with:custom_order_data.team_roster', 'string', 'max:255'],
+            'custom_order_data.team_roster.*.print_name' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.team_roster.*.number' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.team_roster.*.size' => ['required_with:custom_order_data.team_roster', 'string', 'max:50'],
             'shop_branch_id' => ['nullable', 'exists:shop_branches,id'],
             'is_outsourced' => ['sometimes', 'boolean'],
             'partner_shop_name' => ['nullable', 'string', 'max:255'],
             'is_rush' => ['sometimes', 'boolean'],
             'rush_fee' => ['sometimes', 'numeric', 'min:0'],
+            'catalog_item_id' => ['nullable', 'exists:catalog_items,id'],
         ];
     }
 }

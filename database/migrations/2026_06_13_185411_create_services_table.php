@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('name', 191);
             $table->text('description')->nullable();
             $table->string('category', 100)->nullable();
-            $table->decimal('base_price', 10, 2)->default(0.00);
+            $table->decimal('base_price', 10, 2)->nullable();
             $table->integer('estimated_days')->default(7);
             $table->boolean('is_active')->default(true);
             $table->timestamps();

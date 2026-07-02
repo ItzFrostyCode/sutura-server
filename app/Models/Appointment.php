@@ -49,6 +49,9 @@ class Appointment extends Model
         'payment_reference',
         'payment_receipt_path',
         'payment_status',
+        'outcome',
+        'priority',
+        'garment_category',
     ];
 
     protected $casts = [

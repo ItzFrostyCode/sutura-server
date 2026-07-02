@@ -193,6 +193,7 @@ class AppointmentController extends Controller
                 'notes'          => ['nullable', 'string', 'max:2000'],
                 'job_order_id'   => ['nullable', 'exists:job_orders,id'],
                 'measurement_id' => ['nullable', 'exists:measurements,id'],
+                'outcome'        => ['nullable', 'string', 'in:completed,rescheduled,no_show,converted_to_job,cancelled'],
             ]);
 
             $type = $appointment->appointment_type;
@@ -209,6 +210,9 @@ class AppointmentController extends Controller
                     $updateData['notes'] = $appointment->notes
                         ? $appointment->notes . "\n\n[Completion Note] " . $request->notes
                         : $request->notes;
+                }
+                if ($request->filled('outcome')) {
+                    $updateData['outcome'] = $request->outcome;
                 }
 
                 $appointment->update($updateData);

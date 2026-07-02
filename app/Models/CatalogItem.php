@@ -35,4 +35,14 @@ class CatalogItem extends Model
     {
         return $this->hasMany(CatalogItemSave::class);
     }
+
+    public function catalogOrders()
+    {
+        return $this->hasMany(CatalogOrder::class, 'catalog_item_id');
+    }
+
+    public function jobOrders()
+    {
+        return $this->hasMany(JobOrder::class, 'catalog_item_id');
+    }
 }

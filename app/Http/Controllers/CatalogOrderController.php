@@ -29,7 +29,7 @@ class CatalogOrderController extends Controller
     {
         $this->authorizeShop($shopId);
 
-        $orders = \App\Models\CatalogOrder::with(['catalogItem', 'customer'])
+        $orders = \App\Models\CatalogOrder::with(['catalogItem.images', 'customer'])
             ->where('shop_id', $shopId)
             ->latest()
             ->get();
@@ -46,15 +46,44 @@ class CatalogOrderController extends Controller
                 'required',
                 Rule::exists('catalog_items', 'id')->where('shop_id', $shopId),
             ],
-            'customer_id'     => 'nullable|exists:users,id',
-            'type'            => 'required|in:walkin,online',
-            'total_amount'    => 'required|numeric|min:0',
-            'delivery_address' => 'nullable|string',
-            'payment_status'  => 'required|in:pending,paid',
+            'customer_id'             => 'nullable|exists:users,id',
+            'type'                    => 'required|in:walkin,online',
+            'total_amount'            => 'required|numeric|min:0',
+            'delivery_address'        => 'nullable|string',
+            'payment_status'          => 'required|in:pending,paid',
+            'fulfillment_type'        => 'nullable|in:pickup,shipping,delivery',
+            'rental_start_date'       => 'nullable|date',
+            'rental_end_date'         => 'nullable|date|after_or_equal:rental_start_date',
+            'security_deposit_amount' => 'nullable|numeric|min:0',
         ]);
+
+        $catalogItem = \App\Models\CatalogItem::findOrFail($validated['catalog_item_id']);
+
+        if ($catalogItem->listing_type === 'for_rent') {
+            // Require pickup fulfillment for rentals
+            $fulfillment = $validated['fulfillment_type'] ?? 'pickup';
+            if ($fulfillment !== 'pickup') {
+                return response()->json([
+                    'message' => 'The given data was invalid.',
+                    'errors'  => [
+                        'fulfillment_type' => ['For Rent items must be Pickup at Shop only.']
+                    ]
+                ], 422);
+            }
+            // Require dates for rentals
+            if (empty($validated['rental_start_date']) || empty($validated['rental_end_date'])) {
+                return response()->json([
+                    'message' => 'The given data was invalid.',
+                    'errors'  => [
+                        'rental_start_date' => ['Pickup Date and Return Date are required for rentals.']
+                    ]
+                ], 422);
+            }
+        }
 
         $validated['shop_id'] = $shopId;
         $validated['status']  = $validated['type'] === 'walkin' ? 'ready' : 'pending';
+        $validated['fulfillment_type'] = $validated['fulfillment_type'] ?? 'pickup';
 
         $order = \App\Models\CatalogOrder::create($validated);
 

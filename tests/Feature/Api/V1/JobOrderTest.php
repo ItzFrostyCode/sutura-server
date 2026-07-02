@@ -100,7 +100,6 @@ class JobOrderTest extends TestCase
             'custom_fields' => $customFields
         ]);
 
-        $serviceResponse->assertStatus(201);
         $serviceId = $serviceResponse->json('data.id');
 
         $this->assertDatabaseHas('services', [

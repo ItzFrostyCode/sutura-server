@@ -52,7 +52,7 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        $user->load('roles:id,name');
+        $user->load('roles:id,name', 'shops');
         
         $staffProfile = null;
         if ($user->hasRole('staff')) {
@@ -67,6 +67,7 @@ class AuthController extends Controller
             'data' => [
                 'user' => $user,
                 'staff_profile' => $staffProfile,
+                'shop' => $user->shops->first(),
                 'token' => $token,
             ]
         ]);

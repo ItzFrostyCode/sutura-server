@@ -33,6 +33,10 @@ class Shop extends Model
         'fitting_fee' => 'float',
     ];
 
+    protected $appends = [
+        'active_special_hours',
+    ];
+
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');
@@ -116,5 +120,19 @@ class Shop extends Model
     public function inventoryItems(): HasMany
     {
         return $this->hasMany(InventoryItem::class);
+    }
+
+    public function specialHours(): HasMany
+    {
+        return $this->hasMany(ShopSpecialHour::class);
+    }
+
+    public function getActiveSpecialHoursAttribute()
+    {
+        $today = now()->toDateString();
+        return $this->specialHours()
+            ->where('start_date', '<=', $today)
+            ->where('end_date', '>=', $today)
+            ->first();
     }
 }

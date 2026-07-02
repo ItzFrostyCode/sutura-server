@@ -15,6 +15,7 @@ return new class extends Migration
             $table->foreignId('shop_branch_id')->nullable()->constrained('shop_branches')->nullOnDelete();
             $table->foreignId('customer_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('service_id')->constrained('services');
+            $table->foreignId('catalog_item_id')->nullable()->constrained('catalog_items')->nullOnDelete();
             $table->foreignId('assigned_staff_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('measurement_id')->nullable()->constrained('measurements')->nullOnDelete();
             
