@@ -69,6 +69,8 @@ class AppointmentController extends Controller
         // Default duration
         $data['duration_minutes'] = $data['duration_minutes'] ?? 60;
         $data['status']           = 'pending';
+        // Owner-created entries are walk-ins (online ones come via the public booking form).
+        $data['intake_channel']   = 'walkin';
 
         $appointment = $shop->appointments()->create($data);
         $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);

@@ -127,6 +127,7 @@ class CatalogOrderTest extends TestCase
         $response->assertStatus(201);
         $this->assertDatabaseHas('appointments', [
             'appointment_type' => 'consultation',
+            'intake_channel' => 'online',
         ]);
         $this->assertDatabaseHas('catalog_orders', [
             'catalog_item_id' => $this->rentalItem->id,

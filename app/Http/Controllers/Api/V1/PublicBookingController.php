@@ -184,6 +184,7 @@ class PublicBookingController extends Controller
             'shop_branch_id'   => $branchId,
             'service_id'       => $validated['service_id'] ?? null,
             'appointment_type' => $type,
+            'intake_channel'   => 'online',
             'scheduled_at'     => $validated['scheduled_at'],
             'duration_minutes' => $durationMinutes,
             'notes'            => $validated['notes'] ?? null,

@@ -38,6 +38,7 @@ class Appointment extends Model
         'customer_id',
         'service_id',
         'appointment_type',
+        'intake_channel',
         'scheduled_at',
         'duration_minutes',
         'assigned_staff_id',
