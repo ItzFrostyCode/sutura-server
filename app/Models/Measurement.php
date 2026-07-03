@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Measurement extends Model
 {
     protected $fillable = [
-        'shop_id', 'customer_id', 'profile_name', 'metrics', 'notes'
+        'shop_id', 'customer_id', 'source', 'profile_name', 'metrics', 'notes'
     ];
 
     protected $casts = [

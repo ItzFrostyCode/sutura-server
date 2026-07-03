@@ -15,6 +15,7 @@ class StoreMeasurementRequest extends FormRequest
     {
         return [
             'customer_id' => ['required', 'exists:users,id'],
+            'source' => ['nullable', 'in:shop_owner,customer'],
             'profile_name' => ['required', 'string', 'max:100'],
             'metrics' => ['required', 'array'],
             'notes' => ['nullable', 'string'],
