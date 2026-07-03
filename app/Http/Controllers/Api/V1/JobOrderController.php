@@ -128,6 +128,15 @@ class JobOrderController extends Controller
         $oldStatus = $jobOrder->status;
         $jobOrder->update($request->validated());
 
+        // When the OWNER marks a job completed, stamp completion on its staff
+        // assignments so "jobs completed" / productivity is derivable without a staff portal.
+        if ($jobOrder->status === 'completed' && $oldStatus !== 'completed') {
+            \Illuminate\Support\Facades\DB::table('job_order_staff')
+                ->where('job_order_id', $jobOrder->id)
+                ->whereNull('completed_at')
+                ->update(['completed_at' => now()]);
+        }
+
         if ($jobOrder->status === 'ready_for_pickup' && $oldStatus !== 'ready_for_pickup') {
             $jobOrder->customer->notify(new \App\Notifications\OrderReadyNotification($jobOrder));
         }

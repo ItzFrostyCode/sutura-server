@@ -135,6 +135,7 @@ Route::prefix('v1')->group(function () {
             Route::middleware('role:shop_owner')->group(function () {
                 // Staff Management
                 Route::get('/staff', [StaffController::class, 'index']);
+                Route::get('/staff/{staff}', [StaffController::class, 'show']);
                 Route::post('/staff', [StaffController::class, 'store']);
                 Route::put('/staff/{staff}', [StaffController::class, 'update']);
                 Route::delete('/staff/{staff}', [StaffController::class, 'destroy']);

@@ -23,12 +23,51 @@ class StaffController extends Controller
                 ->where('user_id', $s->user_id)
                 ->whereNull('completed_at')
                 ->count();
+            $s->completed_jobs = \Illuminate\Support\Facades\DB::table('job_order_staff')
+                ->where('user_id', $s->user_id)
+                ->whereNotNull('completed_at')
+                ->count();
             return $s;
         });
 
         return response()->json([
             'success' => true,
             'data' => $staff
+        ]);
+    }
+
+    public function show(Shop $shop, StaffProfile $staff): JsonResponse
+    {
+        if ($staff->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        // Work-history log: every job this staff was assigned to (assigned vs completed).
+        $assignments = \Illuminate\Support\Facades\DB::table('job_order_staff as jos')
+            ->join('job_orders as jo', 'jo.id', '=', 'jos.job_order_id')
+            ->leftJoin('users as c', 'c.id', '=', 'jo.customer_id')
+            ->where('jos.user_id', $staff->user_id)
+            ->where('jo.shop_id', $shop->id)
+            ->orderByDesc('jos.assigned_at')
+            ->get([
+                'jos.job_order_id',
+                'jo.order_number',
+                'jo.status as job_status',
+                'jos.stage',
+                'jos.assigned_at',
+                'jos.completed_at',
+                'c.name as customer_name',
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'staff' => $staff->load('user:id,name,email,phone'),
+                'total_assigned' => $assignments->count(),
+                'total_completed' => $assignments->whereNotNull('completed_at')->count(),
+                'active' => $assignments->whereNull('completed_at')->count(),
+                'assignments' => $assignments,
+            ],
         ]);
     }
 
