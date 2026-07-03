@@ -12,7 +12,7 @@ class Service extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'shop_id', 'name', 'description', 'category',
+        'shop_id', 'name', 'description', 'category', 'tags',
         'base_price', 'estimated_days', 'is_active', 'custom_fields', 'image_url',
     ];
 
@@ -20,6 +20,7 @@ class Service extends Model
         'base_price' => 'decimal:2',
         'is_active' => 'boolean',
         'custom_fields' => 'array',
+        'tags' => 'array',
     ];
 
     public function shop(): BelongsTo

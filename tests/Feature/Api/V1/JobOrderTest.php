@@ -97,7 +97,8 @@ class JobOrderTest extends TestCase
             'name' => 'Custom Jersey Set',
             'base_price' => 1200,
             'estimated_days' => 10,
-            'custom_fields' => $customFields
+            'custom_fields' => $customFields,
+            'tags' => ['bespoke', 'wedding']
         ]);
 
         $serviceId = $serviceResponse->json('data.id');
@@ -110,6 +111,8 @@ class JobOrderTest extends TestCase
         // Verify custom_fields is stored
         $service = Service::find($serviceId);
         $this->assertEquals($customFields, $service->custom_fields);
+        // Regression: tags must persist (previously dropped — missing from $fillable/$casts)
+        $this->assertEquals(['bespoke', 'wedding'], $service->tags);
 
         // 2. Create job order with custom_order_data
         $customOrderData = [
