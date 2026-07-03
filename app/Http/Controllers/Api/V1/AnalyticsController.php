@@ -20,6 +20,16 @@ class AnalyticsController extends Controller
             $branchId = $request->branch_id;
         }
 
+        // Branch-scoped base queries for the triage KPIs. Fresh builder each call and
+        // NOT date-filtered — these are "current state" metrics (overdue/pending/etc.),
+        // but they must still respect the selected branch.
+        $branchJobs = fn () => $branchId
+            ? $shop->jobOrders()->where('shop_branch_id', $branchId)
+            : $shop->jobOrders();
+        $branchAppointments = fn () => $branchId
+            ? $shop->appointments()->where('shop_branch_id', $branchId)
+            : $shop->appointments();
+
         // Overview Stats
         $jobsQuery        = $shop->jobOrders();
         $appointmentsQuery = $shop->appointments();
@@ -60,12 +70,14 @@ class AnalyticsController extends Controller
             ->values()
             ->toArray();
 
-        // Compute revenue data by week for the current month
-        $startOfMonth = now()->startOfMonth();
-        $endOfMonth = now()->endOfMonth();
+        // Compute revenue data split into 4 buckets across the selected range
+        // (defaults to the current month), branch-scoped.
+        $rangeStart = $startDate ? \Illuminate\Support\Carbon::parse($startDate)->startOfDay() : now()->startOfMonth();
+        $rangeEnd   = $endDate ? \Illuminate\Support\Carbon::parse($endDate)->endOfDay() : now()->endOfMonth();
+        $rangeSeconds = max(1, abs($rangeStart->diffInSeconds($rangeEnd)));
         
-        $jobsThisMonth = (clone $shop->jobOrders())
-            ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+        $jobsThisMonth = $branchJobs()
+            ->whereBetween('created_at', [$rangeStart, $rangeEnd])
             ->get();
             
         $revenueData = [
@@ -76,17 +88,16 @@ class AnalyticsController extends Controller
         ];
         
         foreach($jobsThisMonth as $job) {
-            $week = ceil($job->created_at->day / 7);
-            if ($week > 4) {
-                $week = 4; // cap at week 4
-            }
+            $elapsed = abs($rangeStart->diffInSeconds($job->created_at));
+            $bucket = (int) floor(($elapsed / $rangeSeconds) * 4);
+            $bucket = max(0, min(3, $bucket));
             $revenue = floatval($job->total_amount) - floatval($job->balance);
             if ($revenue > 0) {
-                $revenueData[$week - 1]['revenue'] += $revenue;
+                $revenueData[$bucket]['revenue'] += $revenue;
             }
         }
 
-        $recentJobs = (clone $shop->jobOrders())
+        $recentJobs = $branchJobs()
             ->with('customer')
             ->orderBy('created_at', 'desc')
             ->take(5)
@@ -96,32 +107,35 @@ class AnalyticsController extends Controller
         $today = now()->toDateString();
 
         // Overdue: active jobs past due_date
-        $overdueJobs = (clone $shop->jobOrders())
+        $overdueJobs = $branchJobs()
             ->whereNotIn('status', ['completed', 'cancelled'])
             ->whereNotNull('due_date')
             ->whereDate('due_date', '<', $today)
             ->count();
 
         // Pending deposit: jobs with unpaid payment status, not cancelled
-        $pendingDepositJobs = (clone $shop->jobOrders())
+        $pendingDepositJobs = $branchJobs()
             ->where('payment_status', 'unpaid')
             ->whereNotIn('status', ['cancelled'])
             ->count();
 
         // Ready for pickup: walk-in orders at ready_for_pickup status
-        $readyForPickupJobs = (clone $shop->jobOrders())
+        $readyForPickupJobs = $branchJobs()
             ->where('status', 'ready_for_pickup')
             ->count();
 
         // Rush jobs currently active
-        $rushJobsActive = (clone $shop->jobOrders())
+        $rushJobsActive = $branchJobs()
             ->where('is_rush', true)
             ->whereNotIn('status', ['completed', 'cancelled'])
             ->count();
 
         // Today's revenue: sum of payments created today
-        $todayRevenue = \App\Models\Payment::whereHas('jobOrder', function ($q) use ($shop) {
+        $todayRevenue = \App\Models\Payment::whereHas('jobOrder', function ($q) use ($shop, $branchId) {
             $q->where('shop_id', $shop->id);
+            if ($branchId) {
+                $q->where('shop_branch_id', $branchId);
+            }
         })->whereDate('created_at', $today)->sum('amount');
 
         // Completion rate
@@ -129,11 +143,11 @@ class AnalyticsController extends Controller
 
         // Average order value (from completed jobs)
         $avgOrderValue = $completedJobs > 0
-            ? round((clone $shop->jobOrders())->where('status', 'completed')->avg('total_amount'), 2)
+            ? round($branchJobs()->where('status', 'completed')->avg('total_amount'), 2)
             : 0;
 
         // Today's appointments
-        $todayAppointments = $shop->appointments()
+        $todayAppointments = $branchAppointments()
             ->with(['customer:id,name', 'service:id,name'])
             ->whereDate('scheduled_at', $today)
             ->whereNotIn('status', ['cancelled'])
