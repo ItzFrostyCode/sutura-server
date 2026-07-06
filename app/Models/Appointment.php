@@ -17,7 +17,7 @@ class Appointment extends Model
      * Types that require a service_id to be set.
      * "Pickup" must also have a linked order — handled at controller level.
      */
-    public const TYPES_REQUIRING_SERVICE = ['measurement', 'fitting', 'alteration'];
+    public const TYPES_REQUIRING_SERVICE = ['measurement', 'alteration'];
 
     /**
      * Valid status transitions.

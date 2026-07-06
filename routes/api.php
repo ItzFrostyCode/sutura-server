@@ -101,6 +101,14 @@ Route::prefix('v1')->group(function () {
                 Route::post('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'store']);
                 Route::put('/catalog-orders/{order}', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
                 Route::put('/catalog-orders/{order}/verify-payment', [\App\Http\Controllers\CatalogOrderController::class, 'verifyPayment']);
+
+                // Customers CRM — front-of-house staff look up/add customers day to
+                // day too; CustomerController's own authorization already permits
+                // staff for every method here, so the route gate must match it.
+                Route::get('/customers', [CustomerController::class, 'index']);
+                Route::post('/customers', [CustomerController::class, 'store']);
+                Route::put('/customers/{customer}', [CustomerController::class, 'update']);
+                Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
             });
 
             // Owner & Branch Manager Access
@@ -111,12 +119,6 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
-
-                // Customers CRM
-                Route::get('/customers', [CustomerController::class, 'index']);
-                Route::post('/customers', [CustomerController::class, 'store']);
-                Route::put('/customers/{customer}', [CustomerController::class, 'update']);
-                Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
 
                 // Appointments — create and cancel (owner/manager only)
                 Route::post('/appointments', [AppointmentController::class, 'store']);
@@ -233,6 +235,7 @@ Route::prefix('v1')->group(function () {
 
     // Public Catalog & Shop Profile
     Route::get('/public/shops/{shop:slug}', [ShopController::class, 'publicProfile']);
+    Route::get('/public/shops/{shop:slug}/services', [ServiceController::class, 'publicIndex']);
     Route::post('/public/shops/{shop:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
     Route::get('/shops/{shop}/catalog', [CatalogController::class, 'index']);
     Route::get('/shops/{shop}/catalog/{catalog}', [CatalogController::class, 'show']);

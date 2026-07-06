@@ -34,6 +34,21 @@ class ServiceController extends Controller
         ]);
     }
 
+    /**
+     * Publicly accessible list of a shop's active services for its storefront page.
+     */
+    public function publicIndex(Shop $shop): JsonResponse
+    {
+        $services = $shop->services()
+            ->where('is_active', true)
+            ->get(['id', 'name', 'description', 'category', 'base_price', 'estimated_days', 'is_active', 'image_url', 'custom_fields']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $services,
+        ]);
+    }
+
     public function store(StoreServiceRequest $request, Shop $shop): JsonResponse
     {
         $service = $shop->services()->create($request->validated());
