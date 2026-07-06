@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class CatalogRecommendation extends Model
 {
-    protected $fillable = ['catalog_item_id', 'recommended_item_id'];
+    protected $fillable = ['catalog_item_id', 'recommended_item_id', 'recommendation_type'];
 
     public function item()
     {

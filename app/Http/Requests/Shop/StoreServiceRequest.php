@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Shop;
 
+use App\Models\Service;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreServiceRequest extends FormRequest
 {
@@ -17,8 +19,10 @@ class StoreServiceRequest extends FormRequest
             'name' => ['required', 'string', 'max:191'],
             'description' => ['nullable', 'string'],
             'category' => ['nullable', 'string', 'max:100'],
+            'service_type' => ['nullable', Rule::in(Service::SERVICE_TYPES)],
             'base_price' => ['nullable', 'numeric', 'min:0'],
             'estimated_days' => ['nullable', 'integer', 'min:1'],
+            'min_order_qty' => ['nullable', 'integer', 'min:1'],
             'custom_fields' => ['nullable', 'array'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:100'],

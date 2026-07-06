@@ -19,7 +19,7 @@ class ServicePricingController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $service->pricing()->with('apparelSpecialization')->get()
+            'data' => $service->pricing()->get()
         ]);
     }
 
@@ -35,6 +35,20 @@ class ServicePricingController extends Controller
             'success' => true,
             'data' => $pricing
         ], 201);
+    }
+
+    public function update(StoreServicePricingRequest $request, Shop $shop, Service $service, ServicePricing $pricing): JsonResponse
+    {
+        if ($service->shop_id !== $shop->id || $pricing->service_id !== $service->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $pricing->update($request->validated());
+
+        return response()->json([
+            'success' => true,
+            'data' => $pricing
+        ]);
     }
 
     public function destroy(Shop $shop, Service $service, ServicePricing $pricing): JsonResponse

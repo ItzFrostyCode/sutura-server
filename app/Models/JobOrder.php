@@ -15,7 +15,7 @@ class JobOrder extends Model
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
-        'is_outsourced', 'partner_shop_name', 'is_rush', 'rush_fee',
+        'is_outsourced', 'partner_shop_name', 'is_rush', 'rush_fee', 'completion_photo_url',
     ];
 
     protected $casts = [

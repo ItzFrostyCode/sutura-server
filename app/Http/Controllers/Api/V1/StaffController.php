@@ -14,9 +14,28 @@ use Illuminate\Support\Facades\Hash;
 
 class StaffController extends Controller
 {
+    /**
+     * A staff account is either a plain 'staff' or a 'branch_manager' at the
+     * platform-role level — never both — so checks elsewhere in the app that
+     * do `hasRole('staff') && !hasRole('branch_manager')` stay correct.
+     */
+    private function syncPlatformRole(User $user, bool $isBranchManager): void
+    {
+        $targetRole = Role::where('name', $isBranchManager ? 'branch_manager' : 'staff')->first();
+        $otherRole = Role::where('name', $isBranchManager ? 'staff' : 'branch_manager')->first();
+
+        if ($otherRole) {
+            $user->roles()->detach($otherRole->id);
+        }
+
+        if ($targetRole && !$user->roles()->where('roles.id', $targetRole->id)->exists()) {
+            $user->roles()->attach($targetRole->id);
+        }
+    }
+
     public function index(Shop $shop): JsonResponse
     {
-        $staff = $shop->staff()->with('user:id,name,email,phone,last_seen_at')->get();
+        $staff = $shop->staff()->with(['user:id,name,email,phone,last_seen_at', 'branch:id,name'])->get();
         
         $staff->transform(function($s) {
             $s->active_jobs = \Illuminate\Support\Facades\DB::table('job_order_staff')
@@ -80,16 +99,16 @@ class StaffController extends Controller
             'phone' => $request->phone,
         ]);
 
-        $role = Role::where('name', 'staff')->first();
-        if ($role) {
-            $user->roles()->attach($role->id);
-        }
+        $isBranchManager = $request->boolean('is_branch_manager');
+        $this->syncPlatformRole($user, $isBranchManager);
 
         $staff = $shop->staff()->create([
             'user_id' => $user->id,
             'role' => $request->role,
             'specialization' => $request->specialization,
             'hired_at' => $request->hired_at,
+            'shop_branch_id' => $request->shop_branch_id,
+            'is_branch_manager' => $isBranchManager,
         ]);
 
         return response()->json([
@@ -115,7 +134,11 @@ class StaffController extends Controller
         }
 
         // Update the StaffProfile
-        $staff->update($request->only(['role', 'specialization', 'hired_at', 'is_active']));
+        $staff->update($request->only(['role', 'specialization', 'hired_at', 'is_active', 'shop_branch_id', 'is_branch_manager']));
+
+        if ($user && $request->has('is_branch_manager')) {
+            $this->syncPlatformRole($user, $staff->is_branch_manager);
+        }
 
         return response()->json([
             'success' => true,

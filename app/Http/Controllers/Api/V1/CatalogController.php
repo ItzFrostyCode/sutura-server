@@ -14,28 +14,50 @@ class CatalogController extends Controller
      * Display a listing of the resource.
      * Publicly accessible for customer viewing.
      */
-    public function index(Shop $shop): JsonResponse
+    public function index(Request $request, Shop $shop): JsonResponse
     {
-        $items = $shop->catalogItems()
+        $query = $shop->catalogItems()
             ->with(['images', 'recommendations.recommendedItem'])
             ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
-            ->withAvg('reviews', 'rating')
-            ->get();
-            
+            ->withAvg('reviews', 'rating');
+
+        // Anonymous (public storefront) visitors only ever see active items;
+        // the authenticated owner still sees/manages paused ones from the same endpoint.
+        // Explicit 'sanctum' guard: this endpoint is reachable both with and without a
+        // token, and the app's default guard is 'web' (session), which never resolves
+        // a Bearer-token request — $request->user() alone would always read as a guest.
+        if (!$request->user('sanctum')) {
+            $query->where('is_active', true);
+        }
+
+        if ($request->filled('search')) {
+            $query->where('name', 'like', '%' . $request->string('search') . '%');
+        }
+
+        if ($request->filled('garment_type')) {
+            $query->where('garment_type', $request->string('garment_type'));
+        }
+
+        $items = $query->get();
+
         // Format the average rating nicely and attach dynamic sales performance metrics
         $items->each(function($item) {
             $item->reviews_avg_rating = round($item->reviews_avg_rating, 1);
-            
+
             // Sum up total amounts from both Ready-to-Wear catalog orders and custom Job orders
             $catalogRev = (float) $item->catalogOrders()->sum('total_amount');
             $jobRev = (float) $item->jobOrders()->sum('total_amount');
             $item->total_revenue = $catalogRev + $jobRev;
-            
+
             // Sum order counts
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
         });
 
-        return response()->json(['success' => true, 'data' => $items]);
+        return response()->json([
+            'success' => true,
+            'data' => $items,
+            'shop' => ['name' => $shop->name, 'slug' => $shop->slug, 'description' => $shop->description, 'logo_path' => $shop->logo_path],
+        ]);
     }
 
     /**
@@ -61,6 +83,7 @@ class CatalogController extends Controller
             'features' => 'nullable|array',
             'care_instructions' => 'nullable|string',
             'external_gallery_url' => 'nullable|url|max:500',
+            'is_active' => 'nullable|boolean',
             'images' => 'nullable|array',
             'images.*.url' => 'required|string',
             'images.*.angle' => 'required|string',
@@ -83,6 +106,7 @@ class CatalogController extends Controller
             'description' => $validated['description'] ?? null,
             'garment_type' => $validated['garment_type'] ?? null,
             'listing_type' => $validated['listing_type'] ?? 'made_to_order',
+            'is_active' => $validated['is_active'] ?? true,
             'fit_guide' => $validated['fit_guide'] ?? null,
             'features' => $validated['features'] ?? null,
             'care_instructions' => $validated['care_instructions'] ?? null,
@@ -167,6 +191,7 @@ class CatalogController extends Controller
             'features' => 'nullable|array',
             'care_instructions' => 'nullable|string',
             'external_gallery_url' => 'nullable|url|max:500',
+            'is_active' => 'sometimes|boolean',
             'images' => 'nullable|array',
             'images.*.url' => 'required|string',
             'images.*.angle' => 'required|string',
@@ -179,6 +204,7 @@ class CatalogController extends Controller
         $catalog->update([
             'name' => $validated['name'] ?? $catalog->name,
             'price' => $validated['price'] ?? $catalog->price,
+            'is_active' => array_key_exists('is_active', $validated) ? $validated['is_active'] : $catalog->is_active,
             'sale_price' => array_key_exists('sale_price', $validated) ? $validated['sale_price'] : $catalog->sale_price,
             'rental_price' => array_key_exists('rental_price', $validated) ? $validated['rental_price'] : $catalog->rental_price,
             'rental_deposit' => array_key_exists('rental_deposit', $validated) ? $validated['rental_deposit'] : $catalog->rental_deposit,

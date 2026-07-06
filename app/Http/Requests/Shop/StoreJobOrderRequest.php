@@ -15,13 +15,13 @@ class StoreJobOrderRequest extends FormRequest
     {
         return [
             'intake_channel' => ['nullable', 'in:walk_in,online'],
-            'fulfillment_type' => ['nullable', 'in:pickup,shipping'],
+            'fulfillment_type' => ['nullable', 'in:pickup,shipping,delivery'],
             'customer_id' => ['required', 'exists:users,id'],
             'service_id' => ['required', 'exists:services,id'],
             'assigned_staff_id' => ['nullable', 'exists:users,id'],
             'measurement_id' => ['nullable', 'exists:measurements,id'],
             'total_amount' => ['required', 'numeric', 'min:0'],
-            'balance' => ['required', 'numeric', 'min:0'],
+            'balance' => ['required', 'numeric', 'min:0', 'lte:total_amount'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
             'shipping_address' => ['nullable', 'string', 'max:500'],
@@ -35,6 +35,7 @@ class StoreJobOrderRequest extends FormRequest
             'custom_order_data.team_roster.*.print_name' => ['nullable', 'string', 'max:255'],
             'custom_order_data.team_roster.*.number' => ['nullable', 'string', 'max:100'],
             'custom_order_data.team_roster.*.size' => ['required_with:custom_order_data.team_roster', 'string', 'max:50'],
+            'custom_order_data.pre_existing_damage_notes' => ['nullable', 'string', 'max:2000'],
             'shop_branch_id' => ['nullable', 'exists:shop_branches,id'],
             'is_outsourced' => ['nullable', 'boolean'],
             'partner_shop_name' => ['nullable', 'string', 'max:255'],

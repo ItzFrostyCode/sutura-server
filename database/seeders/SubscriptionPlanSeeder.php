@@ -81,6 +81,7 @@ class SubscriptionPlanSeeder extends Seeder
                 'max_appointments_per_month' => -1, // Unlimited
                 'features'                   => json_encode([
                     'All Pro Plan Features',
+                    'Multi-Branch Management',
                     'Custom Branding',
                     'Featured Shop Visibility (Top Placement)',
                     'Sales Reports & Income Exports',

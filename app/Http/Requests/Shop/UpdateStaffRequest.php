@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Shop;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateStaffRequest extends FormRequest
 {
@@ -15,6 +16,7 @@ class UpdateStaffRequest extends FormRequest
     {
         $staff = $this->route('staff');
         $userId = $staff instanceof \App\Models\StaffProfile ? $staff->user_id : null;
+        $shop = $this->route('shop');
 
         return [
             'name' => ['sometimes', 'required', 'string', 'max:191'],
@@ -26,6 +28,11 @@ class UpdateStaffRequest extends FormRequest
             'hired_at' => ['nullable', 'date'],
             'is_active' => ['sometimes', 'boolean'],
             'password' => ['nullable', 'string', 'min:8'],
+            'shop_branch_id' => [
+                'nullable',
+                Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id),
+            ],
+            'is_branch_manager' => ['sometimes', 'boolean'],
         ];
     }
 }

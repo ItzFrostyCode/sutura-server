@@ -28,6 +28,7 @@ class PublicBookingController extends Controller
                 'description'       => $shop->description,
                 'booking_policy'    => $shop->booking_policy,
                 'booking_questions' => $shop->booking_questions ?? [],
+                'max_appointments_per_day' => $shop->max_appointments_per_day,
                 'operating_hours'   => $shop->operating_hours,
                 'active_special_hours' => $shop->active_special_hours,
                 'special_hours'     => $shop->specialHours()->get(),
@@ -159,6 +160,23 @@ class PublicBookingController extends Controller
                 'success' => false,
                 'message' => 'This time slot is already booked. Please choose a different time.',
             ], 409);
+        }
+
+        // ── Peak-season capacity blocker ────────────────────────────────────────
+        // Once a day hits the shop's declared max, stop taking new bookings for it
+        // rather than letting quality slip from overcommitting production.
+        if ($shop->max_appointments_per_day) {
+            $sameDayCount = $shop->appointments()
+                ->whereNotIn('status', ['cancelled'])
+                ->whereDate('scheduled_at', $scheduledAt->toDateString())
+                ->count();
+
+            if ($sameDayCount >= $shop->max_appointments_per_day) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This date is fully booked. Please choose another date.',
+                ], 409);
+            }
         }
 
         // ── Find or create customer ────────────────────────────────────────────

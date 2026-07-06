@@ -10,7 +10,7 @@ class ServicePricing extends Model
     protected $table = 'service_pricing';
 
     protected $fillable = [
-        'service_id', 'apparel_specialization_id', 'label', 'amount'
+        'service_id', 'label', 'amount'
     ];
 
     protected $casts = [
@@ -20,10 +20,5 @@ class ServicePricing extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
-    }
-
-    public function apparelSpecialization(): BelongsTo
-    {
-        return $this->belongsTo(ApparelSpecialization::class);
     }
 }

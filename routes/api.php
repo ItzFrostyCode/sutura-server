@@ -8,7 +8,6 @@ use App\Http\Controllers\Api\V1\Admin\ShopController as AdminShopController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Api\V1\StaffController;
 use App\Http\Controllers\Api\V1\ServiceController;
-use App\Http\Controllers\Api\V1\SpecializationController;
 use App\Http\Controllers\Api\V1\ShopSpecialHourController;
 use App\Http\Controllers\Api\V1\ServicePricingController;
 use App\Http\Controllers\Api\V1\AppointmentController;
@@ -83,18 +82,25 @@ Route::prefix('v1')->group(function () {
                 Route::put(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'update']);
                 Route::delete(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'destroy']);
 
-                // Job Orders
+                // Job Orders — staff can view and progress a job's stage/status,
+                // but cannot delete it or reassign who's working on it (that's a
+                // supervisory action reserved for the owner/branch manager below).
                 Route::get('/jobs', [JobOrderController::class, 'index']);
                 Route::get(JOB_DETAIL_ROUTE, [JobOrderController::class, 'show']);
                 Route::put(JOB_DETAIL_ROUTE, [JobOrderController::class, 'update']);
-                Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
-                Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
 
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
                 Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
                 Route::put('/appointments/{appointment}/verify-payment', [AppointmentController::class, 'verifyPayment']);
                 Route::post('/appointments/{appointment}/complete', [AppointmentController::class, 'complete']);
+
+                // Ready-to-Wear Orders — front-of-house staff record walk-in sales and
+                // verify payment receipts day to day; this shouldn't require the owner.
+                Route::get('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'index']);
+                Route::post('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'store']);
+                Route::put('/catalog-orders/{order}', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
+                Route::put('/catalog-orders/{order}/verify-payment', [\App\Http\Controllers\CatalogOrderController::class, 'verifyPayment']);
             });
 
             // Owner & Branch Manager Access
@@ -102,6 +108,9 @@ Route::prefix('v1')->group(function () {
                 // Job Orders (Owner/Manager specific actions)
                 Route::post('/jobs', [JobOrderController::class, 'store']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
+                Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
+                Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
+                Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
 
                 // Customers CRM
                 Route::get('/customers', [CustomerController::class, 'index']);
@@ -144,14 +153,10 @@ Route::prefix('v1')->group(function () {
                 Route::get('/services', [ServiceController::class, 'index']);
                 Route::post('/services', [ServiceController::class, 'store']);
                 Route::post('/services/populate', [ServiceController::class, 'populate']);
+                Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
                 
-                // Specializations
-                Route::get('/specializations', [SpecializationController::class, 'index']);
-                Route::post('/specializations', [SpecializationController::class, 'store']);
-                Route::put('/specializations/{id}', [SpecializationController::class, 'update']);
-                Route::delete('/specializations/{id}', [SpecializationController::class, 'destroy']);
 
                 // Temporary Special Hours & Announcements
                 Route::get('/special-hours', [ShopSpecialHourController::class, 'index']);
@@ -162,10 +167,14 @@ Route::prefix('v1')->group(function () {
                 // Pricing
                 Route::get('/services/{service}/pricing', [ServicePricingController::class, 'index']);
                 Route::post('/services/{service}/pricing', [ServicePricingController::class, 'store']);
+                Route::put('/services/{service}/pricing/{pricing}', [ServicePricingController::class, 'update']);
                 Route::delete('/services/{service}/pricing/{pricing}', [ServicePricingController::class, 'destroy']);
 
                 // Audit Logs
                 Route::get('/audit-logs', [AuditLogController::class, 'index']);
+
+                // Cross-branch performance comparison (owner-level strategic view)
+                Route::get('/analytics/branches', [AnalyticsController::class, 'branchComparison']);
 
                 // Reviews Management
                 Route::get('/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'index']);
@@ -178,12 +187,6 @@ Route::prefix('v1')->group(function () {
                 Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
                 Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
                 
-                // Premade Catalog Orders (Ready-to-wear Purchases)
-                Route::get('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'index']);
-                Route::post('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'store']);
-                Route::put('/catalog-orders/{order}', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
-                Route::put('/catalog-orders/{order}/verify-payment', [\App\Http\Controllers\CatalogOrderController::class, 'verifyPayment']);
-
                 // Support Tickets (Shop Owner → Admin)
                 Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
                 Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);

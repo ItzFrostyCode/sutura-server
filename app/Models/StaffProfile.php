@@ -8,14 +8,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StaffProfile extends Model
 {
     protected $fillable = [
-        'user_id', 'shop_id', 'shop_branch_id', 'role', 'specialization', 
-        'bio', 'is_active', 'hired_at'
+        'user_id', 'shop_id', 'shop_branch_id', 'role', 'specialization',
+        'bio', 'is_active', 'hired_at', 'is_branch_manager'
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'hired_at' => 'date',
         'specialization' => 'array',
+        'is_branch_manager' => 'boolean',
     ];
 
     public function user(): BelongsTo

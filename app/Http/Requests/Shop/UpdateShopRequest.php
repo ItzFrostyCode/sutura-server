@@ -27,6 +27,7 @@ class UpdateShopRequest extends FormRequest
             'business_type' => ['nullable', 'string', 'max:50'],
             'booking_policy' => ['nullable', 'string'],
             'booking_questions' => ['nullable', 'array'],
+            'max_appointments_per_day' => ['nullable', 'integer', 'min:1'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'social_links' => ['nullable', 'array'],

@@ -15,11 +15,15 @@ class UpdateJobOrderRequest extends FormRequest
     {
         return [
             'intake_channel' => ['sometimes', 'in:walk_in,online'],
-            'fulfillment_type' => ['sometimes', 'in:pickup,shipping'],
+            'fulfillment_type' => ['sometimes', 'in:pickup,shipping,delivery'],
             'assigned_staff_id' => ['nullable', 'exists:users,id'],
             'measurement_id' => ['nullable', 'exists:measurements,id'],
-            'balance' => ['sometimes', 'numeric', 'min:0'],
-            'payment_status' => ['sometimes', 'in:unpaid,partial,paid'],
+            // balance/payment_status are intentionally NOT editable here — they must
+            // only move through JobOrderController@pay, which recomputes the balance
+            // from the current DB value inside one request instead of trusting
+            // whatever stale figure the client happened to have loaded. Accepting
+            // them here would let a stale tab silently overwrite a payment another
+            // user just recorded (or let anyone mark a job "paid" with no ledger entry).
             'status' => ['sometimes', 'in:pending,cutting,sewing,fitting,ready_for_pickup,packed,handed_to_courier,completed,cancelled'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
@@ -40,6 +44,7 @@ class UpdateJobOrderRequest extends FormRequest
             'is_rush' => ['sometimes', 'boolean'],
             'rush_fee' => ['sometimes', 'numeric', 'min:0'],
             'catalog_item_id' => ['nullable', 'exists:catalog_items,id'],
+            'completion_photo_url' => ['nullable', 'string', 'max:500'],
         ];
     }
 }

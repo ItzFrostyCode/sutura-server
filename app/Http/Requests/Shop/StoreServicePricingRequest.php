@@ -14,7 +14,6 @@ class StoreServicePricingRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'apparel_specialization_id' => ['nullable', 'exists:apparel_specializations,id'],
             'label' => ['required', 'string', 'max:191'],
             'amount' => ['required', 'numeric', 'min:0'],
         ];

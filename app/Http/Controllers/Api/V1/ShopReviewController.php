@@ -50,11 +50,6 @@ class ShopReviewController extends Controller
 
     public function update(Request $request, Shop $shop, ShopReview $review): JsonResponse
     {
-        // Authorize
-        if ($request->user()->cannot('update', $shop) && !$request->user()->hasRole('shop_owner')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
         if ($review->shop_id !== $shop->id) {
             return response()->json(['message' => 'Review not found'], 404);
         }
@@ -74,11 +69,6 @@ class ShopReviewController extends Controller
 
     public function destroy(Request $request, Shop $shop, ShopReview $review): JsonResponse
     {
-        // Authorize
-        if ($request->user()->cannot('delete', $shop) && !$request->user()->hasRole('shop_owner')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
         if ($review->shop_id !== $shop->id) {
             return response()->json(['message' => 'Review not found'], 404);
         }

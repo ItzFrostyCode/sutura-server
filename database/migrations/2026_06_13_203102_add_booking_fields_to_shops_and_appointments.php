@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('shops', function (Blueprint $table) {
-            $table->text('booking_policy')->nullable()->after('currency');
+            $table->text('booking_policy')->nullable();
             $table->json('booking_questions')->nullable()->after('booking_policy');
         });
 

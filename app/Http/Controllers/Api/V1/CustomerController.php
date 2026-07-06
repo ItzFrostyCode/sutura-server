@@ -53,6 +53,7 @@ class CustomerController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email',
             'phone' => 'required|string|max:20',
+            'suki_tag' => 'nullable|string|max:50',
         ]);
 
         $email = $validated['email'] ?? null;
@@ -65,12 +66,14 @@ class CustomerController extends Controller
             $user->update([
                 'name' => $validated['name'],
                 'phone' => $validated['phone'] ?? $user->phone,
+                'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
             ]);
         } else {
             $user = User::create([
                 'email' => $email,
                 'name' => $validated['name'],
                 'phone' => $validated['phone'] ?? null,
+                'suki_tag' => $validated['suki_tag'] ?? null,
                 'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(12)),
             ]);
         }
@@ -102,6 +105,7 @@ class CustomerController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email',
             'phone' => 'required|string|max:20',
+            'suki_tag' => 'nullable|string|max:50',
         ]);
 
         $email = $validated['email'] ?? null;
@@ -117,6 +121,7 @@ class CustomerController extends Controller
             'name' => $validated['name'],
             'email' => $email,
             'phone' => $validated['phone'] ?? null,
+            'suki_tag' => array_key_exists('suki_tag', $validated) ? $validated['suki_tag'] : $customer->suki_tag,
         ]);
 
         return response()->json([

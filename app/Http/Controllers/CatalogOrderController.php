@@ -94,14 +94,44 @@ class CatalogOrderController extends Controller
     {
         $this->authorizeShop($shopId);
 
-        $order = \App\Models\CatalogOrder::where('shop_id', $shopId)->findOrFail($orderId);
+        $order = \App\Models\CatalogOrder::with('catalogItem')->where('shop_id', $shopId)->findOrFail($orderId);
 
         $validated = $request->validate([
-            'status'                  => 'required|in:pending,ready,out_for_delivery,completed',
-            'payment_status'          => 'sometimes|in:pending,paid',
-            'courier_name'            => 'nullable|string|max:255',
-            'courier_tracking_number' => 'nullable|string|max:255',
+            'status'                   => 'required|in:pending,ready,out_for_delivery,returned_pending_inspection,completed,cancelled',
+            'payment_status'           => 'sometimes|in:pending,paid',
+            'courier_name'             => 'nullable|string|max:255',
+            'courier_tracking_number'  => 'nullable|string|max:255',
+            'valid_id_captured'        => 'sometimes|boolean',
+            'valid_id_notes'           => 'nullable|string|max:255',
+            'return_inspection_notes'  => 'nullable|string|max:2000',
+            'deposit_deduction_amount' => 'nullable|numeric|min:0',
         ]);
+
+        // A cancelled order voids a mistaken/duplicate entry — once the item has actually
+        // moved (prepped, shipped, returned, etc.) it must be handled through the normal
+        // lifecycle instead, not silently erased.
+        if ($validated['status'] === 'cancelled' && $order->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a pending order can be cancelled.',
+            ], 422);
+        }
+
+        $isRental = $order->catalogItem?->listing_type === 'for_rent';
+
+        // Liability safeguard: a rental item cannot be handed over to the customer
+        // without the shop first capturing/holding a valid government ID.
+        if ($isRental && $validated['status'] === 'out_for_delivery') {
+            $idCaptured = $validated['valid_id_captured'] ?? $order->valid_id_captured;
+            if (!$idCaptured) {
+                return response()->json([
+                    'message' => 'The given data was invalid.',
+                    'errors'  => [
+                        'valid_id_captured' => ['A valid government ID must be captured/held before releasing a rental item.'],
+                    ],
+                ], 422);
+            }
+        }
 
         $order->update($validated);
 
@@ -115,7 +145,7 @@ class CatalogOrderController extends Controller
         $order = \App\Models\CatalogOrder::where('shop_id', $shopId)->findOrFail($orderId);
 
         $validated = $request->validate([
-            'payment_status' => 'required|in:pending,paid',
+            'payment_status' => 'required|in:pending,paid,rejected',
         ]);
 
         $order->update([

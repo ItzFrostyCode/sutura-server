@@ -15,7 +15,7 @@ class Shop extends Model
         'owner_id', 'name', 'slug', 'description', 'address', 'landmark',
         'city', 'province', 'postal_code', 'phone', 'email', 
         'logo_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
-        'currency', 'booking_policy', 'booking_questions', 'latitude', 'longitude', 'social_links', 'gallery_images',
+        'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links', 'gallery_images',
         'business_type', 'operating_hours',
         'security_deposit', 'rental_duration_days', 'overdue_penalty_per_day', 'fitting_fee', 'fitting_limit',
         'reschedule_fee_percent', 'change_reserved_hours', 'change_reserved_fee_percent', 'supported_couriers'
@@ -31,6 +31,7 @@ class Shop extends Model
         'security_deposit' => 'float',
         'overdue_penalty_per_day' => 'float',
         'fitting_fee' => 'float',
+        'max_appointments_per_day' => 'integer',
     ];
 
     protected $appends = [
@@ -60,11 +61,6 @@ class Shop extends Model
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);
-    }
-
-    public function apparelSpecializations(): HasMany
-    {
-        return $this->hasMany(ApparelSpecialization::class);
     }
 
     public function branches(): HasMany

@@ -28,6 +28,15 @@ class CatalogOrder extends Model
         'rental_start_date',
         'rental_end_date',
         'security_deposit_amount',
+        'valid_id_captured',
+        'valid_id_notes',
+        'return_inspection_notes',
+        'deposit_deduction_amount',
+    ];
+
+    protected $casts = [
+        'valid_id_captured' => 'boolean',
+        'deposit_deduction_amount' => 'decimal:2',
     ];
 
     public function shop()

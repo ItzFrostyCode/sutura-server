@@ -323,7 +323,7 @@ class AppointmentController extends Controller
         }
 
         $validated = $request->validate([
-            'payment_status' => 'required|in:pending,paid',
+            'payment_status' => 'required|in:pending,paid,rejected',
         ]);
 
         $appointment->update([

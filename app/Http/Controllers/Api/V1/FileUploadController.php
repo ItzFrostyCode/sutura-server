@@ -15,10 +15,6 @@ class FileUploadController extends Controller
 
     public function store(Request $request, Shop $shop): JsonResponse
     {
-        if ($request->user()->cannot('view', $shop) && !$request->user()->hasRole('shop_owner')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
         $request->validate([
             'file' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
         ]);
@@ -40,10 +36,6 @@ class FileUploadController extends Controller
 
     public function uploadSupportAttachment(Request $request, Shop $shop): JsonResponse
     {
-        if ($request->user()->cannot('view', $shop) && !$request->user()->hasRole('shop_owner')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
         if ((int)$request->header('Content-Length') > 52428800) {
             return response()->json(['message' => 'Payload too large'], 413);
         }

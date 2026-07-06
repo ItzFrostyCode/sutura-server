@@ -34,7 +34,10 @@ class ProfileController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Profile updated successfully.',
-            'data' => $user->fresh()
+            // Must include roles — the frontend replaces its entire auth-store user
+            // object with this response, and a missing `roles` array flips
+            // isShopOwner to false, hiding owner-only nav until the next full reload.
+            'data' => $user->fresh()->load('roles:id,name')
         ]);
     }
 
@@ -110,7 +113,7 @@ class ProfileController extends Controller
             'success' => true,
             'message' => 'Image uploaded successfully.',
             'url' => $url,
-            'data' => $user->fresh()
+            'data' => $user->fresh()->load('roles:id,name')
         ]);
     }
 }

@@ -20,11 +20,17 @@ class ServiceController extends Controller
     const CAT_COMMERCIAL = 'Commercial & Large Format Printing';
     const CAT_DIGITAL = 'Digital & Design Services';
 
-    public function index(Shop $shop): JsonResponse
+    public function index(Request $request, Shop $shop): JsonResponse
     {
+        $query = $shop->services()->with('pricing');
+
+        if ($request->boolean('trashed')) {
+            $query->onlyTrashed();
+        }
+
         return response()->json([
             'success' => true,
-            'data' => $shop->services()->with('pricing')->get()
+            'data' => $query->get()
         ]);
     }
 
@@ -55,6 +61,19 @@ class ServiceController extends Controller
         $service->delete();
 
         return response()->json(['success' => true]);
+    }
+
+    public function restore(Shop $shop, int $serviceId): JsonResponse
+    {
+        $service = Service::onlyTrashed()->where('id', $serviceId)->first();
+
+        if (!$service || $service->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Deleted service not found.'], 404);
+        }
+
+        $service->restore();
+
+        return response()->json(['success' => true, 'data' => $service->load('pricing')]);
     }
 
     public function populate(Request $request, Shop $shop): JsonResponse

@@ -31,10 +31,10 @@ class ShopBranchController extends Controller
         
         $branchCount = $shop->branches()->count();
         $subscription = $shop->subscription()->where('status', 'active')->first();
-        $isEnterprise = $subscription && $subscription->plan->slug === 'enterprise';
+        $canAddBranch = $subscription && $subscription->plan->slug === 'premium';
 
-        if ($branchCount >= 1 && !$isEnterprise) {
-            return response()->json(['success' => false, 'message' => 'Upgrade to Enterprise Tier to add multiple branches.'], 403);
+        if ($branchCount >= 1 && !$canAddBranch) {
+            return response()->json(['success' => false, 'message' => 'Upgrade to the Premium plan to add multiple branches.'], 403);
         }
 
         $branch = ShopBranch::create([

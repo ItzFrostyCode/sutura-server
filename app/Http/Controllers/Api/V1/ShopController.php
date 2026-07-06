@@ -12,6 +12,16 @@ use Illuminate\Support\Str;
 
 class ShopController extends Controller
 {
+    public function index(Request $request): JsonResponse
+    {
+        $shops = $request->user()->shops()->with('subscriptions.plan')->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $shops,
+        ]);
+    }
+
     public function store(StoreShopRequest $request): JsonResponse
     {
         $validated = $request->validated();
@@ -43,8 +53,15 @@ class ShopController extends Controller
         ], 201);
     }
 
-    public function show(Shop $shop): JsonResponse
+    public function show(Request $request, Shop $shop): JsonResponse
     {
+        if ($request->user()->id !== $shop->owner_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have access to this shop.',
+            ], 403);
+        }
+
         return response()->json([
             'success' => true,
             'data' => $shop->load(['owner', 'subscriptions.plan'])
@@ -74,6 +91,23 @@ class ShopController extends Controller
             'success' => true,
             'message' => 'Shop updated successfully.',
             'data' => $shop
+        ]);
+    }
+
+    public function destroy(Request $request, Shop $shop): JsonResponse
+    {
+        if ($request->user()->id !== $shop->owner_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have access to this shop.',
+            ], 403);
+        }
+
+        $shop->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Shop deleted successfully.',
         ]);
     }
 }

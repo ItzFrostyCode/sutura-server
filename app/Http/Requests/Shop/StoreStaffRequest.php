@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Shop;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreStaffRequest extends FormRequest
 {
@@ -13,6 +14,8 @@ class StoreStaffRequest extends FormRequest
 
     public function rules(): array
     {
+        $shop = $this->route('shop');
+
         return [
             'name' => ['required', 'string', 'max:191'],
             'email' => ['required', 'string', 'email', 'max:191', 'unique:users'],
@@ -22,6 +25,11 @@ class StoreStaffRequest extends FormRequest
             'specialization' => ['nullable', 'array'],
             'specialization.*' => ['string', 'max:100'],
             'hired_at' => ['nullable', 'date'],
+            'shop_branch_id' => [
+                'nullable',
+                Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id),
+            ],
+            'is_branch_manager' => ['sometimes', 'boolean'],
         ];
     }
 }
