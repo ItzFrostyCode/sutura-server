@@ -9,12 +9,14 @@ class CatalogItem extends Model
     protected $fillable = [
         'shop_id', 'name', 'price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'rental_price', 'rental_deposit',
         'material', 'color', 'fabric_image_url', 'sizes', 'description',
-        'fit_guide', 'features', 'care_instructions', 'garment_type', 'listing_type', 'external_gallery_url',
+        'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
+        'features', 'care_instructions', 'garment_type', 'listing_type', 'external_gallery_url',
         'is_active',
     ];
 
     protected $casts = [
-        'fit_guide' => 'array',
+        'size_chart_columns' => 'array',
+        'size_chart_rows' => 'array',
         'features' => 'array',
         'sizes' => 'array',
         'is_active' => 'boolean',

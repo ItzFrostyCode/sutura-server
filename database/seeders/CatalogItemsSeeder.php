@@ -22,7 +22,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -39,7 +38,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -56,7 +54,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Cycling_Jerseys_1 designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -73,7 +70,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Shop Long Tail Wedding Gown  available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -90,7 +86,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Mga Pretty Bridesmaid Dresses, Perfect Maid of Honor Gowns - Lunss available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -107,7 +102,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear esport tshirt blue designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -124,7 +118,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => "Custom sublimation activewear Women's Esports Jersey with Customized Design  designed for maximum breathability.",
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -141,7 +134,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Bulls-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -158,7 +150,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns  available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -175,7 +166,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom images tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -192,7 +182,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear KobeBryant-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -209,7 +198,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -226,7 +214,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium Best Custom Tuxedos in NYC | Bespoke Groom Tuxedos  crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -243,7 +230,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium Bespoke_Suits2 crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -260,7 +246,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery | Elegant Bridal Dress with Corset Back | Floor-Length Wedding Dress for Women (in, Alpha, 2XL, White with Champagne-Gold Embroidery) at Amazon.in  available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -277,7 +262,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Traditional Filipino Traditional Ivory Color Barong Tagalog | Formal Fit featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -294,7 +278,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -311,7 +294,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear AllStar-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -328,7 +310,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium mens-custom-tuxedos-its-all-about-the-fit crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -345,7 +326,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Volleyball Jersey_2 designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -362,7 +342,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Cycling_Jerseys_3 designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -379,7 +358,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom Riders_Long_Sleeves_2 tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -396,7 +374,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -413,7 +390,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Cycling_Jerseys_2 designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -430,7 +406,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium Bespoke_Suits crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -447,7 +422,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium Tailor Made Suits London - The Bespoke Tailor UK crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -464,7 +438,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium Custom_Tuxedos_men crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -481,7 +454,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Luxury_Bridal_Gowns_Long_Tail available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -498,7 +470,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Bears-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -515,7 +486,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear rashguard_1 designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -532,7 +502,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Lebron James-Lakers-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -549,7 +518,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => "Traditional Filipino Men's - Traditional Barong Tagalog - Page 1 - Barong At Bestida Australia featuring delicate hand embroidery.",
                 'garment_type' => 'barong',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -566,7 +534,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Esports-Jersey-women designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -583,7 +550,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium Custom Tuxedos for Memorable Events crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -600,7 +566,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear rashguard_3 designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -617,7 +582,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Arsenal-Jersey designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -634,7 +598,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Traditional Filipino Traditional Barong Tagalog Polo Shirt for Men featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -651,7 +614,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear esport tshirt  designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -668,7 +630,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Bespoke premium Blue Tuxedo Belt Tuxedo Blue Suit Brown Belt Core Navy crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -685,7 +646,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Traditional Filipino Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M – Tagged "barong with lining featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -702,7 +662,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer 9 Luxury Designer Bridesmaid Dresses for the Bridal Crew available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -719,7 +678,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -736,7 +694,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Custom sublimation activewear Lakers-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -753,7 +710,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -770,7 +726,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Traditional Filipino Barong Tagalog Cloth- Traditional and Elegant Fabrics featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
                 'listing_type' => 'made_to_order',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -787,7 +742,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom volleyballroundneckSET tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -804,7 +758,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'Elegant designer Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown available for rentals and custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'for_rent',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -821,7 +774,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -838,7 +790,6 @@ class CatalogItemsSeeder extends Seeder
                 'description' => 'High-quality custom VBALL_PRE-2001_800x800 tailored to perfection.',
                 'garment_type' => 'other',
                 'listing_type' => 'ready_to_wear',
-                'fit_guide' => ['S' => 'Standard Fit S', 'M' => 'Standard Fit M', 'L' => 'Standard Fit L'],
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]

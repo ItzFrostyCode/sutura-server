@@ -13,8 +13,12 @@ class MeasurementController extends Controller
 {
     public function index(Shop $shop, Request $request): JsonResponse
     {
+        // Returns every version of every profile — the frontend groups these
+        // by profile_name and lets the shop owner switch between versions
+        // client-side (see MeasurementList's version selector), so history
+        // has to be in this same response, not a separate endpoint.
         $query = $shop->measurements()->with('customer:id,name,email');
-        
+
         if ($request->has('customer_id')) {
             $query->where('customer_id', $request->customer_id);
         }
@@ -53,11 +57,15 @@ class MeasurementController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        // Validate profile_name, metrics, and notes, supporting legacy measurements as well
+        // A superseded (past) version is a read-only historical record — you
+        // view it, you don't edit it. Only the current version can be saved,
+        // which is what actually creates the next version.
+        if ($measurement->superseded_at !== null) {
+            return response()->json(['success' => false, 'message' => 'This is a past version and cannot be edited. View the current version to make changes.'], 422);
+        }
+
         $validated = $request->validate([
-            'customer_id' => 'sometimes|exists:users,id',
             'source' => 'nullable|in:shop_owner,customer',
-            'profile_name' => 'sometimes|string|max:100',
             'metrics' => 'sometimes|array',
             'measurements' => 'sometimes|array',
             'notes' => 'nullable|string'
@@ -68,11 +76,25 @@ class MeasurementController extends Controller
             unset($validated['measurements']);
         }
 
-        $measurement->update($validated);
+        // Saving an edit never overwrites the current row in place — it closes
+        // out this version (superseded_at) and inserts the next one, so a
+        // shop owner can always look back at what a customer's measurements
+        // were at an earlier fitting instead of losing that the moment it's
+        // updated.
+        $measurement->update(['superseded_at' => now()]);
+
+        $nextVersion = $shop->measurements()->create([
+            'customer_id' => $measurement->customer_id,
+            'source' => $validated['source'] ?? $measurement->source,
+            'profile_name' => $measurement->profile_name,
+            'version' => $measurement->version + 1,
+            'metrics' => $validated['metrics'] ?? $measurement->metrics,
+            'notes' => array_key_exists('notes', $validated) ? $validated['notes'] : $measurement->notes,
+        ]);
 
         return response()->json([
             'success' => true,
-            'data' => $measurement->load('customer:id,name')
+            'data' => $nextVersion->load('customer:id,name')
         ]);
     }
 
@@ -82,7 +104,13 @@ class MeasurementController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $measurement->delete();
+        // Deleting a profile removes its whole version history, not just the
+        // current snapshot — otherwise old versions would be left orphaned
+        // with no current row pointing at them.
+        Measurement::where('shop_id', $shop->id)
+            ->where('customer_id', $measurement->customer_id)
+            ->where('profile_name', $measurement->profile_name)
+            ->delete();
 
         return response()->json([
             'success' => true,

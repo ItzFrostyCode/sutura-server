@@ -84,16 +84,17 @@ class LocalTestSeeder extends Seeder
         }
 
         // Seed Main Branch
-        $mainBranch = ShopBranch::create([
-            'shop_id' => $shop->id,
-            'name' => 'Main Branch',
-            'address' => '123 Rizal Avenue',
-            'city' => 'Davao City',
-            'latitude' => 7.0702,
-            'longitude' => 125.6077,
-            'contact_number' => '+63 900 000 0000',
-            'is_main' => true,
-        ]);
+        $mainBranch = ShopBranch::firstOrCreate(
+            ['shop_id' => $shop->id, 'name' => 'Main Branch'],
+            [
+                'address' => '123 Rizal Avenue',
+                'city' => 'Davao City',
+                'latitude' => 7.0702,
+                'longitude' => 125.6077,
+                'contact_number' => '+63 900 000 0000',
+                'is_main' => true,
+            ]
+        );
 
         // 4. Create a Tailoring Staff Member
         $staff = User::firstOrCreate(
@@ -190,7 +191,13 @@ class LocalTestSeeder extends Seeder
                 'estimated_days' => 15,
                 'is_active' => true,
                 'image_url' => 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?q=80&w=800&auto=format&fit=crop',
-                'custom_fields' => []
+                'custom_fields' => [],
+                'size_chart_columns' => ['Chest (in)', 'Waist (in)', 'Shoulder (in)'],
+                'size_chart_rows' => [
+                    ['size' => 'Small', 'values' => ['36', '30', '17']],
+                    ['size' => 'Medium', 'values' => ['40', '34', '18']],
+                    ['size' => 'Large', 'values' => ['44', '38', '19']],
+                ],
             ]
         );
 
@@ -261,7 +268,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 20,
-                'image_url' => null,
+                'image_url' => '/catalog/Women\'s Esports Jersey with Customized Design .jpg',
                 'tiers' => [
                     ['label' => 'Elementary Uniform Set', 'amount' => 450],
                     ['label' => 'High School Uniform Set', 'amount' => 650],
@@ -275,7 +282,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['alteration_repair'],
                 'base_price' => null,
                 'estimated_days' => 3,
-                'image_url' => null,
+                'image_url' => '/catalog/Bespoke_Suits2.jpg',
                 'tiers' => [
                     ['label' => 'Hem Pants / Skirt', 'amount' => 150],
                     ['label' => 'Take In / Let Out Waist', 'amount' => 200],
@@ -290,7 +297,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 12,
-                'image_url' => null,
+                'image_url' => '/catalog/Healong-Customized-Design-Sportswear-Sublimation-Volleyball-Jersey.avif',
                 'tiers' => [
                     ['label' => 'Basic Jersey Set (Top + Shorts)', 'amount' => 850],
                     ['label' => 'Full Sublimation Premium Set', 'amount' => 1200],
@@ -303,7 +310,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 4,
-                'image_url' => null,
+                'image_url' => '/catalog/AllStar-Basketball-Jersey.jpg',
                 'tiers' => [
                     ['label' => 'Small Logo Embroidery (up to 2x2 in)', 'amount' => 150],
                     ['label' => 'Team Name / Text Embroidery', 'amount' => 200],
@@ -441,43 +448,71 @@ class LocalTestSeeder extends Seeder
         $service1 = \App\Models\Service::where('name', 'Custom Sublimation Team Jerseys')->first();
         $service2 = \App\Models\Service::where('name', 'Bespoke Suit Tailoring')->first();
 
-        \App\Models\Appointment::firstOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'scheduled_at' => now()->addDays(2)->format('Y-m-d H:i:s')],
+        \App\Models\Appointment::updateOrCreate(
             [
-                'shop_branch_id' => $mainBranch->id,
+                'shop_id' => $shop->id,
+                'customer_id' => $customers[0]->id,
                 'service_id' => $service2->id,
                 'status' => 'confirmed',
-                'notes' => 'Bespoke suit fitting session.'
-            ]
-        );
-
-        \App\Models\Appointment::firstOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[1]->id, 'scheduled_at' => now()->addDays(3)->format('Y-m-d H:i:s')],
-            [
-                'shop_branch_id' => $branch2->id,
-                'service_id' => $service1->id,
-                'status' => 'pending',
-                'notes' => 'Design discussion for basketball jerseys.'
-            ]
-        );
-
-        \App\Models\Appointment::firstOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[2]->id, 'scheduled_at' => now()->subDays(1)->format('Y-m-d H:i:s')],
-            [
-                'shop_branch_id' => $branch3->id,
-                'service_id' => $service2->id,
-                'status' => 'completed',
-                'notes' => 'Initial consultation completed.'
-            ]
-        );
-
-        \App\Models\Appointment::firstOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'scheduled_at' => now()->subDays(5)->format('Y-m-d H:i:s')],
+                'notes' => 'Bespoke suit fitting session.',
+            ],
             [
                 'shop_branch_id' => $mainBranch->id,
+                'scheduled_at' => now()->addDays(2)->format('Y-m-d H:i:s'),
+                'appointment_type' => 'consultation',
+                'intake_channel' => 'walk_in',
+                'duration_minutes' => 60,
+            ]
+        );
+
+        \App\Models\Appointment::updateOrCreate(
+            [
+                'shop_id' => $shop->id,
+                'customer_id' => $customers[1]->id,
+                'service_id' => $service1->id,
+                'status' => 'pending',
+                'notes' => 'Design discussion for basketball jerseys.',
+            ],
+            [
+                'shop_branch_id' => $branch2->id,
+                'scheduled_at' => now()->addDays(3)->format('Y-m-d H:i:s'),
+                'appointment_type' => 'consultation',
+                'intake_channel' => 'walk_in',
+                'duration_minutes' => 60,
+            ]
+        );
+
+        \App\Models\Appointment::updateOrCreate(
+            [
+                'shop_id' => $shop->id,
+                'customer_id' => $customers[2]->id,
+                'service_id' => $service2->id,
+                'status' => 'completed',
+                'notes' => 'Initial consultation completed.',
+            ],
+            [
+                'shop_branch_id' => $branch3->id,
+                'scheduled_at' => now()->subDays(1)->format('Y-m-d H:i:s'),
+                'appointment_type' => 'consultation',
+                'intake_channel' => 'walk_in',
+                'duration_minutes' => 60,
+            ]
+        );
+
+        \App\Models\Appointment::updateOrCreate(
+            [
+                'shop_id' => $shop->id,
+                'customer_id' => $customers[0]->id,
                 'service_id' => $service1->id,
                 'status' => 'cancelled',
-                'notes' => 'Cancelled by customer.'
+                'notes' => 'Cancelled by customer.',
+            ],
+            [
+                'shop_branch_id' => $mainBranch->id,
+                'scheduled_at' => now()->subDays(5)->format('Y-m-d H:i:s'),
+                'appointment_type' => 'consultation',
+                'intake_channel' => 'walk_in',
+                'duration_minutes' => 60,
             ]
         );
 
@@ -557,6 +592,13 @@ class LocalTestSeeder extends Seeder
                         ['name' => 'Juan Dela Cruz', 'print_name' => 'JUAN', 'number' => '10', 'size' => 'L'],
                         ['name' => 'Pedro Penduko', 'print_name' => 'PEDRO', 'number' => '7', 'size' => 'M'],
                         ['name' => 'Maria Makiling', 'print_name' => 'MARIA', 'number' => '23', 'size' => 'S'],
+                        ['name' => 'Ramon Bautista', 'print_name' => 'RAMON', 'number' => '5', 'size' => 'L'],
+                        ['name' => 'Carlo Reyes', 'print_name' => 'CARLO', 'number' => '11', 'size' => 'M'],
+                        ['name' => 'Nico Santos', 'print_name' => 'NICO', 'number' => '3', 'size' => 'XL'],
+                        ['name' => 'Ella Villanueva', 'print_name' => 'ELLA', 'number' => '8', 'size' => 'S'],
+                        ['name' => 'Miguel Torres', 'print_name' => 'MIGUEL', 'number' => '14', 'size' => 'L'],
+                        ['name' => 'Diego Fernandez', 'print_name' => 'DIEGO', 'number' => '22', 'size' => 'M'],
+                        ['name' => 'Paolo Cruz', 'print_name' => 'PAOLO', 'number' => '9', 'size' => 'L'],
                     ]
                 ]
             ]
@@ -600,10 +642,61 @@ class LocalTestSeeder extends Seeder
                     'team_roster' => [
                         ['name' => 'Jossua Arabejo', 'print_name' => 'JOSSUA', 'number' => '99', 'size' => 'XL'],
                         ['name' => 'Alex Wright', 'print_name' => 'ALEX', 'number' => '14', 'size' => 'M'],
+                        ['name' => 'Ben Castillo', 'print_name' => 'BEN', 'number' => '6', 'size' => 'L'],
+                        ['name' => 'Ken Morales', 'print_name' => 'KEN', 'number' => '2', 'size' => 'M'],
+                        ['name' => 'Rico Domingo', 'print_name' => 'RICO', 'number' => '17', 'size' => 'S'],
                     ]
                 ]
             ]
         );
+
+        // 11b. Seed Multi-Stage Staff Assignments for each job order — otherwise
+        // the "Multi-Stage Staff Assignment" card on every job's detail page
+        // shows all 6 stages as "Unassigned", even though the feature (and its
+        // completed/in-progress badges) is fully built and working. Each job
+        // gets its already-passed stages marked completed and its CURRENT
+        // status stage marked in-progress (no completed_at yet) — jobs already
+        // past all 6 stages (ready_for_pickup, completed) get every stage closed out.
+        $stageAssignments = [
+            $jo1->id => [ // status: sewing — design/pattern_making/cutting done, sewing in progress
+                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 6, 'completed' => 5],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 5, 'completed' => 4],
+                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 4, 'completed' => 2],
+                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => null],
+            ],
+            $jo2->id => [ // status: cutting — design/pattern_making done, cutting in progress
+                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 4, 'completed' => 3],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 3, 'completed' => 1],
+                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 1, 'completed' => null],
+            ],
+            $jo3->id => [ // status: ready_for_pickup — all 6 production stages already closed out
+                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 10, 'completed' => 9],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 9, 'completed' => 8],
+                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 6],
+                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 6, 'completed' => 4],
+                ['stage' => 'fitting', 'staff' => $staffUsers[0], 'assigned' => 4, 'completed' => 2],
+                ['stage' => 'finishing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => 1],
+            ],
+            $jo4->id => [ // status: completed — all 6 production stages already closed out
+                ['stage' => 'design', 'staff' => $staffUsers[2], 'assigned' => 9, 'completed' => 8],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[2], 'assigned' => 8, 'completed' => 7],
+                ['stage' => 'cutting', 'staff' => $staffUsers[2], 'assigned' => 7, 'completed' => 5],
+                ['stage' => 'sewing', 'staff' => $staffUsers[2], 'assigned' => 5, 'completed' => 3],
+                ['stage' => 'fitting', 'staff' => $staffUsers[2], 'assigned' => 3, 'completed' => 2],
+                ['stage' => 'finishing', 'staff' => $staffUsers[2], 'assigned' => 2, 'completed' => 1],
+            ],
+        ];
+        foreach ($stageAssignments as $jobOrderId => $stages) {
+            foreach ($stages as $s) {
+                \App\Models\JobOrderStaff::updateOrCreate(
+                    ['job_order_id' => $jobOrderId, 'user_id' => $s['staff']->id, 'stage' => $s['stage']],
+                    [
+                        'assigned_at' => now()->subDays($s['assigned']),
+                        'completed_at' => $s['completed'] === null ? null : now()->subDays($s['completed']),
+                    ]
+                );
+            }
+        }
 
         // 12. Seed 4 Payments
         \App\Models\Payment::firstOrCreate(
@@ -693,7 +786,17 @@ class LocalTestSeeder extends Seeder
                 'material' => 'Chiffon & Tulle',
                 'listing_type' => 'for_rent',
                 'is_active' => true,
+                'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
+                'size_chart_rows' => [
+                    ['size' => 'Small', 'values' => ['32', '25', '35']],
+                    ['size' => 'Medium', 'values' => ['34', '27', '37']],
+                    ['size' => 'Large', 'values' => ['36', '29', '39']],
+                ],
             ]
+        );
+        \App\Models\CatalogImage::firstOrCreate(
+            ['catalog_item_id' => $gown1->id, 'image_url' => '/catalog/Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown.webp'],
+            ['view_angle' => 'front', 'is_primary' => true]
         );
         $gown2 = \App\Models\CatalogItem::updateOrCreate(
             ['shop_id' => $shop->id, 'name' => 'Long-Train Wedding Gown'],
@@ -702,7 +805,17 @@ class LocalTestSeeder extends Seeder
                 'material' => 'Chiffon & Tulle',
                 'listing_type' => 'for_rent',
                 'is_active' => true,
+                'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
+                'size_chart_rows' => [
+                    ['size' => 'Small', 'values' => ['32', '25', '35']],
+                    ['size' => 'Medium', 'values' => ['34', '27', '37']],
+                    ['size' => 'Large', 'values' => ['36', '29', '39']],
+                ],
             ]
+        );
+        \App\Models\CatalogImage::firstOrCreate(
+            ['catalog_item_id' => $gown2->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown .jpg'],
+            ['view_angle' => 'front', 'is_primary' => true]
         );
 
         // 13c. Seed 2 pending catalog orders paid via GCash/Bank Transfer,
@@ -751,110 +864,108 @@ class LocalTestSeeder extends Seeder
         // Seed some ready-to-wear CatalogOrders
         if ($item1 && isset($customers[0])) {
             // 1. Seed a completed rental (returned)
-            \App\Models\CatalogOrder::create([
-                'shop_id' => $shop->id,
-                'catalog_item_id' => $item1->id,
-                'customer_id' => $customers[0]->id,
-                'type' => 'online',
-                'status' => 'completed',
-                'total_amount' => 4500.00,
-                'payment_status' => 'paid',
-                'payment_method' => 'gcash',
-                'intake_channel' => 'online',
-                'fulfillment_type' => 'pickup',
-                'rental_start_date' => now()->subDays(12)->toDateString(),
-                'rental_end_date' => now()->subDays(7)->toDateString(),
-                'security_deposit_amount' => 2250.00,
-            ]);
+            \App\Models\CatalogOrder::updateOrCreate(
+                ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'completed'],
+                [
+                    'type' => 'online',
+                    'total_amount' => 4500.00,
+                    'payment_status' => 'paid',
+                    'payment_method' => 'gcash',
+                    'intake_channel' => 'online',
+                    'fulfillment_type' => 'pickup',
+                    'rental_start_date' => now()->subDays(12)->toDateString(),
+                    'rental_end_date' => now()->subDays(7)->toDateString(),
+                    'security_deposit_amount' => 2250.00,
+                ]
+            );
 
             // 2. Seed a ready-for-pickup rental
-            \App\Models\CatalogOrder::create([
-                'shop_id' => $shop->id,
-                'catalog_item_id' => $item1->id,
-                'customer_id' => $customers[0]->id,
-                'type' => 'online',
-                'status' => 'ready',
-                'total_amount' => 4500.00,
-                'payment_status' => 'paid',
-                'payment_method' => 'gcash',
-                'intake_channel' => 'online',
-                'fulfillment_type' => 'pickup',
-                'rental_start_date' => now()->toDateString(),
-                'rental_end_date' => now()->addDays(5)->toDateString(),
-                'security_deposit_amount' => 2250.00,
-            ]);
+            \App\Models\CatalogOrder::updateOrCreate(
+                ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'ready'],
+                [
+                    'type' => 'online',
+                    'total_amount' => 4500.00,
+                    'payment_status' => 'paid',
+                    'payment_method' => 'gcash',
+                    'intake_channel' => 'online',
+                    'fulfillment_type' => 'pickup',
+                    'rental_start_date' => now()->toDateString(),
+                    'rental_end_date' => now()->addDays(5)->toDateString(),
+                    'security_deposit_amount' => 2250.00,
+                ]
+            );
 
             // 3. Seed an active rental (out on rent)
-            \App\Models\CatalogOrder::create([
-                'shop_id' => $shop->id,
-                'catalog_item_id' => $item1->id,
-                'customer_id' => $customers[0]->id,
-                'type' => 'online',
-                'status' => 'out_for_delivery', // used as Active Rental status on client
-                'total_amount' => 4500.00,
-                'payment_status' => 'paid',
-                'payment_method' => 'gcash',
-                'intake_channel' => 'online',
-                'fulfillment_type' => 'pickup',
-                'rental_start_date' => now()->subDays(3)->toDateString(),
-                'rental_end_date' => now()->addDays(2)->toDateString(),
-                'security_deposit_amount' => 2250.00,
-            ]);
+            \App\Models\CatalogOrder::updateOrCreate(
+                ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'out_for_delivery'], // used as Active Rental status on client
+                [
+                    'type' => 'online',
+                    'total_amount' => 4500.00,
+                    'payment_status' => 'paid',
+                    'payment_method' => 'gcash',
+                    'intake_channel' => 'online',
+                    'fulfillment_type' => 'pickup',
+                    'rental_start_date' => now()->subDays(3)->toDateString(),
+                    'rental_end_date' => now()->addDays(2)->toDateString(),
+                    'security_deposit_amount' => 2250.00,
+                ]
+            );
         }
 
         if ($item2 && isset($customers[1])) {
             // 4. Seed a walkin completed purchase
-            \App\Models\CatalogOrder::create([
-                'shop_id' => $shop->id,
-                'catalog_item_id' => $item2->id,
-                'customer_id' => $customers[1]->id,
-                'type' => 'walkin',
-                'status' => 'completed',
-                'total_amount' => 1300.00,
-                'payment_status' => 'paid',
-                'payment_method' => 'cash',
-                'intake_channel' => 'walk_in',
-                'fulfillment_type' => 'pickup',
-            ]);
+            \App\Models\CatalogOrder::updateOrCreate(
+                ['shop_id' => $shop->id, 'catalog_item_id' => $item2->id, 'customer_id' => $customers[1]->id, 'type' => 'walkin', 'status' => 'completed'],
+                [
+                    'total_amount' => 1300.00,
+                    'payment_status' => 'paid',
+                    'payment_method' => 'cash',
+                    'intake_channel' => 'walk_in',
+                    'fulfillment_type' => 'pickup',
+                ]
+            );
 
             // 5. Seed an online pending purchase with shipping requested
-            \App\Models\CatalogOrder::create([
-                'shop_id' => $shop->id,
-                'catalog_item_id' => $item2->id,
-                'customer_id' => $customers[1]->id,
-                'type' => 'online',
-                'status' => 'pending',
-                'total_amount' => 650.00,
-                'payment_status' => 'pending',
-                'payment_method' => 'gcash',
-                'payment_reference' => 'GCASH-REF-884920194',
-                'payment_receipt_path' => 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=500&auto=format&fit=crop&q=60',
-                'intake_channel' => 'online',
-                'fulfillment_type' => 'shipping',
-                'delivery_address' => '123 Rizal Avenue, Caloocan City, Metro Manila',
-            ]);
+            \App\Models\CatalogOrder::updateOrCreate(
+                ['shop_id' => $shop->id, 'payment_reference' => 'GCASH-REF-884920194'],
+                [
+                    'catalog_item_id' => $item2->id,
+                    'customer_id' => $customers[1]->id,
+                    'type' => 'online',
+                    'status' => 'pending',
+                    'total_amount' => 650.00,
+                    'payment_status' => 'pending',
+                    'payment_method' => 'gcash',
+                    'payment_receipt_path' => 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=500&auto=format&fit=crop&q=60',
+                    'intake_channel' => 'online',
+                    'fulfillment_type' => 'shipping',
+                    'delivery_address' => '123 Rizal Avenue, Caloocan City, Metro Manila',
+                ]
+            );
         }
 
         // Seed some temporary schedules for testing
-        \App\Models\ShopSpecialHour::create([
-            'shop_id' => $shop->id,
-            'title' => 'Christmas Break 2026',
-            'start_date' => '2026-12-24',
-            'end_date' => '2026-12-26',
-            'is_closed' => true,
-            'announcement_message' => 'Merry Christmas! SUTURA will be fully closed from December 24 to 26 to celebrate the holidays with our families. Online bookings on these dates are disabled.',
-        ]);
+        \App\Models\ShopSpecialHour::updateOrCreate(
+            ['shop_id' => $shop->id, 'title' => 'Christmas Break 2026'],
+            [
+                'start_date' => '2026-12-24',
+                'end_date' => '2026-12-26',
+                'is_closed' => true,
+                'announcement_message' => 'Merry Christmas! SUTURA will be fully closed from December 24 to 26 to celebrate the holidays with our families. Online bookings on these dates are disabled.',
+            ]
+        );
 
-        \App\Models\ShopSpecialHour::create([
-            'shop_id' => $shop->id,
-            'title' => 'Staff Planning Day',
-            'start_date' => '2026-07-04',
-            'end_date' => '2026-07-04',
-            'is_closed' => false,
-            'special_open_time' => '10:00:00',
-            'special_close_time' => '15:00:00',
-            'announcement_message' => 'We are having our annual Staff Planning Day on July 4. Custom hours apply: 10:00 AM - 3:00 PM.',
-        ]);
+        \App\Models\ShopSpecialHour::updateOrCreate(
+            ['shop_id' => $shop->id, 'title' => 'Staff Planning Day'],
+            [
+                'start_date' => '2026-07-04',
+                'end_date' => '2026-07-04',
+                'is_closed' => false,
+                'special_open_time' => '10:00:00',
+                'special_close_time' => '15:00:00',
+                'announcement_message' => 'We are having our annual Staff Planning Day on July 4. Custom hours apply: 10:00 AM - 3:00 PM.',
+            ]
+        );
 
         // 15. Seed Coupons — otherwise the Coupons page is completely empty on
         // a fresh install, which looks broken/unfinished rather than just unused.
@@ -932,26 +1043,46 @@ class LocalTestSeeder extends Seeder
         // 18. Seed Measurement profiles — otherwise a customer's "Measurements &
         // Specs" tab is always empty, even though the whole point of the
         // measurement repository is to show it's populated and reusable.
+        //
+        // Jose Rizal's "Default" profile gets 2 versions, demonstrating the
+        // version-history feature with real data: an older superseded
+        // snapshot (matched on version explicitly, since version is now
+        // part of the row's identity, not just shop+customer+profile_name)
+        // and the current one.
         \App\Models\Measurement::updateOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'profile_name' => 'Default'],
+            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'profile_name' => 'Default', 'version' => 1],
             [
                 'source' => 'shop_owner',
                 'metrics' => [
-                    'chest' => 40, 'waist' => 34, 'hip' => 40, 'shoulder' => 18,
-                    'sleeve' => 25, 'neck' => 16, 'inseam' => 32,
+                    'Chest' => '39', 'Waist' => '33', 'Hip' => '39', 'Shoulder' => '18',
+                    'Sleeve' => '25', 'Neck' => '16', 'Inseam' => '32',
                 ],
-                'notes' => 'Prefers a slightly looser fit around the shoulders.',
+                'notes' => 'Initial fitting — prefers a slightly looser fit around the shoulders.',
+                'superseded_at' => now()->subDays(30),
             ]
         );
         \App\Models\Measurement::updateOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[2]->id, 'profile_name' => 'Wedding Gown Fitting'],
+            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'profile_name' => 'Default', 'version' => 2],
             [
                 'source' => 'shop_owner',
                 'metrics' => [
-                    'chest' => 34, 'waist' => 27, 'hip' => 36, 'shoulder' => 14,
-                    'sleeve' => 22, 'shirt_length' => 58,
+                    'Chest' => '40', 'Waist' => '34', 'Hip' => '40', 'Shoulder' => '18',
+                    'Sleeve' => '25', 'Neck' => '16', 'Inseam' => '32',
+                ],
+                'notes' => 'Re-measured after a follow-up fitting — chest and waist both grew half an inch.',
+                'superseded_at' => null,
+            ]
+        );
+        \App\Models\Measurement::updateOrCreate(
+            ['shop_id' => $shop->id, 'customer_id' => $customers[2]->id, 'profile_name' => 'Wedding Gown Fitting', 'version' => 1],
+            [
+                'source' => 'shop_owner',
+                'metrics' => [
+                    'Chest' => '34', 'Waist' => '27', 'Hip' => '36', 'Shoulder' => '14',
+                    'Sleeve' => '22', 'Shirt Length' => '58',
                 ],
                 'notes' => 'Second fitting scheduled after initial alterations.',
+                'superseded_at' => null,
             ]
         );
 
