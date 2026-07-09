@@ -32,7 +32,7 @@ Install these first if you don't have them:
   brew services start mysql@8.4
   ```
 
-## 1) One-time backend setup (`sutura-server`)
+## 1) One-time backend setup (`sutura-server`) — Terminal 1
 
 Create the local database once (only needed the first time):
 
@@ -71,9 +71,9 @@ php artisan serve
 
 Leave this terminal running. It serves the API at `http://127.0.0.1:8000`.
 
-## 2) One-time frontend setup (`sutura-client`)
+## 2) One-time frontend setup (`sutura-client`) — Terminal 2
 
-In a **second terminal**:
+Open a **second, new terminal** (leave Terminal 1 running `php artisan serve`) and run:
 
 ```bash
 cd sutura-client
