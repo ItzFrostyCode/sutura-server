@@ -109,6 +109,11 @@ Route::prefix('v1')->group(function () {
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::put('/customers/{customer}', [CustomerController::class, 'update']);
                 Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
+
+                // Services (read-only) — every role that can create/edit an
+                // appointment or job order needs to populate a service picker;
+                // managing services (create/update/delete) stays owner-only below.
+                Route::get('/services', [ServiceController::class, 'index']);
             });
 
             // Owner & Branch Manager Access
@@ -134,19 +139,23 @@ Route::prefix('v1')->group(function () {
                 // File Uploads
                 Route::post('/upload', [FileUploadController::class, 'store']);
 
+                // Staff/branch lists (read-only) — a branch manager assigning
+                // an appointment needs to know who's on staff and which branch
+                // it's for; managing staff/branches stays owner-only below.
+                Route::get('/staff', [StaffController::class, 'index']);
+                Route::get('/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'index']);
+
             });
 
             // Owner Only Access
             Route::middleware('role:shop_owner')->group(function () {
-                // Staff Management
-                Route::get('/staff', [StaffController::class, 'index']);
+                // Staff Management (list/read is granted to shop_owner+branch_manager above)
                 Route::get('/staff/{staff}', [StaffController::class, 'show']);
                 Route::post('/staff', [StaffController::class, 'store']);
                 Route::put('/staff/{staff}', [StaffController::class, 'update']);
                 Route::delete('/staff/{staff}', [StaffController::class, 'destroy']);
-                
-                // Services
-                Route::get('/services', [ServiceController::class, 'index']);
+
+                // Services (list/read is granted to shop_owner+branch_manager+staff above)
                 Route::post('/services', [ServiceController::class, 'store']);
                 Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
@@ -211,8 +220,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('role:shop_owner')->group(function () {
             Route::apiResource('shops', ShopController::class);
             
-            // Branch Management
-            Route::get('/shops/{shop}/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'index']);
+            // Branch Management (list/read is granted to shop_owner+branch_manager above)
             Route::post('/shops/{shop}/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'store']);
             Route::put('/shops/{shop}/branches/{branch}', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'update']);
             Route::delete('/shops/{shop}/branches/{branch}', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'destroy']);

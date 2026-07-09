@@ -7,6 +7,17 @@ SUTURA is two separate projects that run at the same time:
 
 These are two **independent** repos — clone each one anywhere you want on your computer, they don't need to be in the same parent folder or even near each other. They talk to each other over the network (`http://127.0.0.1:8000`), not through the filesystem, so there's no required folder structure. The only real requirement is that **both are running at the same time**, each in its own terminal, whenever you're using the app. If the backend isn't running, the dashboard will look broken/stuck loading.
 
+## 0) Clone both repos
+
+Open a terminal and run (this can be the same terminal for both — cloning doesn't need to stay open):
+
+```bash
+git clone https://github.com/ItzFrostyCode/sutura-server.git
+git clone https://github.com/ItzFrostyCode/sutura-client.git
+```
+
+This creates two folders, `sutura-server/` and `sutura-client/`, side by side in whatever directory you ran the commands from. Everything below (`cd sutura-server`, `cd sutura-client`) assumes you're still in that same parent directory.
+
 ## Requirements
 
 Install these first if you don't have them:
@@ -14,18 +25,41 @@ Install these first if you don't have them:
 - **PHP 8.3+** (`php -v` to check)
 - **Composer** (`composer -V` to check)
 - **Node.js 20+** and **npm** (`node -v` to check)
-- SQLite — no separate database server (MySQL/Postgres) needed, it's a single file
+- **MySQL 8.4+** — matches the thesis's documented tech stack (production runs on
+  PlanetScale, a hosted MySQL). Install it locally with Homebrew:
+  ```bash
+  brew install mysql@8.4
+  brew services start mysql@8.4
+  ```
 
 ## 1) One-time backend setup (`sutura-server`)
+
+Create the local database once (only needed the first time):
+
+```bash
+/opt/homebrew/opt/mysql@8.4/bin/mysql -u root -e "
+CREATE DATABASE sutura CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'sutura'@'localhost' IDENTIFIED BY 'sutura_local_dev';
+GRANT ALL PRIVILEGES ON sutura.* TO 'sutura'@'localhost';
+FLUSH PRIVILEGES;
+"
+```
+
+Then set up the app:
 
 ```bash
 cd sutura-server
 composer install
 cp .env.example .env
 php artisan key:generate
-touch database/database.sqlite
 php artisan migrate --seed
 ```
+
+`.env.example` already points at `DB_DATABASE=sutura`, `DB_USERNAME=sutura` with
+the password above — matching the database you just created. If you later get
+a paid PlanetScale plan, just swap `DB_HOST`/`DB_USERNAME`/`DB_PASSWORD`/
+`DB_DATABASE` in `.env` for PlanetScale's connection string — nothing else
+about the app needs to change, since it's already running on real MySQL.
 
 `--seed` loads demo data: roles, a subscription plan, and a full sample shop (services, staff, jobs, appointments, catalog items, etc.) via `LocalTestSeeder`. This is what makes sure **you and your groupmates see the same demo data**, as long as everyone runs this same command on a fresh database.
 
@@ -63,7 +97,9 @@ For this thesis's scope, you only need the **Shop Owner** account — that's the
 
 ## Everyday use after the first setup
 
-You don't need to repeat step 1/2's install commands every time — just:
+`brew services start mysql@8.4` (from setup) keeps MySQL running in the
+background permanently — including after a restart — so you don't need to
+start it again each session. You just need:
 
 ```bash
 # Terminal 1
@@ -84,6 +120,7 @@ If you set it to `QUEUE_CONNECTION=database` and never run that separate queue w
 ## Troubleshooting
 
 - **Dashboard stuck loading / network errors**: make sure `php artisan serve` is still running in its terminal.
+- **"SQLSTATE[HY000] [2002] Connection refused" or similar on `migrate`**: MySQL isn't running. Run `brew services start mysql@8.4`.
 - **Login fails with "unauthorized" or accounts don't exist**: re-run `php artisan migrate --seed` (add `:fresh` — i.e. `php artisan migrate:fresh --seed` — if the database already has partial/broken data and you want a clean slate).
 - **Port already in use**: something else is already running on 8000 or 3000. Stop it, or run `php artisan serve --port=8001` (and update the frontend's API URL if you do).
 - **"npm run dev" errors about Node version**: update Node to 20 or newer.

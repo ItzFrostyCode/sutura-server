@@ -30,7 +30,7 @@ class ShopBranchController extends Controller
         $shop = Shop::findOrFail($shopId);
         
         $branchCount = $shop->branches()->count();
-        $subscription = $shop->subscription()->where('status', 'active')->first();
+        $subscription = $shop->subscription()->whereIn('status', ['active', 'trial'])->first();
         $canAddBranch = $subscription && $subscription->plan->slug === 'premium';
 
         if ($branchCount >= 1 && !$canAddBranch) {
