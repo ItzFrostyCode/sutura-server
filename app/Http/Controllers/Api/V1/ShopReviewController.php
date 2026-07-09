@@ -48,6 +48,25 @@ class ShopReviewController extends Controller
         ]);
     }
 
+    /**
+     * Public feed for the storefront's Reviews tab — same review content as
+     * the owner's dashboard list, just without the management fields being
+     * writable, and reachable without authentication.
+     */
+    public function publicIndex(Shop $shop, Request $request): JsonResponse
+    {
+        $query = $shop->reviews()->with('user:id,name');
+
+        if ($request->has('rating')) {
+            $query->where('rating', $request->rating);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $query->latest()->paginate($request->input('per_page', 10))
+        ]);
+    }
+
     public function update(Request $request, Shop $shop, ShopReview $review): JsonResponse
     {
         if ($review->shop_id !== $shop->id) {

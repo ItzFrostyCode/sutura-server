@@ -9,7 +9,6 @@ use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Api\V1\StaffController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\ShopSpecialHourController;
-use App\Http\Controllers\Api\V1\ServicePricingController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\MeasurementController;
 use App\Http\Controllers\Api\V1\JobOrderController;
@@ -20,8 +19,6 @@ use App\Http\Controllers\Api\V1\FileUploadController;
 use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\NotificationController;
-use App\Http\Controllers\Api\V1\SupplierController;
-use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\SupportTicketController;
 
 if (!defined('MEASUREMENT_DETAIL_ROUTE')) {
@@ -46,7 +43,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/catalog/{shop:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
     Route::get('/catalog/{shop:slug}/appointments', [PublicBookingController::class, 'getAppointments']);
     Route::post('/catalog/{shop:slug}/book', [PublicBookingController::class, 'submit']);
+    Route::post('/catalog/{shop:slug}/coupons/validate', [\App\Http\Controllers\Api\V1\CouponController::class, 'validateCode']);
     Route::get('/catalog/{shop:slug}/{catalog}', [CatalogController::class, 'show']);
+    Route::get('/catalog/{shop:slug}/{catalog}/rental-dates', [CatalogController::class, 'rentalDates']);
+    Route::post('/catalog/{shop:slug}/{catalogItem}/view', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'incrementViews']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -116,9 +116,13 @@ Route::prefix('v1')->group(function () {
                 // Job Orders (Owner/Manager specific actions)
                 Route::post('/jobs', [JobOrderController::class, 'store']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
+                Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
+
+                // Coupon validation — read-only check, usable by anyone who can create a job order
+                Route::post('/coupons/validate', [\App\Http\Controllers\Api\V1\CouponController::class, 'validateCode']);
 
                 // Appointments — create and cancel (owner/manager only)
                 Route::post('/appointments', [AppointmentController::class, 'store']);
@@ -130,16 +134,6 @@ Route::prefix('v1')->group(function () {
                 // File Uploads
                 Route::post('/upload', [FileUploadController::class, 'store']);
 
-                // Suppliers
-                Route::apiResource('suppliers', SupplierController::class)->except(['index', 'show']);
-                Route::get('/suppliers', [SupplierController::class, 'index']);
-                Route::get('/suppliers/{supplier}', [SupplierController::class, 'show']);
-
-                // Inventory
-                Route::apiResource('inventory', InventoryController::class)->except(['index', 'show']);
-                Route::get('/inventory', [InventoryController::class, 'index']);
-                Route::get('/inventory/{inventory}', [InventoryController::class, 'show']);
-                Route::post('/inventory/{inventory}/adjust', [InventoryController::class, 'adjustStock']);
             });
 
             // Owner Only Access
@@ -154,23 +148,28 @@ Route::prefix('v1')->group(function () {
                 // Services
                 Route::get('/services', [ServiceController::class, 'index']);
                 Route::post('/services', [ServiceController::class, 'store']);
-                Route::post('/services/populate', [ServiceController::class, 'populate']);
                 Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
+                Route::put('/services/{service}/sale', [ServiceController::class, 'updateSale']);
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
-                
+
+                // Service Packages — bundles of 2+ existing services sold as one combo
+                Route::get('/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'index']);
+                Route::post('/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'store']);
+                Route::put('/service-packages/{servicePackage}', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'update']);
+                Route::delete('/service-packages/{servicePackage}', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'destroy']);
+
+                // Coupons — sale/discount codes redeemable against Catalog and/or Services
+                Route::get('/coupons', [\App\Http\Controllers\Api\V1\CouponController::class, 'index']);
+                Route::post('/coupons', [\App\Http\Controllers\Api\V1\CouponController::class, 'store']);
+                Route::put('/coupons/{coupon}', [\App\Http\Controllers\Api\V1\CouponController::class, 'update']);
+                Route::delete('/coupons/{coupon}', [\App\Http\Controllers\Api\V1\CouponController::class, 'destroy']);
 
                 // Temporary Special Hours & Announcements
                 Route::get('/special-hours', [ShopSpecialHourController::class, 'index']);
                 Route::post('/special-hours', [ShopSpecialHourController::class, 'store']);
                 Route::put('/special-hours/{specialHour}', [ShopSpecialHourController::class, 'update']);
                 Route::delete('/special-hours/{specialHour}', [ShopSpecialHourController::class, 'destroy']);
-                
-                // Pricing
-                Route::get('/services/{service}/pricing', [ServicePricingController::class, 'index']);
-                Route::post('/services/{service}/pricing', [ServicePricingController::class, 'store']);
-                Route::put('/services/{service}/pricing/{pricing}', [ServicePricingController::class, 'update']);
-                Route::delete('/services/{service}/pricing/{pricing}', [ServicePricingController::class, 'destroy']);
 
                 // Audit Logs
                 Route::get('/audit-logs', [AuditLogController::class, 'index']);
@@ -178,10 +177,19 @@ Route::prefix('v1')->group(function () {
                 // Cross-branch performance comparison (owner-level strategic view)
                 Route::get('/analytics/branches', [AnalyticsController::class, 'branchComparison']);
 
+                // Individual staff productivity (owner-level strategic view)
+                Route::get('/analytics/staff', [AnalyticsController::class, 'staffProductivity']);
+
                 // Reviews Management
                 Route::get('/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'index']);
                 Route::put('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'update']);
                 Route::delete('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'destroy']);
+
+                // Shop Posts — completed-work showcase the owner posts to their storefront
+                Route::get('/posts', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'index']);
+                Route::post('/posts', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'store']);
+                Route::put('/posts/{post}', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'update']);
+                Route::delete('/posts/{post}', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'destroy']);
 
                 // Catalog Management
                 Route::get('/catalog', [CatalogController::class, 'index']);
@@ -236,8 +244,11 @@ Route::prefix('v1')->group(function () {
     // Public Catalog & Shop Profile
     Route::get('/public/shops/{shop:slug}', [ShopController::class, 'publicProfile']);
     Route::get('/public/shops/{shop:slug}/services', [ServiceController::class, 'publicIndex']);
+    Route::get('/public/shops/{shop:slug}/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'publicIndex']);
+    Route::get('/public/shops/{shop:slug}/posts', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'publicIndex']);
+    Route::get('/public/shops/{shop:slug}/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'publicIndex']);
     Route::post('/public/shops/{shop:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
+    Route::post('/public/shops/{shop:slug}/upload-reference-image', [FileUploadController::class, 'uploadPublicReferenceImage']);
     Route::get('/shops/{shop}/catalog', [CatalogController::class, 'index']);
     Route::get('/shops/{shop}/catalog/{catalog}', [CatalogController::class, 'show']);
-    Route::post('/shops/{shop}/catalog/{catalogItem}/view', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'incrementViews']);
 });

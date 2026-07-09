@@ -19,7 +19,9 @@ class CatalogController extends Controller
         $query = $shop->catalogItems()
             ->with(['images', 'recommendations.recommendedItem'])
             ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
-            ->withAvg('reviews', 'rating');
+            ->withAvg('reviews', 'rating')
+            ->withSum('catalogOrders as catalog_revenue', 'total_amount')
+            ->withSum('jobOrders as job_revenue', 'total_amount');
 
         // Anonymous (public storefront) visitors only ever see active items;
         // the authenticated owner still sees/manages paused ones from the same endpoint.
@@ -40,16 +42,13 @@ class CatalogController extends Controller
 
         $items = $query->get();
 
-        // Format the average rating nicely and attach dynamic sales performance metrics
+        // Format the average rating nicely and attach dynamic sales performance metrics.
+        // catalog_revenue/job_revenue come from withSum() above (one query for all
+        // items) rather than a per-item ->sum() call, which used to run 2 extra
+        // queries per item (96 extra queries for a 48-item catalog).
         $items->each(function($item) {
             $item->reviews_avg_rating = round($item->reviews_avg_rating, 1);
-
-            // Sum up total amounts from both Ready-to-Wear catalog orders and custom Job orders
-            $catalogRev = (float) $item->catalogOrders()->sum('total_amount');
-            $jobRev = (float) $item->jobOrders()->sum('total_amount');
-            $item->total_revenue = $catalogRev + $jobRev;
-
-            // Sum order counts
+            $item->total_revenue = (float) $item->catalog_revenue + (float) $item->job_revenue;
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
         });
 
@@ -69,6 +68,8 @@ class CatalogController extends Controller
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric',
             'sale_price' => 'nullable|numeric',
+            'sale_starts_at' => 'nullable|date',
+            'sale_ends_at' => 'nullable|date|after_or_equal:sale_starts_at',
             'rental_price' => 'nullable|numeric',
             'rental_deposit' => 'nullable|numeric',
             'material' => 'nullable|string|max:255',
@@ -97,6 +98,8 @@ class CatalogController extends Controller
             'name' => $validated['name'],
             'price' => $validated['price'] ?? $validated['sale_price'] ?? 0,
             'sale_price' => $validated['sale_price'] ?? null,
+            'sale_starts_at' => $validated['sale_starts_at'] ?? null,
+            'sale_ends_at' => $validated['sale_ends_at'] ?? null,
             'rental_price' => $validated['rental_price'] ?? null,
             'rental_deposit' => $validated['rental_deposit'] ?? null,
             'material' => $validated['material'] ?? null,
@@ -148,7 +151,11 @@ class CatalogController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
 
-        $catalog->load(['images', 'recommendations.recommendedItem.images']);
+        $catalog->load([
+            'images',
+            'recommendations.recommendedItem.images',
+            'reviews' => fn ($q) => $q->with('user:id,name')->latest()->limit(20),
+        ]);
         $catalog->loadCount(['saves', 'reviews', 'catalogOrders', 'jobOrders']);
         $catalog->loadAvg('reviews', 'rating');
         $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);
@@ -165,6 +172,31 @@ class CatalogController extends Controller
     }
 
     /**
+     * Publicly accessible, anonymized list of this item's currently-reserved
+     * rental date ranges — no customer info, just the dates, so a shopper can
+     * see genuinely booked ranges instead of a hardcoded placeholder.
+     */
+    public function rentalDates(Shop $shop, CatalogItem $catalog): JsonResponse
+    {
+        if ($catalog->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        $dates = $catalog->catalogOrders()
+            ->whereNotIn('status', ['cancelled', 'completed'])
+            ->whereNotNull('rental_start_date')
+            ->whereNotNull('rental_end_date')
+            ->orderBy('rental_start_date')
+            ->get(['rental_start_date', 'rental_end_date'])
+            ->map(fn ($order) => [
+                'start' => $order->rental_start_date->toDateString(),
+                'end'   => $order->rental_end_date->toDateString(),
+            ]);
+
+        return response()->json(['success' => true, 'data' => $dates]);
+    }
+
+    /**
      * Update the specified resource in storage.
      */
     public function update(Request $request, Shop $shop, CatalogItem $catalog): JsonResponse
@@ -177,6 +209,8 @@ class CatalogController extends Controller
             'name' => 'sometimes|string|max:255',
             'price' => 'sometimes|numeric',
             'sale_price' => 'nullable|numeric',
+            'sale_starts_at' => 'nullable|date',
+            'sale_ends_at' => 'nullable|date|after_or_equal:sale_starts_at',
             'rental_price' => 'nullable|numeric',
             'rental_deposit' => 'nullable|numeric',
             'material' => 'nullable|string|max:255',
@@ -206,6 +240,8 @@ class CatalogController extends Controller
             'price' => $validated['price'] ?? $catalog->price,
             'is_active' => array_key_exists('is_active', $validated) ? $validated['is_active'] : $catalog->is_active,
             'sale_price' => array_key_exists('sale_price', $validated) ? $validated['sale_price'] : $catalog->sale_price,
+            'sale_starts_at' => array_key_exists('sale_starts_at', $validated) ? $validated['sale_starts_at'] : $catalog->sale_starts_at,
+            'sale_ends_at' => array_key_exists('sale_ends_at', $validated) ? $validated['sale_ends_at'] : $catalog->sale_ends_at,
             'rental_price' => array_key_exists('rental_price', $validated) ? $validated['rental_price'] : $catalog->rental_price,
             'rental_deposit' => array_key_exists('rental_deposit', $validated) ? $validated['rental_deposit'] : $catalog->rental_deposit,
             'color' => array_key_exists('color', $validated) ? $validated['color'] : $catalog->color,

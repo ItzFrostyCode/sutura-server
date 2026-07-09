@@ -56,6 +56,7 @@ class MeasurementController extends Controller
         // Validate profile_name, metrics, and notes, supporting legacy measurements as well
         $validated = $request->validate([
             'customer_id' => 'sometimes|exists:users,id',
+            'source' => 'nullable|in:shop_owner,customer',
             'profile_name' => 'sometimes|string|max:100',
             'metrics' => 'sometimes|array',
             'measurements' => 'sometimes|array',

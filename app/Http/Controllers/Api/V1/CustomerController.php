@@ -63,11 +63,21 @@ class CustomerController extends Controller
 
         $user = User::where('email', $email)->first();
         if ($user) {
-            $user->update([
-                'name' => $validated['name'],
-                'phone' => $validated['phone'] ?? $user->phone,
-                'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
-            ]);
+            // Only overwrite the profile fields when the matched account is an
+            // actual customer (or a bare placeholder with no role yet) — email
+            // is globally unique, so a match could just as easily be another
+            // shop's owner/staff/admin account, and this endpoint must never
+            // let one shop's walk-in form silently rewrite a stranger's identity.
+            $isBusinessAccount = $user->hasRole('shop_owner') || $user->hasRole('staff')
+                || $user->hasRole('branch_manager') || $user->hasRole('admin');
+
+            if (!$isBusinessAccount) {
+                $user->update([
+                    'name' => $validated['name'],
+                    'phone' => $validated['phone'] ?? $user->phone,
+                    'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
+                ]);
+            }
         } else {
             $user = User::create([
                 'email' => $email,

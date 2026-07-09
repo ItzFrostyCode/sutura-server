@@ -15,15 +15,41 @@ class AuthController extends Controller
 {
     public function register(RegisterRequest $request): JsonResponse
     {
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'phone' => $request->phone,
-        ]);
+        $existing = User::where('email', $request->email)->first();
+
+        // An existing row with no real password yet is a "shadow" account —
+        // auto-created by a guest booking with a random, never-communicated
+        // password. Let this registration claim it instead of bouncing on a
+        // false-positive duplicate-email error; a fully-claimed account
+        // (owner, staff, or an already-registered customer) is still blocked.
+        if ($existing && $existing->password_set_at !== null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email is already registered. Please log in instead.',
+                'errors'  => ['email' => ['This email is already registered.']],
+            ], 422);
+        }
+
+        if ($existing) {
+            $user = $existing;
+            $user->update([
+                'name'            => $request->name,
+                'password'        => Hash::make($request->password),
+                'password_set_at' => now(),
+                'phone'           => $request->phone ?? $user->phone,
+            ]);
+        } else {
+            $user = User::create([
+                'name'            => $request->name,
+                'email'           => $request->email,
+                'password'        => Hash::make($request->password),
+                'password_set_at' => now(),
+                'phone'           => $request->phone,
+            ]);
+        }
 
         $role = Role::where('name', $request->role)->first();
-        if ($role) {
+        if ($role && !$user->hasRole($role->name)) {
             $user->roles()->attach($role->id);
         }
 
@@ -31,7 +57,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Account created successfully.',
+            'message' => $existing ? 'Account activated — your previous booking history is now linked to this account.' : 'Account created successfully.',
             'data' => [
                 'user' => $user->load('roles:id,name'),
                 'token' => $token,
@@ -55,7 +81,7 @@ class AuthController extends Controller
         $user->load('roles:id,name', 'shops');
         
         $staffProfile = null;
-        if ($user->hasRole('staff')) {
+        if ($user->hasRole('staff') || $user->hasRole('branch_manager')) {
             $user->load(['staffProfile.shop', 'staffProfile.branch']);
             if ($user->staffProfile) {
                 $staffProfile = $user->staffProfile;
@@ -88,7 +114,7 @@ class AuthController extends Controller
         $user = $request->user()->load('roles:id,name', 'shops');
         
         $staffProfile = null;
-        if ($user->hasRole('staff')) {
+        if ($user->hasRole('staff') || $user->hasRole('branch_manager')) {
             $user->load(['staffProfile.shop', 'staffProfile.branch']);
             if ($user->staffProfile) {
                 $staffProfile = $user->staffProfile;

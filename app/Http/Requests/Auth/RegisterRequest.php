@@ -15,7 +15,11 @@ class RegisterRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:191'],
-            'email' => ['required', 'string', 'email', 'max:191', 'unique:users'],
+            // No `unique:users` here — a guest-booking "shadow" account (no
+            // real password yet) may already own this email, and the
+            // controller lets that case claim the account instead of
+            // blocking on a false-positive duplicate.
+            'email' => ['required', 'string', 'email', 'max:191'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'phone' => ['nullable', 'string', 'max:20'],
             'role' => ['required', 'string', 'exists:roles,name'],

@@ -4,6 +4,7 @@ namespace App\Http\Requests\Shop;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Models\StaffProfile;
 
 class StoreStaffRequest extends FormRequest
 {
@@ -18,10 +19,18 @@ class StoreStaffRequest extends FormRequest
 
         return [
             'name' => ['required', 'string', 'max:191'],
-            'email' => ['required', 'string', 'email', 'max:191', 'unique:users'],
+            // No `unique:users` — a guest-booking "shadow" account (no real
+            // password yet) may already own this email; the controller lets
+            // that case be claimed as this staff account instead of blocking.
+            'email' => ['required', 'string', 'email', 'max:191'],
             'password' => ['required', 'string', 'min:8'],
             'phone' => ['nullable', 'string', 'max:20'],
-            'role' => ['required', 'in:head_tailor,tailor,cutter,seamstress,assistant,receptionist,quality_control,subcontractor,designer,pattern_maker'],
+            'role' => ['required', Rule::in(StaffProfile::ROLES)],
+            // Ranked secondary roles — index 0 is rank 2, index 1 is rank 3, etc.
+            // Lets one versatile staff member cover multiple roles without a
+            // separate duplicate account per role.
+            'additional_roles' => ['nullable', 'array'],
+            'additional_roles.*' => [Rule::in(StaffProfile::ROLES)],
             'specialization' => ['nullable', 'array'],
             'specialization.*' => ['string', 'max:100'],
             'hired_at' => ['nullable', 'date'],

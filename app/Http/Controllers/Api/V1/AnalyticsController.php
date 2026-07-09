@@ -70,6 +70,70 @@ class AnalyticsController extends Controller
         ]);
     }
 
+    /**
+     * Per-staff productivity breakdown — an owner-level strategic view (which
+     * staff member is completing/carrying the most work), so like
+     * branchComparison() it is deliberately not exposed to branch managers.
+     */
+    public function staffProductivity(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
+    {
+        $startDate = $request->query('start_date');
+        $endDate   = $request->query('end_date');
+        $branchId  = $request->filled('branch_id') ? $request->branch_id : null;
+
+        $scopeToRange = function ($query) use ($startDate, $endDate) {
+            if ($startDate && $endDate) {
+                $query->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+            }
+            return $query;
+        };
+
+        $staffQuery = $shop->staff()->with('user:id,name')->where('is_active', true);
+        if ($branchId) {
+            $staffQuery->where('shop_branch_id', $branchId);
+        }
+
+        $rows = $staffQuery->get()->map(function (\App\Models\StaffProfile $profile) use ($shop, $scopeToRange) {
+            // A job's single assigned_staff_id only reflects whichever
+            // production stage was assigned first — a staff member working a
+            // later stage (e.g. sewing, when someone else did cutting first)
+            // would otherwise never show up here despite doing real work on
+            // the job, so also credit jobs where they're assigned to ANY
+            // stage via the Multi-Stage Staff Assignment pivot.
+            $jobsQuery = $shop->jobOrders()->where(function ($q) use ($profile) {
+                $q->where('assigned_staff_id', $profile->user_id)
+                  ->orWhereHas('staffStages', function ($sq) use ($profile) {
+                      // staffStages is a belongsToMany(User::class, ...), so the
+                      // related model's own key is `id`, not `user_id` — the
+                      // pivot's user_id is what the join already matches on.
+                      // Qualified with the table name since both job_orders
+                      // and users have an `id` column, which is otherwise
+                      // ambiguous inside this EXISTS subquery.
+                      $sq->where('users.id', $profile->user_id);
+                  });
+            });
+            $scopeToRange($jobsQuery);
+
+            $totalJobs     = $jobsQuery->count();
+            $completedJobs = (clone $jobsQuery)->where('status', 'completed')->count();
+
+            return [
+                'staff_id'        => $profile->user_id,
+                'name'            => $profile->user?->name,
+                'role'            => $profile->role,
+                'total_jobs'      => $totalJobs,
+                'completed_jobs'  => $completedJobs,
+                'completion_rate' => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
+                'total_revenue'   => (float) (clone $jobsQuery)->where('status', 'completed')->sum('total_amount'),
+            ];
+        })->sortByDesc('completed_jobs')->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $rows,
+        ]);
+    }
+
     public function index(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
     {
         $startDate = $request->query('start_date');
@@ -117,10 +181,19 @@ class AnalyticsController extends Controller
             ->count();
 
         $totalStaff     = $shop->staff()->count();
-        $totalCustomers = $shop->customers()->count();
-
-        $lowStockItems = $shop->inventoryItems()
-            ->whereColumn('current_stock', '<=', 'reorder_level')
+        // The shop_customers pivot is only populated by the CRM's own "Add
+        // Customer" form — a customer who came in via a job order, walk-in
+        // creation, or public appointment booking never gets attached to it,
+        // so counting the pivot alone showed 0 for shops whose customers all
+        // arrived through those other paths. Same derivation CustomerController@index
+        // already uses for the actual Customers list, extended to also count
+        // appointment-only customers who don't have a job order yet.
+        $totalCustomers = collect()
+            ->merge($shop->customers()->pluck('users.id'))
+            ->merge($shop->jobOrders()->pluck('customer_id'))
+            ->merge($shop->appointments()->pluck('customer_id'))
+            ->filter()
+            ->unique()
             ->count();
 
         // Jobs by status breakdown — used for pie chart in Reports page
@@ -257,7 +330,6 @@ class AnalyticsController extends Controller
                 'total_branches'             => \App\Models\ShopBranch::where('shop_id', $shop->id)->count(),
                 'total_staff'                => $totalStaff,
                 'total_customers'            => $totalCustomers,
-                'low_stock_items'            => $lowStockItems,
                 'revenue_data'               => $revenueData,
                 'jobs_by_status'             => $jobsByStatus,
                 'recent_jobs'                => $recentJobs,

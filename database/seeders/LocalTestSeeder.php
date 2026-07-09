@@ -108,23 +108,24 @@ class LocalTestSeeder extends Seeder
             $staff->roles()->attach($staffRole->id);
         }
 
-        // Link the staff to the shop branch via StaffProfile
+        // Link the staff to the shop branch via StaffProfile — this demo staff
+        // member covers two roles (head tailor + sublimation), demonstrating
+        // the ranked additional_roles feature rather than needing a second
+        // duplicate-named account for the same person.
         if (!$staff->staffProfile()->exists()) {
             StaffProfile::create([
                 'user_id' => $staff->id,
                 'shop_id' => $shop->id,
                 'shop_branch_id' => $mainBranch->id,
-                'role' => 'head_tailor'
+                'role' => 'head_tailor',
+                'additional_roles' => ['sublimation_specialist'],
             ]);
         }
 
-        // 5. Update Shop Branding (Profile Picture/Logo, Bio/Description, Cover Photo in gallery_images)
+        // 5. Update Shop Branding (Profile Picture/Logo, Bio/Description)
         $shop->update([
             'logo_path' => 'http://127.0.0.1:8000/storage/logos/sutura_logo.png',
             'description' => "Davao City's premier provider of full sublimation jerseys, corporate uniforms, and custom tailoring.",
-            'gallery_images' => [
-                'https://images.unsplash.com/photo-1558244661-d248897f7bc4?q=80&w=1200&auto=format&fit=crop'
-            ]
         ]);
 
         // 6. Seed separated services (Sublimation Jerseys & Bespoke Suits)
@@ -213,9 +214,8 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // 8. Seed 3 Additional Tailoring Staff Members (making it 4 staff in total)
+        // 8. Seed 2 Additional Tailoring Staff Members (making it 3 staff in total)
         $staffNames = [
-            ['email' => 'juan.delacruz@sutura.com', 'name' => 'Juan Dela Cruz', 'role' => 'sublimation_specialist'],
             ['email' => 'ana.santos@sutura.com', 'name' => 'Ana Santos', 'role' => 'senior_designer'],
             ['email' => 'pedro.penduko@sutura.com', 'name' => 'Pedro Penduko', 'role' => 'cutter_sewer'],
         ];

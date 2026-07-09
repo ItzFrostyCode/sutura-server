@@ -21,7 +21,7 @@ class AppointmentController extends Controller
 
         $query = $shop->appointments()->with([
             'customer:id,name,email',
-            'service:id,name',
+            'service:id,name,base_price',
             'branch:id,name',
             'assignedStaff:id,name',
             'jobOrder:id,order_number',
@@ -72,8 +72,23 @@ class AppointmentController extends Controller
         // Owner-created entries are walk-ins (online ones come via the public booking form).
         $data['intake_channel']   = 'walkin';
 
+        // Same conflict guard the public booking form already enforces —
+        // an owner/staff manually logging a walk-in shouldn't be able to
+        // double-book a slot a customer already has confirmed.
+        if (Appointment::hasSchedulingConflict(
+            $shop,
+            $data['shop_branch_id'] ?? null,
+            \Carbon\Carbon::parse($data['scheduled_at']),
+            $data['duration_minutes']
+        )) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This time slot is already booked. Please choose a different time.',
+            ], 409);
+        }
+
         $appointment = $shop->appointments()->create($data);
-        $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+        $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         // Notify shop owner of new booking
         $shopOwner = $shop->owner;
@@ -130,6 +145,15 @@ class AppointmentController extends Controller
                     if (!in_array($appointment->status, ['pending', 'confirmed'])) {
                         $error = 'Only pending or confirmed appointments can be rescheduled.';
                         $status = 422;
+                    } elseif (Appointment::hasSchedulingConflict(
+                        $shop,
+                        $appointment->shop_branch_id,
+                        \Carbon\Carbon::parse($data['scheduled_at']),
+                        $data['duration_minutes'] ?? $appointment->duration_minutes ?? 60,
+                        $appointment->id
+                    )) {
+                        $error = 'This time slot is already booked. Please choose a different time.';
+                        $status = 409;
                     } else {
                         $isRescheduled = true;
 
@@ -150,10 +174,27 @@ class AppointmentController extends Controller
                 }
             }
 
+            // ── Confirm-time conflict re-check ────────────────────────────────────
+            // hasSchedulingConflict() only blocks against already-CONFIRMED
+            // appointments, so two customers can each hold a *pending* booking
+            // for the same slot with no warning at creation time — the moment
+            // either one gets confirmed, it has to be re-checked here, or the
+            // owner can silently confirm both and end up double-booked with
+            // nothing catching it.
+            if (!$error && $newStatus === 'confirmed' && $appointment->status !== 'confirmed') {
+                $checkAt = $isRescheduled ? \Carbon\Carbon::parse($data['scheduled_at']) : $appointment->scheduled_at;
+                $checkDuration = $data['duration_minutes'] ?? $appointment->duration_minutes ?? 60;
+
+                if (Appointment::hasSchedulingConflict($shop, $appointment->shop_branch_id, $checkAt, $checkDuration, $appointment->id)) {
+                    $error = 'This time slot is already booked by another confirmed appointment.';
+                    $status = 409;
+                }
+            }
+
             if (!$error) {
                 // Perform update
                 $appointment->update($data);
-                $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+                $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
                 // ── Notifications ─────────────────────────────────────────────────────
                 $customer = $appointment->customer;
@@ -218,7 +259,7 @@ class AppointmentController extends Controller
                 }
 
                 $appointment->update($updateData);
-                $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+                $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
                 // Notify customer
                 $customer = $appointment->customer;
@@ -297,7 +338,7 @@ class AppointmentController extends Controller
             $status = 422;
         } else {
             $appointment->update(['status' => 'cancelled']);
-            $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+            $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
             $customer = $appointment->customer;
             if ($customer) {
@@ -333,7 +374,7 @@ class AppointmentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment status updated.',
-            'data'    => $appointment->load(['customer:id,name,email', 'service:id,name', 'branch:id,name']),
+            'data'    => $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name']),
         ]);
     }
 }

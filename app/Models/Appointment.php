@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Appointment extends Model
 {
     /** Valid appointment types */
-    public const TYPES = ['consultation', 'measurement', 'fitting', 'alteration', 'pickup'];
+    public const TYPES = ['consultation', 'measurement', 'fitting', 'alteration', 'pickup', 'bulk_custom'];
 
     /** Valid statuses */
     public const STATUSES = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'];
@@ -44,6 +44,8 @@ class Appointment extends Model
         'assigned_staff_id',
         'status',
         'notes',
+        'reference_images',
+        'reference_link',
         'answers',
         'job_order_id',
         'payment_method',
@@ -59,6 +61,7 @@ class Appointment extends Model
         'scheduled_at'    => 'datetime',
         'duration_minutes' => 'integer',
         'answers'         => 'array',
+        'reference_images' => 'array',
     ];
 
     // ─── Relationships ────────────────────────────────────────────────────────
@@ -118,5 +121,38 @@ class Appointment extends Model
     {
         if (!$this->scheduled_at) return null;
         return $this->scheduled_at->copy()->addMinutes($this->duration_minutes ?? 60);
+    }
+
+    /**
+     * Whether a new [scheduledAt, scheduledAt + duration] window would
+     * overlap an existing confirmed appointment on the same branch. Shared
+     * by the public booking form and the owner's manual create/reschedule
+     * flow so double-booking is blocked consistently everywhere, not just
+     * for customers booking online.
+     */
+    public static function hasSchedulingConflict(
+        Shop $shop,
+        ?int $branchId,
+        \Carbon\Carbon $scheduledAt,
+        int $durationMinutes,
+        ?int $excludeId = null
+    ): bool {
+        $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes);
+
+        $query = $shop->appointments()
+            ->where('shop_branch_id', $branchId)
+            ->where('status', 'confirmed')
+            ->where('scheduled_at', '<', $newEnd);
+
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        return $query->get(['scheduled_at', 'duration_minutes'])
+            ->contains(function (self $appointment) use ($scheduledAt): bool {
+                return $appointment->scheduled_at->copy()
+                    ->addMinutes($appointment->duration_minutes ?? 60)
+                    ->gt($scheduledAt);
+            });
     }
 }

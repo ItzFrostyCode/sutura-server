@@ -15,7 +15,7 @@ class Shop extends Model
         'owner_id', 'name', 'slug', 'description', 'address', 'landmark',
         'city', 'province', 'postal_code', 'phone', 'email', 
         'logo_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
-        'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links', 'gallery_images',
+        'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
         'security_deposit', 'rental_duration_days', 'overdue_penalty_per_day', 'fitting_fee', 'fitting_limit',
         'reschedule_fee_percent', 'change_reserved_hours', 'change_reserved_fee_percent', 'supported_couriers'
@@ -25,7 +25,6 @@ class Shop extends Model
         'approved_at' => 'datetime',
         'booking_questions' => 'array',
         'social_links' => 'array',
-        'gallery_images' => 'array',
         'operating_hours' => 'array',
         'supported_couriers' => 'array',
         'security_deposit' => 'float',
@@ -63,6 +62,11 @@ class Shop extends Model
         return $this->hasMany(Service::class);
     }
 
+    public function servicePackages(): HasMany
+    {
+        return $this->hasMany(ServicePackage::class);
+    }
+
     public function branches(): HasMany
     {
         return $this->hasMany(ShopBranch::class);
@@ -88,6 +92,11 @@ class Shop extends Model
         return $this->hasMany(CatalogItem::class);
     }
 
+    public function coupons(): HasMany
+    {
+        return $this->hasMany(Coupon::class);
+    }
+
     public function customers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(User::class, 'shop_customers');
@@ -108,14 +117,9 @@ class Shop extends Model
         return $this->hasMany(ShopReview::class);
     }
 
-    public function suppliers(): HasMany
+    public function posts(): HasMany
     {
-        return $this->hasMany(Supplier::class);
-    }
-
-    public function inventoryItems(): HasMany
-    {
-        return $this->hasMany(InventoryItem::class);
+        return $this->hasMany(ShopPost::class);
     }
 
     public function specialHours(): HasMany

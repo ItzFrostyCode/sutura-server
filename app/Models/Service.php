@@ -27,17 +27,36 @@ class Service extends Model
     ];
 
     protected $fillable = [
-        'shop_id', 'name', 'description', 'category', 'service_type', 'tags',
-        'base_price', 'estimated_days', 'min_order_qty', 'is_active', 'custom_fields', 'image_url',
+        'shop_id', 'name', 'description', 'category', 'categories', 'service_type', 'service_types', 'tags',
+        'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
+        'estimated_days', 'min_order_qty', 'is_active', 'custom_fields', 'image_url',
+        'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
     ];
 
     protected $casts = [
         'base_price' => 'decimal:2',
+        'sale_price' => 'decimal:2',
+        'sale_starts_at' => 'datetime',
+        'sale_ends_at' => 'datetime',
         'min_order_qty' => 'integer',
         'is_active' => 'boolean',
         'custom_fields' => 'array',
         'tags' => 'array',
+        'size_chart_columns' => 'array',
+        'size_chart_rows' => 'array',
+        'categories' => 'array',
+        'service_types' => 'array',
     ];
+
+    /**
+     * A service can now carry more than one functional type at once (e.g. a
+     * group that's both Bulk/Sublimation and Alterations) — every conditional
+     * Job Order rule for each type it has still applies (union, not one-of).
+     */
+    public function hasType(string $type): bool
+    {
+        return in_array($type, $this->service_types ?? [], true);
+    }
 
     public function shop(): BelongsTo
     {
@@ -57,6 +76,27 @@ class Service extends Model
     public function appointments(): HasMany
     {
         return $this->hasMany(Appointment::class);
+    }
+
+    /**
+     * Mirrors CatalogItem::effectivePrice() — the price to actually suggest
+     * right now, respecting the optional sale window.
+     */
+    public function effectivePrice(): float
+    {
+        if ($this->sale_price === null || (float) $this->sale_price >= (float) $this->base_price) {
+            return (float) $this->base_price;
+        }
+
+        $now = now();
+        if ($this->sale_starts_at && $now->lt($this->sale_starts_at)) {
+            return (float) $this->base_price;
+        }
+        if ($this->sale_ends_at && $now->gt($this->sale_ends_at)) {
+            return (float) $this->base_price;
+        }
+
+        return (float) $this->sale_price;
     }
 }
 

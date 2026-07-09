@@ -46,6 +46,7 @@ class CatalogOrderController extends Controller
                 'required',
                 Rule::exists('catalog_items', 'id')->where('shop_id', $shopId),
             ],
+            'selected_size'           => 'nullable|string|max:50',
             'customer_id'             => 'nullable|exists:users,id',
             'type'                    => 'required|in:walkin,online',
             'total_amount'            => 'required|numeric|min:0',
@@ -79,6 +80,14 @@ class CatalogOrderController extends Controller
                     ]
                 ], 422);
             }
+            if ($catalogItem->hasRentalConflict($validated['rental_start_date'], $validated['rental_end_date'])) {
+                return response()->json([
+                    'message' => 'This item is already reserved for part of that date range.',
+                    'errors'  => [
+                        'rental_start_date' => ['This item is already reserved for part of that date range.']
+                    ]
+                ], 409);
+            }
         }
 
         $validated['shop_id'] = $shopId;
@@ -86,6 +95,14 @@ class CatalogOrderController extends Controller
         $validated['fulfillment_type'] = $validated['fulfillment_type'] ?? 'pickup';
 
         $order = \App\Models\CatalogOrder::create($validated);
+
+        // Notify shop owner of the new order (mirrors Job Orders/Appointments,
+        // which already notify regardless of who — owner or staff — logged it).
+        $shop = \App\Models\Shop::find($shopId);
+        $shopOwner = $shop?->owner;
+        if ($shopOwner) {
+            $shopOwner->notify(new \App\Notifications\NewCatalogOrderNotification($order));
+        }
 
         return response()->json(['data' => $order->load(['catalogItem', 'customer'])], 201);
     }
@@ -118,6 +135,20 @@ class CatalogOrderController extends Controller
         }
 
         $isRental = $order->catalogItem?->listing_type === 'for_rent';
+
+        // A deduction larger than the deposit actually held has no meaning —
+        // there's nothing left to withhold beyond the deposit itself, and the
+        // UI never separately computes/shows the refund amount, so this is the
+        // only place a mistaken/miskeyed figure would ever get caught.
+        if (isset($validated['deposit_deduction_amount']) && $order->security_deposit_amount !== null
+            && (float) $validated['deposit_deduction_amount'] > (float) $order->security_deposit_amount) {
+            return response()->json([
+                'message' => 'The given data was invalid.',
+                'errors'  => [
+                    'deposit_deduction_amount' => ['Deduction cannot exceed the security deposit held (₱' . number_format((float) $order->security_deposit_amount, 2) . ').'],
+                ],
+            ], 422);
+        }
 
         // Liability safeguard: a rental item cannot be handed over to the customer
         // without the shop first capturing/holding a valid government ID.

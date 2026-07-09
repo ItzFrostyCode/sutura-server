@@ -68,7 +68,32 @@ class FileUploadController extends Controller
         if ($request->hasFile('file')) {
             $file = $request->file('file');
             $path = $file->store(self::SHOPS_DIR . $shop->id . '/receipts', 'public');
-            
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'url' => config('app.url') . Storage::url($path)
+                ]
+            ]);
+        }
+
+        return response()->json(['success' => false, 'message' => self::NO_FILE_UPLOADED], 400);
+    }
+
+    /**
+     * Reference/design images a customer attaches to a bulk/custom order
+     * inquiry (e.g. a jersey design mockup, an existing uniform photo).
+     */
+    public function uploadPublicReferenceImage(Request $request, Shop $shop): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
+        ]);
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/references', 'public');
+
             return response()->json([
                 'success' => true,
                 'data' => [

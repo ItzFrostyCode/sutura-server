@@ -31,7 +31,6 @@ class UpdateShopRequest extends FormRequest
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
             'social_links' => ['nullable', 'array'],
-            'gallery_images' => ['nullable', 'array'],
             'operating_hours' => ['nullable', 'array'],
             'security_deposit' => ['nullable', 'numeric'],
             'rental_duration_days' => ['nullable', 'integer', 'min:1'],

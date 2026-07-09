@@ -4,6 +4,7 @@ namespace App\Http\Requests\Shop;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Models\StaffProfile;
 
 class UpdateStaffRequest extends FormRequest
 {
@@ -22,7 +23,9 @@ class UpdateStaffRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:191'],
             'email' => ['sometimes', 'required', 'string', 'email', 'max:191', 'unique:users,email,' . ($userId ?? 'NULL')],
             'phone' => ['nullable', 'string', 'max:20'],
-            'role' => ['sometimes', 'required', 'in:head_tailor,tailor,cutter,seamstress,assistant,receptionist,quality_control,subcontractor,designer,pattern_maker'],
+            'role' => ['sometimes', 'required', Rule::in(StaffProfile::ROLES)],
+            'additional_roles' => ['nullable', 'array'],
+            'additional_roles.*' => [Rule::in(StaffProfile::ROLES)],
             'specialization' => ['nullable', 'array'],
             'specialization.*' => ['string', 'max:100'],
             'hired_at' => ['nullable', 'date'],

@@ -81,6 +81,9 @@ class PublicBookingController extends Controller
             'scheduled_at'     => ['required', 'date', 'after:now'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
             'notes'            => ['nullable', 'string', 'max:2000'],
+            'reference_images' => ['nullable', 'array', 'max:10'],
+            'reference_images.*' => ['string', 'max:1000'],
+            'reference_link'   => ['nullable', 'url', 'max:500'],
             'answers'          => ['nullable', 'array'],
             'payment_method'   => ['nullable', 'string', 'in:cash,gcash,bank_transfer'],
             'payment_reference'=> ['nullable', 'string', 'max:255'],
@@ -88,10 +91,12 @@ class PublicBookingController extends Controller
 
             // Catalog Order context
             'catalog_item_id'   => ['nullable', Rule::exists('catalog_items', 'id')->where('shop_id', $shop->id)],
+            'selected_size'     => ['nullable', 'string', 'max:50'],
             'fulfillment_type'  => ['nullable', 'in:pickup,shipping,delivery'],
             'delivery_address'  => ['nullable', 'string', 'max:1000'],
             'rental_start_date' => ['nullable', 'date'],
             'rental_end_date'   => ['nullable', 'date', 'after_or_equal:rental_start_date'],
+            'coupon_code'       => ['nullable', 'string', 'max:50'],
         ]);
 
         $type = $validated['appointment_type'];
@@ -116,6 +121,22 @@ class PublicBookingController extends Controller
                             'errors'  => ['rental_start_date' => ['Pickup Date and Return Date are required for rentals.']],
                         ], 422);
                     }
+                    if ($catalogItem->hasRentalConflict($validated['rental_start_date'], $validated['rental_end_date'])) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'This item is already reserved for part of that date range. Please choose different dates.',
+                        ], 409);
+                    }
+                }
+
+                // A size must be picked whenever the item actually has sizes to
+                // choose from — otherwise the shop has no idea which one to prep.
+                if (!empty($catalogItem->sizes) && empty($validated['selected_size'])) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The given data was invalid.',
+                        'errors'  => ['selected_size' => ['Please select a size for this item.']],
+                    ], 422);
                 }
             }
         }
@@ -141,21 +162,8 @@ class PublicBookingController extends Controller
         // ── Double-booking check (only against confirmed appointments) ─────────
         $scheduledAt     = Carbon::parse($validated['scheduled_at']);
         $durationMinutes = $validated['duration_minutes'] ?? 60;
-        $newEnd          = $scheduledAt->copy()->addMinutes($durationMinutes);
 
-        $confirmedAppointments = $shop->appointments()
-            ->where('shop_branch_id', $branchId)
-            ->where('status', 'confirmed')
-            ->where('scheduled_at', '<', $newEnd)
-            ->get(['scheduled_at', 'duration_minutes']);
-
-        $conflict = $confirmedAppointments->contains(function (Appointment $appointment) use ($scheduledAt): bool {
-            return Carbon::parse($appointment->scheduled_at)
-                ->addMinutes($appointment->duration_minutes ?? 60)
-                ->gt($scheduledAt);
-        });
-
-        if ($conflict) {
+        if (Appointment::hasSchedulingConflict($shop, $branchId, $scheduledAt, $durationMinutes)) {
             return response()->json([
                 'success' => false,
                 'message' => 'This time slot is already booked. Please choose a different time.',
@@ -206,6 +214,8 @@ class PublicBookingController extends Controller
             'scheduled_at'     => $validated['scheduled_at'],
             'duration_minutes' => $durationMinutes,
             'notes'            => $validated['notes'] ?? null,
+            'reference_images' => $validated['reference_images'] ?? null,
+            'reference_link'   => $validated['reference_link'] ?? null,
             'answers'          => $validated['answers'] ?? null,
             'status'           => 'pending',
             'payment_method'   => $validated['payment_method'] ?? 'cash',
@@ -222,13 +232,33 @@ class PublicBookingController extends Controller
                 $orderNotes = "Customer requested delivery. Please calculate shipping fee and notify customer.";
             }
 
-            \App\Models\CatalogOrder::create([
+            $itemPrice = $catalogItem->effectivePrice();
+            $coupon = null;
+            $discountAmount = null;
+            if (!empty($validated['coupon_code'])) {
+                $candidateCoupon = $shop->coupons()->where('code', strtoupper($validated['coupon_code']))->first();
+                if ($candidateCoupon && $candidateCoupon->isValidFor('catalog')) {
+                    // Re-validates and increments atomically under a row lock so a
+                    // usage-limited code can't be redeemed past its limit by two
+                    // near-simultaneous checkouts both passing the check above.
+                    $coupon = \App\Models\Coupon::redeem($candidateCoupon->id, 'catalog');
+                    if ($coupon) {
+                        $discountAmount = $coupon->computeDiscount($itemPrice);
+                        $itemPrice = round($itemPrice - $discountAmount, 2);
+                    }
+                }
+            }
+
+            $catalogOrder = \App\Models\CatalogOrder::create([
                 'shop_id'                 => $shop->id,
                 'catalog_item_id'         => $catalogItem->id,
+                'selected_size'           => $validated['selected_size'] ?? null,
                 'customer_id'             => $customer->id,
                 'type'                    => 'online',
                 'status'                  => 'pending',
-                'total_amount'            => $catalogItem->price,
+                'total_amount'            => $itemPrice,
+                'coupon_id'               => $coupon?->id,
+                'discount_amount'         => $discountAmount,
                 'delivery_address'        => $validated['delivery_address'] ?? null,
                 'payment_status'          => 'pending',
                 'payment_method'          => $validated['payment_method'] ?? 'cash',
@@ -252,6 +282,9 @@ class PublicBookingController extends Controller
         $shopOwner = $shop->owner;
         if ($shopOwner) {
             $shopOwner->notify(new \App\Notifications\AppointmentBookedNotification($appointment));
+            if ($catalogItem && isset($catalogOrder)) {
+                $shopOwner->notify(new \App\Notifications\NewCatalogOrderNotification($catalogOrder));
+            }
         }
 
         return response()->json([

@@ -98,7 +98,12 @@ class JobOrderTest extends TestCase
             'base_price' => 1200,
             'estimated_days' => 10,
             'custom_fields' => $customFields,
-            'tags' => ['bespoke', 'wedding']
+            // Required — the real Create Service form disables submission
+            // until at least one pricing tier row exists (its amount, not
+            // the tier itself, is what's allowed to be left blank/optional).
+            'pricing_tiers' => [
+                ['label' => 'Standard', 'amount' => 1200],
+            ],
         ]);
 
         $serviceId = $serviceResponse->json('data.id');
@@ -111,8 +116,13 @@ class JobOrderTest extends TestCase
         // Verify custom_fields is stored
         $service = Service::find($serviceId);
         $this->assertEquals($customFields, $service->custom_fields);
-        // Regression: tags must persist (previously dropped — missing from $fillable/$casts)
-        $this->assertEquals(['bespoke', 'wedding'], $service->tags);
+        // Regression: tags must persist (previously dropped — missing from $fillable/$casts).
+        // ServiceController@store deliberately derives tags from the pricing
+        // tier labels (not a client-supplied value — StoreServiceRequest
+        // doesn't even validate a "tags" input) so service cards and the
+        // job-order service picker keep working without joining pricing on
+        // every read.
+        $this->assertEquals(['Standard'], $service->tags);
 
         // 2. Create job order with custom_order_data
         $customOrderData = [

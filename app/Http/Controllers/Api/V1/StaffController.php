@@ -92,12 +92,33 @@ class StaffController extends Controller
 
     public function store(StoreStaffRequest $request, Shop $shop): JsonResponse
     {
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'phone' => $request->phone,
-        ]);
+        $existing = User::where('email', $request->email)->first();
+
+        if ($existing && $existing->password_set_at !== null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email already belongs to a registered account.',
+                'errors'  => ['email' => ['This email already belongs to a registered account.']],
+            ], 422);
+        }
+
+        if ($existing) {
+            $user = $existing;
+            $user->update([
+                'name'            => $request->name,
+                'password'        => Hash::make($request->password),
+                'password_set_at' => now(),
+                'phone'           => $request->phone ?? $user->phone,
+            ]);
+        } else {
+            $user = User::create([
+                'name'            => $request->name,
+                'email'           => $request->email,
+                'password'        => Hash::make($request->password),
+                'password_set_at' => now(),
+                'phone'           => $request->phone,
+            ]);
+        }
 
         $isBranchManager = $request->boolean('is_branch_manager');
         $this->syncPlatformRole($user, $isBranchManager);
@@ -105,6 +126,7 @@ class StaffController extends Controller
         $staff = $shop->staff()->create([
             'user_id' => $user->id,
             'role' => $request->role,
+            'additional_roles' => $request->additional_roles,
             'specialization' => $request->specialization,
             'hired_at' => $request->hired_at,
             'shop_branch_id' => $request->shop_branch_id,
@@ -134,7 +156,7 @@ class StaffController extends Controller
         }
 
         // Update the StaffProfile
-        $staff->update($request->only(['role', 'specialization', 'hired_at', 'is_active', 'shop_branch_id', 'is_branch_manager']));
+        $staff->update($request->only(['role', 'additional_roles', 'specialization', 'hired_at', 'is_active', 'shop_branch_id', 'is_branch_manager']));
 
         if ($user && $request->has('is_branch_manager')) {
             $this->syncPlatformRole($user, $staff->is_branch_manager);

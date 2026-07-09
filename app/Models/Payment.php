@@ -10,8 +10,10 @@ class Payment extends Model
         'job_order_id',
         'amount',
         'payment_method',
+        'reference',
         'recorded_by',
-        'notes'
+        'notes',
+        'receipt_path',
     ];
 
     public function jobOrder()
