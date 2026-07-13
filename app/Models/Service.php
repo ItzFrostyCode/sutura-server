@@ -79,8 +79,8 @@ class Service extends Model
     }
 
     /**
-     * Mirrors CatalogItem::effectivePrice() — the price to actually suggest
-     * right now, respecting the optional sale window.
+     * The price to actually suggest right now, respecting the optional sale
+     * window.
      */
     public function effectivePrice(): float
     {

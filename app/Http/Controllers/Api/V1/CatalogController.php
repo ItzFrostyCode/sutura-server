@@ -67,11 +67,7 @@ class CatalogController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric',
-            'sale_price' => 'nullable|numeric',
-            'sale_starts_at' => 'nullable|date',
-            'sale_ends_at' => 'nullable|date|after_or_equal:sale_starts_at',
-            'rental_price' => 'nullable|numeric',
-            'rental_deposit' => 'nullable|numeric',
+            'estimated_days' => 'nullable|integer|min:1',
             'material' => 'nullable|string|max:255',
             'color' => 'nullable|string|max:100',
             'fabric_image_url' => 'nullable|string|max:500',
@@ -79,7 +75,6 @@ class CatalogController extends Controller
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
             'garment_type' => 'nullable|string|max:100',
-            'listing_type' => 'nullable|string|max:100',
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
@@ -98,19 +93,18 @@ class CatalogController extends Controller
 
         $item = $shop->catalogItems()->create([
             'name' => $validated['name'],
-            'price' => $validated['price'] ?? $validated['sale_price'] ?? 0,
-            'sale_price' => $validated['sale_price'] ?? null,
-            'sale_starts_at' => $validated['sale_starts_at'] ?? null,
-            'sale_ends_at' => $validated['sale_ends_at'] ?? null,
-            'rental_price' => $validated['rental_price'] ?? null,
-            'rental_deposit' => $validated['rental_deposit'] ?? null,
+            'price' => $validated['price'] ?? 0,
+            'estimated_days' => $validated['estimated_days'] ?? 7,
             'material' => $validated['material'] ?? null,
             'color' => $validated['color'] ?? null,
             'fabric_image_url' => $validated['fabric_image_url'] ?? null,
             'sizes' => $validated['sizes'] ?? null,
             'description' => $validated['description'] ?? null,
             'garment_type' => $validated['garment_type'] ?? null,
-            'listing_type' => $validated['listing_type'] ?? 'made_to_order',
+            // Made-to-order only — no ready-to-wear inventory or rental stock,
+            // the approved thesis frames this as a tailoring tracker, not a
+            // retail/rental system.
+            'listing_type' => 'made_to_order',
             'is_active' => $validated['is_active'] ?? true,
             'size_chart_image_url' => $validated['size_chart_image_url'] ?? null,
             'size_chart_columns' => $validated['size_chart_columns'] ?? null,
@@ -164,7 +158,7 @@ class CatalogController extends Controller
         $catalog->loadAvg('reviews', 'rating');
         $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);
 
-        // Sum up total amounts from both Ready-to-Wear catalog orders and custom Job orders
+        // Sum up total amounts from both walk-in catalog orders and Job Orders
         $catalogRev = (float) $catalog->catalogOrders()->sum('total_amount');
         $jobRev = (float) $catalog->jobOrders()->sum('total_amount');
         $catalog->total_revenue = $catalogRev + $jobRev;
@@ -173,31 +167,6 @@ class CatalogController extends Controller
         $catalog->order_count = $catalog->catalog_orders_count + $catalog->job_orders_count;
 
         return response()->json(['success' => true, 'data' => $catalog]);
-    }
-
-    /**
-     * Publicly accessible, anonymized list of this item's currently-reserved
-     * rental date ranges — no customer info, just the dates, so a shopper can
-     * see genuinely booked ranges instead of a hardcoded placeholder.
-     */
-    public function rentalDates(Shop $shop, CatalogItem $catalog): JsonResponse
-    {
-        if ($catalog->shop_id !== $shop->id) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
-        }
-
-        $dates = $catalog->catalogOrders()
-            ->whereNotIn('status', ['cancelled', 'completed'])
-            ->whereNotNull('rental_start_date')
-            ->whereNotNull('rental_end_date')
-            ->orderBy('rental_start_date')
-            ->get(['rental_start_date', 'rental_end_date'])
-            ->map(fn ($order) => [
-                'start' => $order->rental_start_date->toDateString(),
-                'end'   => $order->rental_end_date->toDateString(),
-            ]);
-
-        return response()->json(['success' => true, 'data' => $dates]);
     }
 
     /**
@@ -212,11 +181,7 @@ class CatalogController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'price' => 'sometimes|numeric',
-            'sale_price' => 'nullable|numeric',
-            'sale_starts_at' => 'nullable|date',
-            'sale_ends_at' => 'nullable|date|after_or_equal:sale_starts_at',
-            'rental_price' => 'nullable|numeric',
-            'rental_deposit' => 'nullable|numeric',
+            'estimated_days' => 'nullable|integer|min:1',
             'material' => 'nullable|string|max:255',
             'color' => 'nullable|string|max:100',
             'fabric_image_url' => 'nullable|string|max:500',
@@ -224,7 +189,6 @@ class CatalogController extends Controller
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
             'garment_type' => 'nullable|string|max:100',
-            'listing_type' => 'nullable|string|max:100',
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
@@ -244,19 +208,14 @@ class CatalogController extends Controller
         $catalog->update([
             'name' => $validated['name'] ?? $catalog->name,
             'price' => $validated['price'] ?? $catalog->price,
+            'estimated_days' => array_key_exists('estimated_days', $validated) ? $validated['estimated_days'] : $catalog->estimated_days,
             'is_active' => array_key_exists('is_active', $validated) ? $validated['is_active'] : $catalog->is_active,
-            'sale_price' => array_key_exists('sale_price', $validated) ? $validated['sale_price'] : $catalog->sale_price,
-            'sale_starts_at' => array_key_exists('sale_starts_at', $validated) ? $validated['sale_starts_at'] : $catalog->sale_starts_at,
-            'sale_ends_at' => array_key_exists('sale_ends_at', $validated) ? $validated['sale_ends_at'] : $catalog->sale_ends_at,
-            'rental_price' => array_key_exists('rental_price', $validated) ? $validated['rental_price'] : $catalog->rental_price,
-            'rental_deposit' => array_key_exists('rental_deposit', $validated) ? $validated['rental_deposit'] : $catalog->rental_deposit,
             'color' => array_key_exists('color', $validated) ? $validated['color'] : $catalog->color,
             'fabric_image_url' => array_key_exists('fabric_image_url', $validated) ? $validated['fabric_image_url'] : $catalog->fabric_image_url,
             'sizes' => array_key_exists('sizes', $validated) ? $validated['sizes'] : $catalog->sizes,
             'material' => array_key_exists('material', $validated) ? $validated['material'] : $catalog->material,
             'description' => array_key_exists('description', $validated) ? $validated['description'] : $catalog->description,
             'garment_type' => array_key_exists('garment_type', $validated) ? $validated['garment_type'] : $catalog->garment_type,
-            'listing_type' => array_key_exists('listing_type', $validated) ? $validated['listing_type'] : $catalog->listing_type,
             'size_chart_image_url' => array_key_exists('size_chart_image_url', $validated) ? $validated['size_chart_image_url'] : $catalog->size_chart_image_url,
             'size_chart_columns' => array_key_exists('size_chart_columns', $validated) ? $validated['size_chart_columns'] : $catalog->size_chart_columns,
             'size_chart_rows' => array_key_exists('size_chart_rows', $validated) ? $validated['size_chart_rows'] : $catalog->size_chart_rows,

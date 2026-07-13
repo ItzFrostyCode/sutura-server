@@ -11,20 +11,48 @@ class JobOrder extends Model
     use SoftDeletes;
 
     /**
-     * Single source of truth for the production lifecycle — unified with the
-     * Multi-Stage Staff Assignment stages (design/pattern_making/cutting/
-     * sewing/fitting/finishing) so the customer-facing timeline and the
-     * internal staff-assignment tracking describe the same process instead
-     * of two different vocabularies.
+     * Single source of truth for the 3-Phase Tailoring Tracker pipeline —
+     * unified with the Multi-Stage Staff Assignment stages (design/
+     * pattern_making/cutting/sewing/qc_ironing) so the customer-facing
+     * timeline and the internal staff-assignment tracking describe the same
+     * process instead of two different vocabularies.
+     *
+     * - 'mass_cutting_printing' is the Bulk Order Override: a job with a
+     *   Team Roster / Size Sheet (custom_order_data.team_roster) skips
+     *   'pattern_making' and goes straight here instead.
+     * - 'ready_for_fitting' auto-creates a Fitting appointment for the
+     *   customer (see JobOrderController@update).
+     * - 'final_adjustments' is the revert target if a fitting reveals issues
+     *   — from there the job either goes back to 'sewing' for rework or
+     *   forward to 'qc_ironing' once resolved.
      */
     public const STATUSES = [
-        'pending', 'design', 'pattern_making', 'cutting', 'sewing', 'fitting',
-        'finishing', 'ready_for_pickup', 'packed', 'handed_to_courier',
+        'pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
+        'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
         'completed', 'cancelled',
     ];
 
-    /** Assignable Multi-Stage Staff Assignment stages — a subset of STATUSES. */
-    public const STAFF_STAGES = ['design', 'pattern_making', 'cutting', 'sewing', 'fitting', 'finishing'];
+    /**
+     * Assignable Multi-Stage Staff Assignment stages. Deliberately does NOT
+     * include 'fitting' — fittings happen front-of-house with the master
+     * cutter/owner directly, not a backroom production stage — nor
+     * 'mass_cutting_printing', 'final_adjustments', 'ready_for_pickup' etc.,
+     * which aren't separately staffed roles.
+     */
+    public const STAFF_STAGES = ['design', 'pattern_making', 'cutting', 'sewing', 'qc_ironing'];
+
+    /**
+     * The "No DP, No Layout, No Cut" golden rule: a job cannot enter any of
+     * these production stages until a 50% downpayment has been logged.
+     * 'pending' and 'design' are deliberately exempt — no fabric or material
+     * is committed yet at those stages, only once pattern-making/cutting
+     * actually starts. Enforced in JobOrderController@update; the Kanban
+     * board mirrors this same array so the UI and the API never drift apart.
+     */
+    public const STAGES_REQUIRING_DOWNPAYMENT = [
+        'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
+        'ready_for_fitting', 'final_adjustments', 'qc_ironing',
+    ];
 
     /**
      * Who provided the fabric/garment being worked on — the digital equivalent
@@ -42,7 +70,7 @@ class JobOrder extends Model
         'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
         'is_outsourced', 'partner_shop_name', 'outsourcing_cost', 'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source',
-        'coupon_id', 'discount_amount', 'rejection_reason',
+        'discount_amount', 'rejection_reason',
     ];
 
     protected $casts = [
@@ -113,6 +141,21 @@ class JobOrder extends Model
                     ->using(JobOrderStaff::class)
                     ->withPivot('stage', 'assigned_at', 'completed_at')
                     ->withTimestamps();
+    }
+
+    /**
+     * Bulk Order Override signal: a Team Roster / Size Sheet was submitted,
+     * or the linked service is itself a bulk-sublimation service. Used to
+     * decide whether the job's next production stage after 'design' should
+     * be 'mass_cutting_printing' instead of 'pattern_making'.
+     */
+    public function isBulkOrder(): bool
+    {
+        if (!empty($this->custom_order_data['team_roster'] ?? null)) {
+            return true;
+        }
+
+        return $this->service?->hasType(Service::TYPE_BULK_SUBLIMATION) ?? false;
     }
 
 }

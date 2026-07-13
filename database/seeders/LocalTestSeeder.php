@@ -584,8 +584,7 @@ class LocalTestSeeder extends Seeder
                 'due_date' => now()->addDays(14)->format('Y-m-d'),
                 'notes' => '10 jerseys set for tournament',
                 'intake_channel' => 'online',
-                'fulfillment_type' => 'shipping',
-                'shipping_address' => 'Matina, Davao City',
+                'fulfillment_type' => 'pickup',
                 'custom_order_data' => [
                     'team_name' => 'Davao Eagles',
                     'team_roster' => [
@@ -650,6 +649,104 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
+        // 11a. Seed 3 more Job Orders exercising the new 3-Phase Tailoring
+        // Tracker statuses introduced by the pipeline redesign (Ready for
+        // Fitting/Final Adjustments/QC & Ironing/the bulk-order Mass Cutting
+        // & Printing override) so every Kanban column has at least one card.
+        $jo5 = \App\Models\JobOrder::firstOrCreate(
+            ['shop_id' => $shop->id, 'order_number' => 'JO-1005'],
+            [
+                'shop_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[1]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $staffUsers[1]->id,
+                'total_amount' => 18000.00,
+                'balance' => 9000.00,
+                'payment_status' => 'partial',
+                'status' => 'ready_for_fitting',
+                'due_date' => now()->addDays(7)->format('Y-m-d'),
+                'notes' => 'Barong Tagalog — ready for first fitting',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+            ]
+        );
+        // Simulates the auto-created Fitting appointment JobOrderController
+        // spawns when a job's status transitions to 'ready_for_fitting'.
+        \App\Models\Appointment::firstOrCreate(
+            ['shop_id' => $shop->id, 'job_order_id' => $jo5->id, 'appointment_type' => 'fitting'],
+            [
+                'shop_branch_id' => $mainBranch->id,
+                'customer_id' => $jo5->customer_id,
+                'intake_channel' => 'walk_in',
+                'scheduled_at' => now()->addDay()->setTime(10, 0),
+                'duration_minutes' => \App\Models\Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
+                'status' => 'pending',
+                'notes' => "Auto-generated when Job Order {$jo5->order_number} became Ready for Fitting — please confirm the actual date/time with the customer.",
+            ]
+        );
+
+        $jo6 = \App\Models\JobOrder::firstOrCreate(
+            ['shop_id' => $shop->id, 'order_number' => 'JO-1006'],
+            [
+                'shop_branch_id' => $branch2->id,
+                'customer_id' => $customers[2]->id,
+                'service_id' => $service1->id,
+                'assigned_staff_id' => $staffUsers[2]->id,
+                'total_amount' => 9750.00,
+                'balance' => 4875.00,
+                'payment_status' => 'partial',
+                'status' => 'mass_cutting_printing',
+                'due_date' => now()->addDays(12)->format('Y-m-d'),
+                'notes' => '15 volleyball jerseys — bulk order, skipped Pattern Making',
+                'intake_channel' => 'online',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'team_name' => 'Matina Spikers',
+                    'team_roster' => [
+                        ['name' => 'Anna Reyes', 'print_name' => 'ANNA', 'number' => '4', 'size' => 'M'],
+                        ['name' => 'Bea Santos', 'print_name' => 'BEA', 'number' => '12', 'size' => 'S'],
+                        ['name' => 'Carla Cruz', 'print_name' => 'CARLA', 'number' => '7', 'size' => 'L'],
+                    ],
+                ],
+            ]
+        );
+
+        $jo7 = \App\Models\JobOrder::firstOrCreate(
+            ['shop_id' => $shop->id, 'order_number' => 'JO-1007'],
+            [
+                'shop_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[0]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $staffUsers[0]->id,
+                'total_amount' => 14500.00,
+                'balance' => 7250.00,
+                'payment_status' => 'partial',
+                'status' => 'final_adjustments',
+                'due_date' => now()->addDays(3)->format('Y-m-d'),
+                'notes' => 'Fitting revealed a shoulder adjustment — back to Final Adjustments',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+            ]
+        );
+
+        $jo8 = \App\Models\JobOrder::firstOrCreate(
+            ['shop_id' => $shop->id, 'order_number' => 'JO-1008'],
+            [
+                'shop_branch_id' => $branch3->id,
+                'customer_id' => $customers[1]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $staffUsers[1]->id,
+                'total_amount' => 11000.00,
+                'balance' => 5500.00,
+                'payment_status' => 'partial',
+                'status' => 'qc_ironing',
+                'due_date' => now()->addDays(1)->format('Y-m-d'),
+                'notes' => 'Final quality check and ironing before pickup',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+            ]
+        );
+
         // 11b. Seed Multi-Stage Staff Assignments for each job order — otherwise
         // the "Multi-Stage Staff Assignment" card on every job's detail page
         // shows all 6 stages as "Unassigned", even though the feature (and its
@@ -669,21 +766,42 @@ class LocalTestSeeder extends Seeder
                 ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 3, 'completed' => 1],
                 ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 1, 'completed' => null],
             ],
-            $jo3->id => [ // status: ready_for_pickup — all 6 production stages already closed out
+            $jo3->id => [ // status: ready_for_pickup — all staff stages already closed out
                 ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 10, 'completed' => 9],
                 ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 9, 'completed' => 8],
                 ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 6],
                 ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 6, 'completed' => 4],
-                ['stage' => 'fitting', 'staff' => $staffUsers[0], 'assigned' => 4, 'completed' => 2],
-                ['stage' => 'finishing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => 1],
+                ['stage' => 'qc_ironing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => 1],
             ],
-            $jo4->id => [ // status: completed — all 6 production stages already closed out
+            $jo4->id => [ // status: completed — all staff stages already closed out
                 ['stage' => 'design', 'staff' => $staffUsers[2], 'assigned' => 9, 'completed' => 8],
                 ['stage' => 'pattern_making', 'staff' => $staffUsers[2], 'assigned' => 8, 'completed' => 7],
                 ['stage' => 'cutting', 'staff' => $staffUsers[2], 'assigned' => 7, 'completed' => 5],
                 ['stage' => 'sewing', 'staff' => $staffUsers[2], 'assigned' => 5, 'completed' => 3],
-                ['stage' => 'fitting', 'staff' => $staffUsers[2], 'assigned' => 3, 'completed' => 2],
-                ['stage' => 'finishing', 'staff' => $staffUsers[2], 'assigned' => 2, 'completed' => 1],
+                ['stage' => 'qc_ironing', 'staff' => $staffUsers[2], 'assigned' => 2, 'completed' => 1],
+            ],
+            $jo5->id => [ // status: ready_for_fitting — sewing done, no qc_ironing yet
+                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 8, 'completed' => 7],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 7, 'completed' => 6],
+                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 6, 'completed' => 4],
+                ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 4, 'completed' => 1],
+            ],
+            $jo6->id => [ // status: mass_cutting_printing — bulk order, pattern_making skipped
+                ['stage' => 'design', 'staff' => $staffUsers[2], 'assigned' => 3, 'completed' => 2],
+                ['stage' => 'cutting', 'staff' => $staffUsers[2], 'assigned' => 2, 'completed' => null],
+            ],
+            $jo7->id => [ // status: final_adjustments — reverted here after fitting
+                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 12, 'completed' => 11],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 11, 'completed' => 10],
+                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 10, 'completed' => 8],
+                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 5],
+            ],
+            $jo8->id => [ // status: qc_ironing — final quality check in progress
+                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 9, 'completed' => 8],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 8, 'completed' => 7],
+                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 7, 'completed' => 5],
+                ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 5, 'completed' => 3],
+                ['stage' => 'qc_ironing', 'staff' => $staffUsers[1], 'assigned' => 2, 'completed' => null],
             ],
         ];
         foreach ($stageAssignments as $jobOrderId => $stages) {
@@ -783,8 +901,9 @@ class LocalTestSeeder extends Seeder
             ['shop_id' => $shop->id, 'name' => 'Off-Shoulder Floral Tulle A-Line Gown'],
             [
                 'price' => 4500,
+                'estimated_days' => 10,
                 'material' => 'Chiffon & Tulle',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'is_active' => true,
                 'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
                 'size_chart_rows' => [
@@ -802,8 +921,9 @@ class LocalTestSeeder extends Seeder
             ['shop_id' => $shop->id, 'name' => 'Long-Train Wedding Gown'],
             [
                 'price' => 4500,
+                'estimated_days' => 14,
                 'material' => 'Chiffon & Tulle',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'is_active' => true,
                 'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
                 'size_chart_rows' => [
@@ -820,19 +940,21 @@ class LocalTestSeeder extends Seeder
 
         // 13c. Seed 2 pending catalog orders paid via GCash/Bank Transfer,
         // awaiting the owner's manual receipt verification — same "GCash &
-        // Bank Receipts" queue as the appointments seeded above.
+        // Bank Receipts" queue as the appointments seeded above. Walk-in
+        // doesn't mean cash-only — a customer can still pay digitally before
+        // coming in to collect a made-to-order piece.
         \App\Models\CatalogOrder::firstOrCreate(
             ['shop_id' => $shop->id, 'payment_reference' => 'GC-5563321190'],
             [
                 'catalog_item_id' => $gown1->id,
                 'customer_id' => $onlineCustomers['Cristina Ramos']->id,
-                'type' => 'online',
+                'type' => 'walkin',
                 'status' => 'pending',
                 'total_amount' => $gown1->price,
                 'payment_status' => 'pending',
                 'payment_method' => 'gcash',
-                'intake_channel' => 'online',
-                'fulfillment_type' => 'shipping',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
             ]
         );
         \App\Models\CatalogOrder::firstOrCreate(
@@ -840,13 +962,13 @@ class LocalTestSeeder extends Seeder
             [
                 'catalog_item_id' => $gown2->id,
                 'customer_id' => $onlineCustomers['Liza Fernandez']->id,
-                'type' => 'online',
+                'type' => 'walkin',
                 'status' => 'pending',
                 'total_amount' => $gown2->price,
                 'payment_status' => 'pending',
                 'payment_method' => 'bank_transfer',
-                'intake_channel' => 'online',
-                'fulfillment_type' => 'shipping',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
             ]
         );
 
@@ -861,53 +983,54 @@ class LocalTestSeeder extends Seeder
             $jo2->update(['catalog_item_id' => $item2->id]);
         }
 
-        // Seed some ready-to-wear CatalogOrders
+        // Seed some walk-in CatalogOrders across different statuses/stages
         if ($item1 && isset($customers[0])) {
-            // 1. Seed a completed rental (returned)
+            // 1. Completed walk-in sale
             \App\Models\CatalogOrder::updateOrCreate(
                 ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'completed'],
                 [
-                    'type' => 'online',
+                    'type' => 'walkin',
                     'total_amount' => 4500.00,
                     'payment_status' => 'paid',
                     'payment_method' => 'gcash',
-                    'intake_channel' => 'online',
+                    'intake_channel' => 'walk_in',
                     'fulfillment_type' => 'pickup',
-                    'rental_start_date' => now()->subDays(12)->toDateString(),
-                    'rental_end_date' => now()->subDays(7)->toDateString(),
-                    'security_deposit_amount' => 2250.00,
                 ]
             );
 
-            // 2. Seed a ready-for-pickup rental
-            \App\Models\CatalogOrder::updateOrCreate(
+            // 2. Ready-for-pickup walk-in order, with a repeat-customer discount applied
+            $discountedCatalogOrder = \App\Models\CatalogOrder::updateOrCreate(
                 ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'ready'],
                 [
-                    'type' => 'online',
-                    'total_amount' => 4500.00,
+                    'type' => 'walkin',
+                    'total_amount' => 4200.00,
+                    'discount_amount' => 300.00,
                     'payment_status' => 'paid',
                     'payment_method' => 'gcash',
-                    'intake_channel' => 'online',
+                    'intake_channel' => 'walk_in',
                     'fulfillment_type' => 'pickup',
-                    'rental_start_date' => now()->toDateString(),
-                    'rental_end_date' => now()->addDays(5)->toDateString(),
-                    'security_deposit_amount' => 2250.00,
+                ]
+            );
+            // Manual discount demo — mirrors CatalogOrderController::applyDiscount's
+            // audit trail so the feature has a real example from first seed.
+            \App\Models\AuditLog::firstOrCreate(
+                ['shop_id' => $shop->id, 'model_type' => \App\Models\CatalogOrder::class, 'model_id' => $discountedCatalogOrder->id, 'action' => 'discount_applied'],
+                [
+                    'user_id' => $shop->owner_id,
+                    'payload' => ['amount' => 300.00, 'reason' => 'Repeat customer — 4th order this year'],
                 ]
             );
 
-            // 3. Seed an active rental (out on rent)
+            // 3. Still being prepped
             \App\Models\CatalogOrder::updateOrCreate(
-                ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'out_for_delivery'], // used as Active Rental status on client
+                ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'pending'],
                 [
-                    'type' => 'online',
+                    'type' => 'walkin',
                     'total_amount' => 4500.00,
-                    'payment_status' => 'paid',
+                    'payment_status' => 'partial',
                     'payment_method' => 'gcash',
-                    'intake_channel' => 'online',
+                    'intake_channel' => 'walk_in',
                     'fulfillment_type' => 'pickup',
-                    'rental_start_date' => now()->subDays(3)->toDateString(),
-                    'rental_end_date' => now()->addDays(2)->toDateString(),
-                    'security_deposit_amount' => 2250.00,
                 ]
             );
         }
@@ -925,21 +1048,20 @@ class LocalTestSeeder extends Seeder
                 ]
             );
 
-            // 5. Seed an online pending purchase with shipping requested
+            // 5. Seed a pending walk-in purchase paid via GCash, awaiting prep
             \App\Models\CatalogOrder::updateOrCreate(
                 ['shop_id' => $shop->id, 'payment_reference' => 'GCASH-REF-884920194'],
                 [
                     'catalog_item_id' => $item2->id,
                     'customer_id' => $customers[1]->id,
-                    'type' => 'online',
+                    'type' => 'walkin',
                     'status' => 'pending',
                     'total_amount' => 650.00,
                     'payment_status' => 'pending',
                     'payment_method' => 'gcash',
                     'payment_receipt_path' => 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=500&auto=format&fit=crop&q=60',
-                    'intake_channel' => 'online',
-                    'fulfillment_type' => 'shipping',
-                    'delivery_address' => '123 Rizal Avenue, Caloocan City, Metro Manila',
+                    'intake_channel' => 'walk_in',
+                    'fulfillment_type' => 'pickup',
                 ]
             );
         }
@@ -967,47 +1089,25 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // 15. Seed Coupons — otherwise the Coupons page is completely empty on
-        // a fresh install, which looks broken/unfinished rather than just unused.
-        \App\Models\Coupon::updateOrCreate(
-            ['shop_id' => $shop->id, 'code' => 'WELCOME10'],
-            [
-                'discount_type' => 'percent',
-                'discount_value' => 10,
-                'applies_to' => 'all',
-                'usage_limit' => 100,
-                'used_count' => 0,
-                'starts_at' => now()->subDays(5),
-                'ends_at' => now()->addMonths(2),
-                'is_active' => true,
-            ]
-        );
-        \App\Models\Coupon::updateOrCreate(
-            ['shop_id' => $shop->id, 'code' => 'BULK500'],
-            [
-                'discount_type' => 'fixed',
-                'discount_value' => 500,
-                'applies_to' => 'services',
-                'usage_limit' => 50,
-                'used_count' => 3,
-                'starts_at' => now()->subDays(10),
-                'ends_at' => now()->addMonths(1),
-                'is_active' => true,
-            ]
-        );
-        \App\Models\Coupon::updateOrCreate(
-            ['shop_id' => $shop->id, 'code' => 'SUMMER2026'],
-            [
-                'discount_type' => 'percent',
-                'discount_value' => 15,
-                'applies_to' => 'catalog',
-                'usage_limit' => 30,
-                'used_count' => 30,
-                'starts_at' => now()->subMonths(2),
-                'ends_at' => now()->subDays(3),
-                'is_active' => false,
-            ]
-        );
+        // 15. Seed a manual per-order discount example (replaces the old
+        // Coupons/promo-code feature) — a one-time, in-the-moment discount
+        // the owner grants a repeat customer, logged to the audit trail.
+        // Mirrors JobOrderController::applyDiscount's effect: balance goes
+        // down by the discount amount, discount_amount accumulates.
+        if (isset($jo2)) {
+            $jo2DiscountAmount = 500.00;
+            $jo2->update([
+                'balance' => max(0, (float) $jo2->balance - $jo2DiscountAmount),
+                'discount_amount' => $jo2DiscountAmount,
+            ]);
+            \App\Models\AuditLog::firstOrCreate(
+                ['shop_id' => $shop->id, 'model_type' => \App\Models\JobOrder::class, 'model_id' => $jo2->id, 'action' => 'discount_applied'],
+                [
+                    'user_id' => $shop->owner_id,
+                    'payload' => ['amount' => $jo2DiscountAmount, 'reason' => 'Repeat customer — bulk jersey order'],
+                ]
+            );
+        }
 
         // 16. Seed a Service Package (bundle) — combines two existing services.
         $barongService = \App\Models\Service::where('name', 'Barong Tagalog Tailoring')->first();

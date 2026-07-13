@@ -4,7 +4,7 @@ namespace App\Http\Requests\Shop;
 
 use App\Models\Appointment;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Validator;
+use Illuminate\Validation\Rule;
 
 class StoreAppointmentRequest extends FormRequest
 {
@@ -27,7 +27,10 @@ class StoreAppointmentRequest extends FormRequest
                 : ['nullable', 'exists:shop_branches,id'],
             'scheduled_at'     => ['required', 'date', 'after:now'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
-            'assigned_staff_id'=> ['nullable', 'exists:users,id'],
+            'assigned_staff_id'=> [
+                'nullable',
+                Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
+            ],
             'notes'            => ['nullable', 'string', 'max:2000'],
             'answers'          => ['nullable', 'array'],
             'job_order_id'     => ['nullable', 'exists:job_orders,id'],
@@ -35,26 +38,6 @@ class StoreAppointmentRequest extends FormRequest
             'priority'         => ['nullable', 'string', 'in:normal,urgent,rush'],
             'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform'],
         ];
-    }
-
-    /**
-     * Conditional validation: service_id is required for measurement, fitting, alteration.
-     */
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function (Validator $v) {
-            $type      = $this->input('appointment_type');
-            $serviceId = $this->input('service_id');
-            $jobOrderId = $this->input('job_order_id');
-
-            // If job_order_id is present, service_id is not strictly required because the job order implies the service.
-            if (in_array($type, Appointment::TYPES_REQUIRING_SERVICE) && empty($serviceId) && empty($jobOrderId)) {
-                $v->errors()->add(
-                    'service_id',
-                    "A service or job order is required for appointment type: {$type}."
-                );
-            }
-        });
     }
 
     public function messages(): array

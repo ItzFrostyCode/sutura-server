@@ -36,16 +36,23 @@ class StaffController extends Controller
     public function index(Shop $shop): JsonResponse
     {
         $staff = $shop->staff()->with(['user:id,name,email,phone,last_seen_at', 'branch:id,name'])->get();
-        
-        $staff->transform(function($s) {
-            $s->active_jobs = \Illuminate\Support\Facades\DB::table('job_order_staff')
-                ->where('user_id', $s->user_id)
-                ->whereNull('completed_at')
-                ->count();
-            $s->completed_jobs = \Illuminate\Support\Facades\DB::table('job_order_staff')
-                ->where('user_id', $s->user_id)
-                ->whereNotNull('completed_at')
-                ->count();
+
+        // One grouped query for all staff instead of 2 queries per staff
+        // member — previously scaled linearly with the shop's headcount.
+        $userIds = $staff->pluck('user_id');
+        // CASE WHEN (not MySQL's boolean-as-integer shorthand) so this stays
+        // portable to Postgres, which doesn't implicitly cast booleans in SUM().
+        $counts = \Illuminate\Support\Facades\DB::table('job_order_staff')
+            ->whereIn('user_id', $userIds)
+            ->selectRaw('user_id, SUM(CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END) as active_jobs, SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) as completed_jobs')
+            ->groupBy('user_id')
+            ->get()
+            ->keyBy('user_id');
+
+        $staff->transform(function ($s) use ($counts) {
+            $row = $counts->get($s->user_id);
+            $s->active_jobs = (int) ($row->active_jobs ?? 0);
+            $s->completed_jobs = (int) ($row->completed_jobs ?? 0);
             return $s;
         });
 

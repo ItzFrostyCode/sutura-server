@@ -13,7 +13,7 @@ class CatalogItemTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_catalog_item_stores_sale_rent_pricing_color_and_sizes(): void
+    public function test_catalog_item_stores_price_estimated_days_color_and_sizes(): void
     {
         $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
         $user = User::factory()->create();
@@ -25,10 +25,8 @@ class CatalogItemTest extends TestCase
 
         $response = $this->actingAs($user)->postJson("/api/v1/shops/{$shop->id}/catalog", [
             'name' => 'Barong Tagalog',
-            'listing_type' => 'rent_or_sale',
-            'sale_price' => 2500,
-            'rental_price' => 500,
-            'rental_deposit' => 1000,
+            'price' => 2500,
+            'estimated_days' => 10,
             'color' => 'Ivory',
             'sizes' => ['S', 'M', 'L'],
         ]);
@@ -38,10 +36,9 @@ class CatalogItemTest extends TestCase
 
         $this->assertEquals('Ivory', $item->color);
         $this->assertEquals(['S', 'M', 'L'], $item->sizes);
-        $this->assertEquals(2500.0, (float) $item->sale_price);
-        $this->assertEquals(500.0, (float) $item->rental_price);
-        $this->assertEquals(1000.0, (float) $item->rental_deposit);
-        // Base price falls back to sale_price when not explicitly provided.
         $this->assertEquals(2500.0, (float) $item->price);
+        $this->assertEquals(10, $item->estimated_days);
+        // Made-to-order only — the approved thesis excludes ready-to-wear/rental listings.
+        $this->assertEquals('made_to_order', $item->listing_type);
     }
 }

@@ -8,7 +8,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Appointment extends Model
 {
     /** Valid appointment types */
-    public const TYPES = ['consultation', 'measurement', 'fitting', 'alteration', 'pickup', 'bulk_custom'];
+    public const TYPES = ['consultation', 'measurement', 'fitting', 'alteration', 'pickup'];
+
+    /**
+     * Default duration (minutes) per appointment type — the Schedule
+     * Appointment form auto-calculates duration from this instead of asking
+     * staff to pick one manually. Fitting/Measurement run longer since they
+     * involve hands-on work with the customer; Pickup is a quick counter
+     * handoff.
+     */
+    public const TYPE_DEFAULT_DURATIONS = [
+        'consultation' => 30,
+        'measurement'  => 45,
+        'fitting'      => 45,
+        'alteration'   => 30,
+        'pickup'       => 15,
+    ];
 
     /** Valid statuses */
     public const STATUSES = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'];

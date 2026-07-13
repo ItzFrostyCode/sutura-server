@@ -80,7 +80,15 @@ class JobOrderController extends Controller
         if ($request->has('status')) {
             $query->where('status', $request->status);
         }
-        
+
+        // Used by the appointment Complete flow to look up a specific
+        // customer's job orders (e.g. to link a Fitting/Pickup appointment)
+        // without being limited to whatever page of the full shop-wide list
+        // happens to be loaded elsewhere.
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', $request->customer_id);
+        }
+
         if ($request->has('assigned_staff_id')) {
             $query->where('assigned_staff_id', $request->assigned_staff_id);
         }
@@ -154,32 +162,6 @@ class JobOrderController extends Controller
             $validated['shop_branch_id'] = $staffProfile->shop_branch_id;
         }
 
-        // A coupon here is already applied to total_amount/balance by the
-        // owner's own form (so their downpayment math stays internally
-        // consistent) — unlike the public catalog checkout, this caller is
-        // the authenticated shop owner/manager who already fully controls
-        // total_amount directly, so there's no separate trust boundary to
-        // enforce. The backend's job is just to confirm the code is still
-        // legitimate and record/track its use, not recompute the math.
-        $couponCode = $validated['coupon_code'] ?? null;
-        $discountAmount = $validated['discount_amount'] ?? null;
-        unset($validated['coupon_code']);
-        if ($couponCode) {
-            $candidateCoupon = $shop->coupons()->where('code', strtoupper($couponCode))->first();
-            // Re-validates and increments atomically under a row lock so a
-            // usage-limited code can't be redeemed past its limit by two
-            // near-simultaneous job orders both passing isValidFor() above.
-            $coupon = $candidateCoupon && $candidateCoupon->isValidFor('services')
-                ? \App\Models\Coupon::redeem($candidateCoupon->id, 'services')
-                : null;
-            if ($coupon) {
-                $validated['coupon_id'] = $coupon->id;
-                $validated['discount_amount'] = $discountAmount;
-            } else {
-                unset($validated['discount_amount']);
-            }
-        }
-
         // Determine payment status based on total amount and balance
         $totalAmount = (float)$validated['total_amount'];
         $balance = (float)$validated['balance'];
@@ -211,6 +193,13 @@ class JobOrderController extends Controller
             }
         }
 
+        // Server-authoritative intake channel — auto-tagged from the linked
+        // appointment's own channel (online booking vs walk-in) instead of a
+        // manual "How did they order?" toggle, which staff had to remember
+        // to set correctly by hand. Any client-supplied intake_channel is
+        // ignored on purpose.
+        $validated['intake_channel'] = $appointment?->intake_channel === 'online' ? 'online' : 'walk_in';
+
         $jobOrder = $shop->jobOrders()->create($validated);
 
         foreach ($staffStages as $assignment) {
@@ -219,6 +208,10 @@ class JobOrderController extends Controller
                 'assigned_at' => now(),
                 'completed_at' => null,
             ]);
+
+            // Owner → Staff link: every stage assigned at creation is "new".
+            $assignedUser = \App\Models\User::find($assignment['user_id']);
+            $assignedUser?->notify(new \App\Notifications\StaffAssignedNotification($jobOrder, $assignment['stage']));
         }
 
         // Link back to the appointment now that the job exists
@@ -266,9 +259,18 @@ class JobOrderController extends Controller
             return $denied;
         }
 
+        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name']);
+
+        // Repeat-customer context surfaced right on the job so the owner can
+        // decide on a manual discount ("this is their 5th order") without
+        // having to jump to the Customers page first.
+        $jobOrder->customer_job_count = $jobOrder->customer_id
+            ? JobOrder::where('shop_id', $shop->id)->where('customer_id', $jobOrder->customer_id)->count()
+            : 0;
+
         return response()->json([
             'success' => true,
-            'data' => $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name'])
+            'data' => $jobOrder
         ]);
     }
 
@@ -294,14 +296,12 @@ class JobOrderController extends Controller
             $totalAmount = (float) $jobOrder->total_amount;
             $paidSoFar   = $totalAmount - (float) $jobOrder->balance;
 
-            // Matches the "50% downpayment required" policy shown on the Job
-            // Detail page and Kanban board — previously this only checked that
-            // *something* had been paid (balance < total), which let a ₱1
-            // payment on a ₱10,000 job through despite the UI advertising 50%.
-            // Design/pattern_making are deliberately excluded — no fabric or
-            // material is committed yet at those stages, only once cutting
-            // actually starts.
-            if (in_array($newStatus, ['cutting', 'sewing', 'fitting', 'finishing'], true) && $totalAmount > 0 && $paidSoFar < ($totalAmount * 0.5)) {
+            // "No DP, No Layout, No Cut": matches the 50% downpayment policy
+            // shown on the Job Detail page and Kanban board. 'pending' and
+            // 'design' are deliberately excluded — no fabric or material is
+            // committed yet at those stages, only once Pattern Making (or
+            // its Bulk Order Override, Mass Cutting & Printing) starts.
+            if (in_array($newStatus, JobOrder::STAGES_REQUIRING_DOWNPAYMENT, true) && $totalAmount > 0 && $paidSoFar < ($totalAmount * 0.5)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'A 50% downpayment must be collected before production can start on this job.',
@@ -331,11 +331,50 @@ class JobOrderController extends Controller
             $jobOrder->customer->notify(new \App\Notifications\OrderReadyNotification($jobOrder));
         }
 
+        // Phase 3: "Ready for Fitting" auto-triggers a Fitting appointment for
+        // the customer instead of the owner having to remember to book one
+        // manually. Guarded against duplicates so looping back through
+        // Final Adjustments and forward again doesn't spawn a second one —
+        // the placeholder date/time is a rough default the owner/staff is
+        // expected to actually reschedule with the customer.
+        if ($jobOrder->status === 'ready_for_fitting' && $oldStatus !== 'ready_for_fitting') {
+            // Locking the job order row for the duration of the check+create
+            // serializes two near-simultaneous transitions into
+            // 'ready_for_fitting' for the same job — without this, both
+            // requests could pass the "no open fitting exists yet" check
+            // before either INSERT commits, spawning two auto-fitting
+            // appointments instead of one.
+            \Illuminate\Support\Facades\DB::transaction(function () use ($shop, $jobOrder) {
+                JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
+
+                $hasOpenFitting = $jobOrder->appointments()
+                    ->where('appointment_type', 'fitting')
+                    ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+                    ->exists();
+
+                if (!$hasOpenFitting) {
+                    $jobOrder->appointments()->create([
+                        'shop_id' => $shop->id,
+                        'shop_branch_id' => $jobOrder->shop_branch_id,
+                        'customer_id' => $jobOrder->customer_id,
+                        'appointment_type' => 'fitting',
+                        'intake_channel' => 'walk_in',
+                        'scheduled_at' => now()->addDay()->setTime(10, 0),
+                        'duration_minutes' => \App\Models\Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
+                        'status' => 'pending',
+                        'notes' => "Auto-generated when Job Order {$jobOrder->order_number} became Ready for Fitting — please confirm the actual date/time with the customer.",
+                    ]);
+                }
+            });
+        }
+
         // Matches the thesis's own scope objective — customers "receive automated
         // SMS or email notifications at each stage transition, from placement to
         // final pickup." ready_for_pickup keeps its dedicated notification above;
-        // every other production/fulfillment stage is covered here.
-        $otherNotifiableStatuses = ['design', 'pattern_making', 'cutting', 'sewing', 'fitting', 'finishing', 'packed', 'handed_to_courier', 'completed', 'cancelled'];
+        // every other production/fulfillment stage is covered here. Derived from
+        // JobOrder::STATUSES (rather than a hand-kept literal list) so a future
+        // pipeline status is notifiable by default instead of silently excluded.
+        $otherNotifiableStatuses = array_diff(JobOrder::STATUSES, ['pending', 'ready_for_pickup']);
         if (in_array($jobOrder->status, $otherNotifiableStatuses, true) && $jobOrder->status !== $oldStatus) {
             $jobOrder->customer->notify(new \App\Notifications\JobStatusUpdatedNotification($jobOrder, $jobOrder->status));
         }
@@ -408,6 +447,71 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment logged successfully',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages'])
+        ]);
+    }
+
+    /**
+     * A one-time, in-the-moment discount the owner grants on an existing job
+     * (e.g. a repeat customer) — not a standing coupon/promo code. Reduces
+     * the remaining balance directly and is logged to the audit trail, same
+     * pattern as AppointmentController's reschedule/complete audit entries.
+     */
+    public function applyDiscount(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id) {
+            return response()->json(['message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $discountAmount = (float) $validated['amount'];
+
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($jobOrder, $discountAmount, $validated, $request) {
+                $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
+
+                $currentBalance = (float) $locked->balance;
+                if ($discountAmount > $currentBalance) {
+                    throw new \RuntimeException('Discount cannot exceed the remaining balance (₱' . number_format($currentBalance, 2) . ').');
+                }
+
+                $newBalance = round($currentBalance - $discountAmount, 2);
+                $newDiscountTotal = round((float) ($locked->discount_amount ?? 0) + $discountAmount, 2);
+
+                $locked->update([
+                    'balance' => $newBalance,
+                    'discount_amount' => $newDiscountTotal,
+                    'payment_status' => $newBalance <= 0 ? 'paid' : $locked->payment_status,
+                ]);
+
+                $shop = $locked->shop;
+                $shop->auditLogs()->create([
+                    'user_id'    => $request->user()->id,
+                    'action'     => 'discount_applied',
+                    'model_type' => JobOrder::class,
+                    'model_id'   => $locked->id,
+                    'payload'    => [
+                        'amount' => $discountAmount,
+                        'reason' => $validated['reason'] ?? null,
+                    ],
+                    'ip_address' => $request->ip(),
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Discount applied successfully.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages'])
         ]);
     }
@@ -498,6 +602,14 @@ class JobOrderController extends Controller
                 'assigned_at' => $samePersonAsBefore ? $previous->pivot->assigned_at : now(),
                 'completed_at' => $samePersonAsBefore ? $previous->pivot->completed_at : null,
             ]);
+
+            // Owner → Staff link: only for a stage that's newly filled or
+            // handed to a different person — re-saving the same assignment
+            // shouldn't spam a notification.
+            if (!$samePersonAsBefore) {
+                $assignedUser = \App\Models\User::find($assignment['user_id']);
+                $assignedUser?->notify(new \App\Notifications\StaffAssignedNotification($jobOrder, $assignment['stage']));
+            }
         }
 
         return response()->json([

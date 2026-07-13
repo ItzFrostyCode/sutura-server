@@ -15,11 +15,21 @@ class UpdateJobOrderRequest extends FormRequest
 
     public function rules(): array
     {
+        $shop = $this->route('shop');
+
         return [
             'intake_channel' => ['sometimes', 'in:walk_in,online'],
-            'fulfillment_type' => ['sometimes', 'in:pickup,shipping,delivery'],
-            'assigned_staff_id' => ['nullable', 'exists:users,id'],
-            'measurement_id' => ['nullable', 'exists:measurements,id'],
+            // Store pickup only — the approved thesis explicitly excludes
+            // logistics/courier/delivery management from the system's scope.
+            'fulfillment_type' => ['sometimes', 'in:pickup'],
+            'assigned_staff_id' => [
+                'nullable',
+                Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
+            ],
+            'measurement_id' => [
+                'nullable',
+                Rule::exists('measurements', 'id')->where('shop_id', $shop?->id),
+            ],
             // balance/payment_status are intentionally NOT editable here — they must
             // only move through JobOrderController@pay, which recomputes the balance
             // from the current DB value inside one request instead of trusting
@@ -29,9 +39,6 @@ class UpdateJobOrderRequest extends FormRequest
             'status' => ['sometimes', Rule::in(JobOrder::STATUSES)],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
-            'courier_name' => ['nullable', 'string', 'max:100'],
-            'courier_tracking_number' => ['nullable', 'string', 'max:100'],
-            'shipping_address' => ['nullable', 'string', 'max:500'],
             'custom_order_data' => ['nullable', 'array'],
             'custom_order_data.*' => ['nullable'],
             'custom_order_data.team_name' => ['nullable', 'string', 'max:255'],

@@ -12,6 +12,29 @@ use Illuminate\Http\Request;
 
 class AppointmentController extends Controller
 {
+    /**
+     * Branch managers/staff pinned to a branch may only act on appointments
+     * that belong to that same branch (shop_owner is unrestricted). Mirrors
+     * JobOrderController::branchAccessDenied() exactly, for the same reason:
+     * index() already filters the list by branch for these roles, so nothing
+     * should be reachable here that wouldn't have shown up there.
+     */
+    private function branchAccessDenied(Request $request, Appointment $appointment): ?JsonResponse
+    {
+        $user = $request->user();
+        if ($user->hasRole('shop_owner')) {
+            return null;
+        }
+
+        $userBranchId = $user->staffProfile->shop_branch_id ?? null;
+
+        if ($userBranchId && $appointment->shop_branch_id && (int) $userBranchId !== (int) $appointment->shop_branch_id) {
+            return response()->json(['success' => false, 'message' => 'This appointment belongs to a different branch.'], 403);
+        }
+
+        return null;
+    }
+
     // ─── Index ────────────────────────────────────────────────────────────────
 
     public function index(Request $request, Shop $shop): JsonResponse
@@ -66,11 +89,16 @@ class AppointmentController extends Controller
             $data['shop_branch_id'] = $shop->branches()->first()->id;
         }
 
-        // Default duration
-        $data['duration_minutes'] = $data['duration_minutes'] ?? 60;
+        // Auto-calculated duration based on Appointment Type — the owner's
+        // form no longer offers a manual Duration selector at all.
+        $data['duration_minutes'] = $data['duration_minutes']
+            ?? Appointment::TYPE_DEFAULT_DURATIONS[$data['appointment_type']]
+            ?? 60;
         $data['status']           = 'pending';
         // Owner-created entries are walk-ins (online ones come via the public booking form).
-        $data['intake_channel']   = 'walkin';
+        // Matches JobOrder/CatalogOrder's own 'walk_in' convention — this used to be the
+        // inconsistent 'walkin' (no underscore), which drifted from the seeder and other models.
+        $data['intake_channel']   = 'walk_in';
 
         // Same conflict guard the public booking form already enforces —
         // an owner/staff manually logging a walk-in shouldn't be able to
@@ -112,6 +140,8 @@ class AppointmentController extends Controller
         if ($appointment->shop_id !== $shop->id) {
             $error = 'Unauthorized.';
             $status = 403;
+        } elseif ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
         } elseif ($appointment->isTerminal()) {
             $error = "A {$appointment->status} appointment cannot be modified.";
             $status = 422;
@@ -228,6 +258,8 @@ class AppointmentController extends Controller
         if ($appointment->shop_id !== $shop->id) {
             $error = 'Unauthorized.';
             $status = 403;
+        } elseif ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
         } elseif ($appointment->status !== 'in_progress') {
             $error = 'Only in-progress appointments can be marked as completed.';
             $status = 422;
@@ -330,6 +362,8 @@ class AppointmentController extends Controller
         if ($appointment->shop_id !== $shop->id) {
             $error = 'Unauthorized.';
             $status = 403;
+        } elseif ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
         } elseif ($appointment->isTerminal()) {
             $error = "A {$appointment->status} appointment cannot be cancelled.";
             $status = 422;
@@ -361,6 +395,10 @@ class AppointmentController extends Controller
     {
         if ($appointment->shop_id !== $shop->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
         }
 
         $validated = $request->validate([

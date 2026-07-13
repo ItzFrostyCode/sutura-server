@@ -25,15 +25,26 @@ class CustomerController extends Controller
         $customerIds = collect(array_merge($jobCustomerIds, $pivotCustomerIds))->unique();
         
         $customers = User::whereIn('id', $customerIds)
-            ->with(['jobOrders' => function ($query) use ($shop) {
-                $query->where('shop_id', $shop->id);
-            }])
+            ->with([
+                'jobOrders' => function ($query) use ($shop) {
+                    $query->where('shop_id', $shop->id);
+                },
+                // Eager-loaded once for all customers (already ordered so the
+                // first element is the most recent) instead of running a
+                // fresh query per customer inside the map() below — avoids an
+                // N+1 that scaled with the shop's total customer count.
+                'appointments' => function ($query) use ($shop) {
+                    $query->where('shop_id', $shop->id)->orderBy('scheduled_at', 'desc');
+                },
+            ])
             ->get()
             ->map(function ($user) {
                 $user->total_spend = $user->jobOrders->sum('total_amount');
-                $user->last_appointment = $user->appointments()
-                    ->orderBy('scheduled_at', 'desc')
-                    ->first();
+                $user->last_appointment = $user->appointments->first();
+                // Repeat-customer context for the shop owner's manual discount
+                // decision ("this is their 5th order") — not just a display stat.
+                $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
+                $user->completed_jobs = $user->jobOrders->where('status', 'completed')->count();
                 return $user;
             });
 

@@ -4,6 +4,7 @@ namespace App\Http\Requests\Shop;
 
 use App\Models\Appointment;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateAppointmentRequest extends FormRequest
 {
@@ -14,6 +15,8 @@ class UpdateAppointmentRequest extends FormRequest
 
     public function rules(): array
     {
+        $shop = $this->route('shop');
+
         return [
             // Status transitions — state machine enforced in controller
             'status'           => ['sometimes', 'required', 'in:' . implode(',', Appointment::STATUSES)],
@@ -25,7 +28,10 @@ class UpdateAppointmentRequest extends FormRequest
             'duration_minutes' => ['sometimes', 'required', 'integer', 'min:15', 'max:480'],
 
             // Staff assignment can change before confirmation
-            'assigned_staff_id'=> ['sometimes', 'nullable', 'exists:users,id'],
+            'assigned_staff_id'=> [
+                'sometimes', 'nullable',
+                Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
+            ],
 
             // Notes always updatable
             'notes'            => ['nullable', 'string', 'max:2000'],

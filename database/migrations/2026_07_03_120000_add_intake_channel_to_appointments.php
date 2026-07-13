@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::table('appointments', function (Blueprint $table) {
             // How the appointment was booked: owner walk-in entry vs the public online form.
-            $table->string('intake_channel')->default('walkin')->after('appointment_type');
+            $table->string('intake_channel')->default('walk_in')->after('appointment_type');
         });
     }
 

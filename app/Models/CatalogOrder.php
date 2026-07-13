@@ -33,7 +33,6 @@ class CatalogOrder extends Model
         'valid_id_notes',
         'return_inspection_notes',
         'deposit_deduction_amount',
-        'coupon_id',
         'discount_amount',
     ];
 

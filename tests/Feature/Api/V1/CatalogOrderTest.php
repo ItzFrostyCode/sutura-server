@@ -16,8 +16,7 @@ class CatalogOrderTest extends TestCase
     protected User $user;
     protected Shop $shop;
     protected User $customer;
-    protected CatalogItem $rentalItem;
-    protected CatalogItem $saleItem;
+    protected CatalogItem $catalogItem;
 
     protected function setUp(): void
     {
@@ -42,20 +41,14 @@ class CatalogOrderTest extends TestCase
         $this->customer = User::factory()->create();
         $this->customer->roles()->attach($customerRole);
 
-        $this->rentalItem = CatalogItem::create([
+        // Made-to-order only — the approved thesis excludes ready-to-wear
+        // inventory and rental stock from the system's scope.
+        $this->catalogItem = CatalogItem::create([
             'shop_id' => $this->shop->id,
-            'name' => 'Rental Tulle Gown',
+            'name' => 'Barong Tagalog',
             'price' => 5000.00,
-            'listing_type' => 'for_rent',
-            'material' => 'Tulle',
-        ]);
-
-        $this->saleItem = CatalogItem::create([
-            'shop_id' => $this->shop->id,
-            'name' => 'Ready-to-Wear Shirt',
-            'price' => 1200.00,
-            'listing_type' => 'ready_to_wear',
-            'material' => 'Cotton',
+            'listing_type' => 'made_to_order',
+            'material' => 'Jusi',
         ]);
 
         // Create a single branch to satisfy single branch auto-resolve
@@ -68,58 +61,38 @@ class CatalogOrderTest extends TestCase
         ]);
     }
 
-    /** Test rental orders must use pickup fulfillment. */
-    public function test_rental_order_requires_pickup(): void
+    /** A walk-in catalog order is always store pickup, regardless of what's posted. */
+    public function test_walkin_order_is_always_store_pickup(): void
     {
         $payload = [
-            'catalog_item_id' => $this->rentalItem->id,
-            'type' => 'online',
+            'catalog_item_id' => $this->catalogItem->id,
             'total_amount' => 5000.00,
             'payment_status' => 'pending',
-            'fulfillment_type' => 'shipping', // Invalid for rental
-            'rental_start_date' => '2026-07-10',
-            'rental_end_date' => '2026-07-15',
         ];
 
         $response = $this->actingAs($this->user)
             ->postJson("/api/v1/shops/{$this->shop->id}/catalog-orders", $payload);
 
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors('fulfillment_type');
-    }
-
-    /** Test rental orders require start and end dates. */
-    public function test_rental_order_requires_dates(): void
-    {
-        $payload = [
-            'catalog_item_id' => $this->rentalItem->id,
-            'type' => 'online',
-            'total_amount' => 5000.00,
-            'payment_status' => 'pending',
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('catalog_orders', [
+            'catalog_item_id' => $this->catalogItem->id,
+            'type' => 'walkin',
             'fulfillment_type' => 'pickup',
-        ];
-
-        $response = $this->actingAs($this->user)
-            ->postJson("/api/v1/shops/{$this->shop->id}/catalog-orders", $payload);
-
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors('rental_start_date');
+            'status' => 'ready',
+        ]);
     }
 
-    /** Test public booking submits a catalog order correctly. */
-    public function test_public_booking_creates_catalog_order_and_appointment(): void
+    /** Public booking creates only an appointment — catalog items are a
+     *  design reference for the fitting, not something ordered online. */
+    public function test_public_booking_creates_appointment_only(): void
     {
         $payload = [
             'name' => 'Juan Dela Cruz',
             'email' => 'juan@example.com',
             'phone' => '09171234567',
             'appointment_type' => 'consultation',
-            'scheduled_at' => '2026-07-10 10:00:00',
+            'scheduled_at' => now()->addDays(5)->format('Y-m-d H:i:s'),
             'payment_method' => 'cash',
-            'catalog_item_id' => $this->rentalItem->id,
-            'fulfillment_type' => 'pickup',
-            'rental_start_date' => '2026-07-10',
-            'rental_end_date' => '2026-07-15',
         ];
 
         $response = $this->postJson("/api/v1/catalog/{$this->shop->slug}/book", $payload);
@@ -129,11 +102,6 @@ class CatalogOrderTest extends TestCase
             'appointment_type' => 'consultation',
             'intake_channel' => 'online',
         ]);
-        $this->assertDatabaseHas('catalog_orders', [
-            'catalog_item_id' => $this->rentalItem->id,
-            'fulfillment_type' => 'pickup',
-            'rental_start_date' => '2026-07-10',
-            'rental_end_date' => '2026-07-15',
-        ]);
+        $this->assertDatabaseCount('catalog_orders', 0);
     }
 }

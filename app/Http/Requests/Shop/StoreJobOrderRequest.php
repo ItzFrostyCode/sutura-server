@@ -19,10 +19,15 @@ class StoreJobOrderRequest extends FormRequest
 
         return [
             'intake_channel' => ['nullable', 'in:walk_in,online'],
-            'fulfillment_type' => ['nullable', 'in:pickup,shipping,delivery'],
+            // Store pickup only — the approved thesis explicitly excludes
+            // logistics/courier/delivery management from the system's scope.
+            'fulfillment_type' => ['nullable', 'in:pickup'],
             'customer_id' => ['required', 'exists:users,id'],
             'service_id' => ['required', 'exists:services,id'],
-            'assigned_staff_id' => ['nullable', 'exists:users,id'],
+            'assigned_staff_id' => [
+                'nullable',
+                Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
+            ],
             // Same stage model as JobOrderController@assignStaff — settable
             // at creation time too, instead of only via the single
             // assigned_staff_id field (which is now derived from this, not
@@ -34,14 +39,14 @@ class StoreJobOrderRequest extends FormRequest
                 Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
             ],
             'staff_stages.*.stage' => ['required', Rule::in(JobOrder::STAFF_STAGES)],
-            'measurement_id' => ['nullable', 'exists:measurements,id'],
+            'measurement_id' => [
+                'nullable',
+                Rule::exists('measurements', 'id')->where('shop_id', $shop?->id),
+            ],
             'total_amount' => ['required', 'numeric', 'min:0'],
             'balance' => ['required', 'numeric', 'min:0', 'lte:total_amount'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
-            'shipping_address' => ['nullable', 'string', 'max:500'],
-            'courier_name' => ['nullable', 'string', 'max:100'],
-            'courier_tracking_number' => ['nullable', 'string', 'max:100'],
             'custom_order_data' => ['nullable', 'array'],
             'custom_order_data.*' => ['nullable'],
             'custom_order_data.team_name' => ['nullable', 'string', 'max:255'],
@@ -67,7 +72,6 @@ class StoreJobOrderRequest extends FormRequest
             'is_rush' => ['nullable', 'boolean'],
             'rush_fee' => ['nullable', 'numeric', 'min:0'],
             'catalog_item_id' => ['nullable', 'exists:catalog_items,id'],
-            'coupon_code' => ['nullable', 'string', 'max:50'],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
         ];
     }

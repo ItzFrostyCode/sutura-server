@@ -43,9 +43,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/catalog/{shop:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
     Route::get('/catalog/{shop:slug}/appointments', [PublicBookingController::class, 'getAppointments']);
     Route::post('/catalog/{shop:slug}/book', [PublicBookingController::class, 'submit']);
-    Route::post('/catalog/{shop:slug}/coupons/validate', [\App\Http\Controllers\Api\V1\CouponController::class, 'validateCode']);
     Route::get('/catalog/{shop:slug}/{catalog}', [CatalogController::class, 'show']);
-    Route::get('/catalog/{shop:slug}/{catalog}/rental-dates', [CatalogController::class, 'rentalDates']);
     Route::post('/catalog/{shop:slug}/{catalogItem}/view', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'incrementViews']);
 
     Route::middleware('auth:sanctum')->group(function () {
@@ -121,13 +119,15 @@ Route::prefix('v1')->group(function () {
                 // Job Orders (Owner/Manager specific actions)
                 Route::post('/jobs', [JobOrderController::class, 'store']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
+                Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
 
-                // Coupon validation — read-only check, usable by anyone who can create a job order
-                Route::post('/coupons/validate', [\App\Http\Controllers\Api\V1\CouponController::class, 'validateCode']);
+                // Catalog Orders — discount decisions are a supervisory action,
+                // unlike the day-to-day create/update/verify-payment above.
+                Route::post('/catalog-orders/{order}/discount', [\App\Http\Controllers\CatalogOrderController::class, 'applyDiscount']);
 
                 // Appointments — create and cancel (owner/manager only)
                 Route::post('/appointments', [AppointmentController::class, 'store']);
@@ -167,12 +167,6 @@ Route::prefix('v1')->group(function () {
                 Route::post('/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'store']);
                 Route::put('/service-packages/{servicePackage}', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'update']);
                 Route::delete('/service-packages/{servicePackage}', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'destroy']);
-
-                // Coupons — sale/discount codes redeemable against Catalog and/or Services
-                Route::get('/coupons', [\App\Http\Controllers\Api\V1\CouponController::class, 'index']);
-                Route::post('/coupons', [\App\Http\Controllers\Api\V1\CouponController::class, 'store']);
-                Route::put('/coupons/{coupon}', [\App\Http\Controllers\Api\V1\CouponController::class, 'update']);
-                Route::delete('/coupons/{coupon}', [\App\Http\Controllers\Api\V1\CouponController::class, 'destroy']);
 
                 // Temporary Special Hours & Announcements
                 Route::get('/special-hours', [ShopSpecialHourController::class, 'index']);

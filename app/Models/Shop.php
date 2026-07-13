@@ -92,11 +92,6 @@ class Shop extends Model
         return $this->hasMany(CatalogItem::class);
     }
 
-    public function coupons(): HasMany
-    {
-        return $this->hasMany(Coupon::class);
-    }
-
     public function customers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(User::class, 'shop_customers');
@@ -129,10 +124,17 @@ class Shop extends Model
 
     public function getActiveSpecialHoursAttribute()
     {
-        $today = now()->toDateString();
+        // Asia/Manila, not the app's UTC default — the app-wide timezone is
+        // UTC, so comparing against a bare now()->toDateString() could be up
+        // to 8 hours off from the shop's actual local day boundary.
+        $today = now('Asia/Manila')->toDateString();
         return $this->specialHours()
             ->where('start_date', '<=', $today)
             ->where('end_date', '>=', $today)
+            // Most-recently-created wins when two ranges overlap (e.g. an
+            // urgent closure notice added on top of a standing promo) —
+            // otherwise which one displays is undefined DB row order.
+            ->orderByDesc('created_at')
             ->first();
     }
 }

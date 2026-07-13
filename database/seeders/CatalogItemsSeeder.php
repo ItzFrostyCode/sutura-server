@@ -19,9 +19,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown available for rentals and custom sizing.',
+                'description' => 'Elegant designer Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -35,9 +35,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor available for rentals and custom sizing.',
+                'description' => 'Elegant designer Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -67,9 +67,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Shop Long Tail Wedding Gown  available for rentals and custom sizing.',
+                'description' => 'Elegant designer Shop Long Tail Wedding Gown  made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -83,9 +83,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Mga Pretty Bridesmaid Dresses, Perfect Maid of Honor Gowns - Lunss available for rentals and custom sizing.',
+                'description' => 'Elegant designer Mga Pretty Bridesmaid Dresses, Perfect Maid of Honor Gowns - Lunss made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -147,9 +147,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns  available for rentals and custom sizing.',
+                'description' => 'Elegant designer Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns  made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -165,7 +165,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom images tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -197,7 +197,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -243,9 +243,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery | Elegant Bridal Dress with Corset Back | Floor-Length Wedding Dress for Women (in, Alpha, 2XL, White with Champagne-Gold Embroidery) at Amazon.in  available for rentals and custom sizing.',
+                'description' => 'Elegant designer Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery | Elegant Bridal Dress with Corset Back | Floor-Length Wedding Dress for Women (in, Alpha, 2XL, White with Champagne-Gold Embroidery) at Amazon.in  made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -277,7 +277,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -357,7 +357,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Riders_Long_Sleeves_2 tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -371,9 +371,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI available for rentals and custom sizing.',
+                'description' => 'Elegant designer Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -451,9 +451,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Luxury_Bridal_Gowns_Long_Tail available for rentals and custom sizing.',
+                'description' => 'Elegant designer Luxury_Bridal_Gowns_Long_Tail made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -659,9 +659,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer 9 Luxury Designer Bridesmaid Dresses for the Bridal Crew available for rentals and custom sizing.',
+                'description' => 'Elegant designer 9 Luxury Designer Bridesmaid Dresses for the Bridal Crew made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -677,7 +677,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -709,7 +709,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -741,7 +741,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom volleyballroundneckSET tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -755,9 +755,9 @@ class CatalogItemsSeeder extends Seeder
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown available for rentals and custom sizing.',
+                'description' => 'Elegant designer Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown made to order with custom sizing.',
                 'garment_type' => 'gown',
-                'listing_type' => 'for_rent',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -773,7 +773,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]
@@ -789,7 +789,7 @@ class CatalogItemsSeeder extends Seeder
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom VBALL_PRE-2001_800x800 tailored to perfection.',
                 'garment_type' => 'other',
-                'listing_type' => 'ready_to_wear',
+                'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
                 'care_instructions' => 'Handle with care.'
             ]

@@ -18,7 +18,7 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
     use Queueable;
 
     public JobOrder $jobOrder;
-    public string $status; // 'design', 'pattern_making', 'cutting', 'sewing', 'fitting', 'finishing', 'packed', 'handed_to_courier', 'completed', 'cancelled'
+    public string $status; // 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'completed', 'cancelled'
 
     public function __construct(JobOrder $jobOrder, string $status)
     {
@@ -42,38 +42,32 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
     private function titles(): array
     {
         return [
-            'design'            => 'Order In Progress: Design',
-            'pattern_making'    => 'Order In Progress: Pattern Making',
-            'cutting'           => 'Order In Progress: Cutting',
-            'sewing'            => 'Order In Progress: Sewing',
-            'fitting'           => 'Order Ready for Fitting',
-            'finishing'         => 'Order In Progress: Finishing Touches',
-            'packed'            => 'Order Packed',
-            'handed_to_courier' => 'Order Shipped',
-            'completed'         => 'Order Completed',
-            'cancelled'         => 'Order Cancelled',
+            'design'                 => 'Order In Progress: Design',
+            'pattern_making'         => 'Order In Progress: Pattern Making',
+            'mass_cutting_printing'  => 'Order In Progress: Mass Cutting & Printing',
+            'cutting'                => 'Order In Progress: Cutting',
+            'sewing'                 => 'Order In Progress: Sewing & Assembly',
+            'ready_for_fitting'      => 'Order Ready for Fitting',
+            'final_adjustments'      => 'Order In Progress: Final Adjustments',
+            'qc_ironing'             => 'Order In Progress: Quality Check & Ironing',
+            'completed'              => 'Order Completed',
+            'cancelled'              => 'Order Cancelled',
         ];
     }
 
     private function messages(): array
     {
-        $courierNote = '';
-        if ($this->status === 'handed_to_courier' && $this->jobOrder->courier_name) {
-            $courierNote = ' via ' . $this->jobOrder->courier_name
-                . ($this->jobOrder->courier_tracking_number ? ' (tracking #: ' . $this->jobOrder->courier_tracking_number . ')' : '');
-        }
-
         return [
-            'design'            => 'Your order (' . $this->jobOrder->order_number . ') is now in the design stage.',
-            'pattern_making'    => 'Your order (' . $this->jobOrder->order_number . ') is now having its pattern drafted.',
-            'cutting'           => 'Your order (' . $this->jobOrder->order_number . ') has entered the cutting stage.',
-            'sewing'            => 'Your order (' . $this->jobOrder->order_number . ') is now being sewn.',
-            'fitting'           => 'Your order (' . $this->jobOrder->order_number . ') is ready for fitting. The shop will reach out to schedule this with you.',
-            'finishing'         => 'Your order (' . $this->jobOrder->order_number . ') is receiving its final finishing touches.',
-            'packed'            => 'Your order (' . $this->jobOrder->order_number . ') has been packed and is ready for handover.',
-            'handed_to_courier' => 'Your order (' . $this->jobOrder->order_number . ') has been handed over to the courier' . $courierNote . '.',
-            'completed'         => 'Your order (' . $this->jobOrder->order_number . ') is now complete. Thank you for trusting us with your custom tailoring!',
-            'cancelled'         => 'Your order (' . $this->jobOrder->order_number . ') has been cancelled.'
+            'design'                 => 'Your order (' . $this->jobOrder->order_number . ') is now in the design stage.',
+            'pattern_making'         => 'Your order (' . $this->jobOrder->order_number . ') is now having its pattern drafted.',
+            'mass_cutting_printing'  => 'Your order (' . $this->jobOrder->order_number . ') has entered mass cutting and printing.',
+            'cutting'                => 'Your order (' . $this->jobOrder->order_number . ') has entered the cutting stage.',
+            'sewing'                 => 'Your order (' . $this->jobOrder->order_number . ') is now being sewn and assembled.',
+            'ready_for_fitting'      => 'Your order (' . $this->jobOrder->order_number . ') is ready for fitting. We\'ve scheduled a fitting appointment and will confirm the exact time with you shortly.',
+            'final_adjustments'      => 'Your order (' . $this->jobOrder->order_number . ') is undergoing final adjustments after your fitting.',
+            'qc_ironing'             => 'Your order (' . $this->jobOrder->order_number . ') is receiving its final quality check and ironing.',
+            'completed'              => 'Your order (' . $this->jobOrder->order_number . ') is now complete. Thank you for trusting us with your custom tailoring!',
+            'cancelled'              => 'Your order (' . $this->jobOrder->order_number . ') has been cancelled.'
                 . ($this->jobOrder->rejection_reason ? ' Reason: ' . $this->jobOrder->rejection_reason : ''),
         ];
     }

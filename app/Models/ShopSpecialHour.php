@@ -16,6 +16,7 @@ class ShopSpecialHour extends Model
         'special_open_time',
         'special_close_time',
         'announcement_message',
+        'announcement_image_url',
     ];
 
     protected $casts = [

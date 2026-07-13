@@ -37,6 +37,12 @@ class CatalogOrderController extends Controller
         return response()->json(['data' => $orders]);
     }
 
+    /**
+     * Walk-in only — a quick, immediate-sale record for a customer who came
+     * into the shop and ordered off the Design Catalog (as a made-to-order
+     * reference). Store pickup only, matching the rest of the system's
+     * exclusion of logistics/courier/delivery management.
+     */
     public function store(Request $request, $shopId)
     {
         $this->authorizeShop($shopId);
@@ -46,53 +52,16 @@ class CatalogOrderController extends Controller
                 'required',
                 Rule::exists('catalog_items', 'id')->where('shop_id', $shopId),
             ],
-            'selected_size'           => 'nullable|string|max:50',
-            'customer_id'             => 'nullable|exists:users,id',
-            'type'                    => 'required|in:walkin,online',
-            'total_amount'            => 'required|numeric|min:0',
-            'delivery_address'        => 'nullable|string',
-            'payment_status'          => 'required|in:pending,paid',
-            'fulfillment_type'        => 'nullable|in:pickup,shipping,delivery',
-            'rental_start_date'       => 'nullable|date',
-            'rental_end_date'         => 'nullable|date|after_or_equal:rental_start_date',
-            'security_deposit_amount' => 'nullable|numeric|min:0',
+            'selected_size'  => 'nullable|string|max:50',
+            'customer_id'    => 'nullable|exists:users,id',
+            'total_amount'   => 'required|numeric|min:0',
+            'payment_status' => 'required|in:pending,paid',
         ]);
 
-        $catalogItem = \App\Models\CatalogItem::findOrFail($validated['catalog_item_id']);
-
-        if ($catalogItem->listing_type === 'for_rent') {
-            // Require pickup fulfillment for rentals
-            $fulfillment = $validated['fulfillment_type'] ?? 'pickup';
-            if ($fulfillment !== 'pickup') {
-                return response()->json([
-                    'message' => 'The given data was invalid.',
-                    'errors'  => [
-                        'fulfillment_type' => ['For Rent items must be Pickup at Shop only.']
-                    ]
-                ], 422);
-            }
-            // Require dates for rentals
-            if (empty($validated['rental_start_date']) || empty($validated['rental_end_date'])) {
-                return response()->json([
-                    'message' => 'The given data was invalid.',
-                    'errors'  => [
-                        'rental_start_date' => ['Pickup Date and Return Date are required for rentals.']
-                    ]
-                ], 422);
-            }
-            if ($catalogItem->hasRentalConflict($validated['rental_start_date'], $validated['rental_end_date'])) {
-                return response()->json([
-                    'message' => 'This item is already reserved for part of that date range.',
-                    'errors'  => [
-                        'rental_start_date' => ['This item is already reserved for part of that date range.']
-                    ]
-                ], 409);
-            }
-        }
-
-        $validated['shop_id'] = $shopId;
-        $validated['status']  = $validated['type'] === 'walkin' ? 'ready' : 'pending';
-        $validated['fulfillment_type'] = $validated['fulfillment_type'] ?? 'pickup';
+        $validated['shop_id']           = $shopId;
+        $validated['type']              = 'walkin';
+        $validated['status']            = 'ready';
+        $validated['fulfillment_type']  = 'pickup';
 
         $order = \App\Models\CatalogOrder::create($validated);
 
@@ -111,21 +80,15 @@ class CatalogOrderController extends Controller
     {
         $this->authorizeShop($shopId);
 
-        $order = \App\Models\CatalogOrder::with('catalogItem')->where('shop_id', $shopId)->findOrFail($orderId);
+        $order = \App\Models\CatalogOrder::where('shop_id', $shopId)->findOrFail($orderId);
 
         $validated = $request->validate([
-            'status'                   => 'required|in:pending,ready,out_for_delivery,returned_pending_inspection,completed,cancelled',
-            'payment_status'           => 'sometimes|in:pending,paid',
-            'courier_name'             => 'nullable|string|max:255',
-            'courier_tracking_number'  => 'nullable|string|max:255',
-            'valid_id_captured'        => 'sometimes|boolean',
-            'valid_id_notes'           => 'nullable|string|max:255',
-            'return_inspection_notes'  => 'nullable|string|max:2000',
-            'deposit_deduction_amount' => 'nullable|numeric|min:0',
+            'status'         => 'required|in:pending,ready,completed,cancelled',
+            'payment_status' => 'sometimes|in:pending,paid',
         ]);
 
         // A cancelled order voids a mistaken/duplicate entry — once the item has actually
-        // moved (prepped, shipped, returned, etc.) it must be handled through the normal
+        // moved (prepped, handed over, etc.) it must be handled through the normal
         // lifecycle instead, not silently erased.
         if ($validated['status'] === 'cancelled' && $order->status !== 'pending') {
             return response()->json([
@@ -134,39 +97,64 @@ class CatalogOrderController extends Controller
             ], 422);
         }
 
-        $isRental = $order->catalogItem?->listing_type === 'for_rent';
-
-        // A deduction larger than the deposit actually held has no meaning —
-        // there's nothing left to withhold beyond the deposit itself, and the
-        // UI never separately computes/shows the refund amount, so this is the
-        // only place a mistaken/miskeyed figure would ever get caught.
-        if (isset($validated['deposit_deduction_amount']) && $order->security_deposit_amount !== null
-            && (float) $validated['deposit_deduction_amount'] > (float) $order->security_deposit_amount) {
-            return response()->json([
-                'message' => 'The given data was invalid.',
-                'errors'  => [
-                    'deposit_deduction_amount' => ['Deduction cannot exceed the security deposit held (₱' . number_format((float) $order->security_deposit_amount, 2) . ').'],
-                ],
-            ], 422);
-        }
-
-        // Liability safeguard: a rental item cannot be handed over to the customer
-        // without the shop first capturing/holding a valid government ID.
-        if ($isRental && $validated['status'] === 'out_for_delivery') {
-            $idCaptured = $validated['valid_id_captured'] ?? $order->valid_id_captured;
-            if (!$idCaptured) {
-                return response()->json([
-                    'message' => 'The given data was invalid.',
-                    'errors'  => [
-                        'valid_id_captured' => ['A valid government ID must be captured/held before releasing a rental item.'],
-                    ],
-                ], 422);
-            }
-        }
-
         $order->update($validated);
 
         return response()->json(['data' => $order->load(['catalogItem', 'customer'])]);
+    }
+
+    /**
+     * A one-time, in-the-moment discount the owner grants on an existing
+     * walk-in order (e.g. a repeat customer) — not a standing coupon/promo
+     * code. Catalog orders have no separate balance column, so the discount
+     * reduces total_amount directly. Logged to the audit trail, same pattern
+     * as JobOrderController::applyDiscount / AppointmentController's audit entries.
+     */
+    public function applyDiscount(Request $request, $shopId, $orderId)
+    {
+        $shop = $this->authorizeShop($shopId);
+
+        $order = \App\Models\CatalogOrder::where('shop_id', $shopId)->findOrFail($orderId);
+
+        $validated = $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $discountAmount = (float) $validated['amount'];
+        $currentTotal = (float) $order->total_amount;
+
+        if ($discountAmount > $currentTotal) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Discount cannot exceed the order total (₱' . number_format($currentTotal, 2) . ').',
+            ], 400);
+        }
+
+        $newTotal = round($currentTotal - $discountAmount, 2);
+        $newDiscountTotal = round((float) ($order->discount_amount ?? 0) + $discountAmount, 2);
+
+        $order->update([
+            'total_amount' => $newTotal,
+            'discount_amount' => $newDiscountTotal,
+        ]);
+
+        $shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'discount_applied',
+            'model_type' => \App\Models\CatalogOrder::class,
+            'model_id'   => $order->id,
+            'payload'    => [
+                'amount' => $discountAmount,
+                'reason' => $validated['reason'] ?? null,
+            ],
+            'ip_address' => $request->ip(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Discount applied successfully.',
+            'data'    => $order->load(['catalogItem', 'customer']),
+        ]);
     }
 
     public function verifyPayment(Request $request, $shopId, $orderId)

@@ -88,58 +88,9 @@ class PublicBookingController extends Controller
             'payment_method'   => ['nullable', 'string', 'in:cash,gcash,bank_transfer'],
             'payment_reference'=> ['nullable', 'string', 'max:255'],
             'payment_receipt_path' => ['nullable', 'string', 'max:1000'],
-
-            // Catalog Order context
-            'catalog_item_id'   => ['nullable', Rule::exists('catalog_items', 'id')->where('shop_id', $shop->id)],
-            'selected_size'     => ['nullable', 'string', 'max:50'],
-            'fulfillment_type'  => ['nullable', 'in:pickup,shipping,delivery'],
-            'delivery_address'  => ['nullable', 'string', 'max:1000'],
-            'rental_start_date' => ['nullable', 'date'],
-            'rental_end_date'   => ['nullable', 'date', 'after_or_equal:rental_start_date'],
-            'coupon_code'       => ['nullable', 'string', 'max:50'],
         ]);
 
         $type = $validated['appointment_type'];
-
-        // ── Catalog Order validations ───────────────────────────────────────
-        $catalogItem = null;
-        if (!empty($validated['catalog_item_id'])) {
-            $catalogItem = \App\Models\CatalogItem::find($validated['catalog_item_id']);
-            if ($catalogItem) {
-                if ($catalogItem->listing_type === 'for_rent') {
-                    if (($validated['fulfillment_type'] ?? 'pickup') !== 'pickup') {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'The given data was invalid.',
-                            'errors'  => ['fulfillment_type' => ['For Rent items must be Pickup at Shop only.']],
-                        ], 422);
-                    }
-                    if (empty($validated['rental_start_date']) || empty($validated['rental_end_date'])) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'The given data was invalid.',
-                            'errors'  => ['rental_start_date' => ['Pickup Date and Return Date are required for rentals.']],
-                        ], 422);
-                    }
-                    if ($catalogItem->hasRentalConflict($validated['rental_start_date'], $validated['rental_end_date'])) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'This item is already reserved for part of that date range. Please choose different dates.',
-                        ], 409);
-                    }
-                }
-
-                // A size must be picked whenever the item actually has sizes to
-                // choose from — otherwise the shop has no idea which one to prep.
-                if (!empty($catalogItem->sizes) && empty($validated['selected_size'])) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'The given data was invalid.',
-                        'errors'  => ['selected_size' => ['Please select a size for this item.']],
-                    ], 422);
-                }
-            }
-        }
 
         // ── Conditional service_id required ───────────────────────────────────
         if (
@@ -150,6 +101,23 @@ class PublicBookingController extends Controller
                 'success' => false,
                 'message' => "A service must be selected for appointment type: {$type}.",
                 'errors'  => ['service_id' => ["Service is required for {$type} appointments."]],
+            ], 422);
+        }
+
+        // ── Conditional receipt required for non-cash payments ────────────────
+        // The frontend's file-input `required` attribute is satisfied the
+        // instant a file is *selected*, not once the async upload actually
+        // finishes — this backstop makes sure a booking can't be submitted
+        // with an empty receipt path if the upload was still in flight, failed,
+        // or was simply skipped for a non-cash method.
+        if (
+            in_array($validated['payment_method'] ?? 'cash', ['gcash', 'bank_transfer'], true)
+            && empty($validated['payment_receipt_path'])
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A payment receipt is required for GCash/Bank Transfer bookings.',
+                'errors'  => ['payment_receipt_path' => ['Please upload your payment receipt before confirming.']],
             ], 422);
         }
 
@@ -224,67 +192,10 @@ class PublicBookingController extends Controller
             'payment_status'   => 'pending',
         ]);
 
-        // ── Create Catalog Order if item was ordered ───────────────────────────
-        if ($catalogItem) {
-            $orderNotes = "";
-            $fulfillment = $validated['fulfillment_type'] ?? 'pickup';
-            if ($fulfillment === 'shipping' || $fulfillment === 'delivery') {
-                $orderNotes = "Customer requested delivery. Please calculate shipping fee and notify customer.";
-            }
-
-            $itemPrice = $catalogItem->effectivePrice();
-            $coupon = null;
-            $discountAmount = null;
-            if (!empty($validated['coupon_code'])) {
-                $candidateCoupon = $shop->coupons()->where('code', strtoupper($validated['coupon_code']))->first();
-                if ($candidateCoupon && $candidateCoupon->isValidFor('catalog')) {
-                    // Re-validates and increments atomically under a row lock so a
-                    // usage-limited code can't be redeemed past its limit by two
-                    // near-simultaneous checkouts both passing the check above.
-                    $coupon = \App\Models\Coupon::redeem($candidateCoupon->id, 'catalog');
-                    if ($coupon) {
-                        $discountAmount = $coupon->computeDiscount($itemPrice);
-                        $itemPrice = round($itemPrice - $discountAmount, 2);
-                    }
-                }
-            }
-
-            $catalogOrder = \App\Models\CatalogOrder::create([
-                'shop_id'                 => $shop->id,
-                'catalog_item_id'         => $catalogItem->id,
-                'selected_size'           => $validated['selected_size'] ?? null,
-                'customer_id'             => $customer->id,
-                'type'                    => 'online',
-                'status'                  => 'pending',
-                'total_amount'            => $itemPrice,
-                'coupon_id'               => $coupon?->id,
-                'discount_amount'         => $discountAmount,
-                'delivery_address'        => $validated['delivery_address'] ?? null,
-                'payment_status'          => 'pending',
-                'payment_method'          => $validated['payment_method'] ?? 'cash',
-                'payment_reference'       => $validated['payment_reference'] ?? null,
-                'payment_receipt_path'    => $validated['payment_receipt_path'] ?? null,
-                'intake_channel'          => 'online',
-                'fulfillment_type'        => $fulfillment,
-                'rental_start_date'       => $validated['rental_start_date'] ?? null,
-                'rental_end_date'         => $validated['rental_end_date'] ?? null,
-                'security_deposit_amount' => $catalogItem->listing_type === 'for_rent' ? ($catalogItem->price * 0.5) : null, // Default 50% deposit
-            ]);
-
-            if ($orderNotes) {
-                $appointment->update([
-                    'notes' => ($appointment->notes ? $appointment->notes . "\n" : "") . $orderNotes
-                ]);
-            }
-        }
-
         // Notify shop owner
         $shopOwner = $shop->owner;
         if ($shopOwner) {
             $shopOwner->notify(new \App\Notifications\AppointmentBookedNotification($appointment));
-            if ($catalogItem && isset($catalogOrder)) {
-                $shopOwner->notify(new \App\Notifications\NewCatalogOrderNotification($catalogOrder));
-            }
         }
 
         return response()->json([

@@ -10,16 +10,23 @@ use Illuminate\Http\Request;
 
 class ShopSpecialHourController extends Controller
 {
-    public function index(Shop $shop): JsonResponse
+    public function index(Shop $shop, Request $request): JsonResponse
     {
-        $specialHours = $shop->specialHours()
-            ->where('end_date', '>=', now()->toDateString())
-            ->orderBy('start_date', 'asc')
-            ->get();
+        $query = $shop->specialHours()->orderBy('start_date', 'desc');
+
+        // The management UI needs to see past entries too — otherwise an
+        // owner has no way to reach (edit/delete) a lapsed entry once its
+        // end_date passes, even to fix a typo. Only filter to "upcoming or
+        // active" when explicitly asked for.
+        if (!$request->boolean('include_past')) {
+            // Asia/Manila, matching Shop::getActiveSpecialHoursAttribute() —
+            // the app's default timezone is UTC.
+            $query->where('end_date', '>=', now('Asia/Manila')->toDateString());
+        }
 
         return response()->json([
             'success' => true,
-            'data'    => $specialHours
+            'data'    => $query->get(),
         ]);
     }
 
@@ -33,6 +40,7 @@ class ShopSpecialHourController extends Controller
             'special_open_time'    => ['nullable', 'string', 'required_if:is_closed,false'],
             'special_close_time'   => ['nullable', 'string', 'required_if:is_closed,false'],
             'announcement_message' => ['nullable', 'string', 'max:2000'],
+            'announcement_image_url' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $specialHour = $shop->specialHours()->create($validated);
@@ -57,6 +65,7 @@ class ShopSpecialHourController extends Controller
             'special_open_time'    => ['nullable', 'string', 'required_if:is_closed,false'],
             'special_close_time'   => ['nullable', 'string', 'required_if:is_closed,false'],
             'announcement_message' => ['nullable', 'string', 'max:2000'],
+            'announcement_image_url' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $specialHour->update($validated);
