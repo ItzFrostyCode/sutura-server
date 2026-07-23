@@ -37,6 +37,7 @@ class UpdateJobOrderRequest extends FormRequest
             // them here would let a stale tab silently overwrite a payment another
             // user just recorded (or let anyone mark a job "paid" with no ledger entry).
             'status' => ['sometimes', Rule::in(JobOrder::STATUSES)],
+            'cancellation_reason' => ['nullable', 'string', Rule::in(JobOrder::CANCELLATION_REASONS), 'required_if:status,cancelled'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
             'custom_order_data' => ['nullable', 'array'],

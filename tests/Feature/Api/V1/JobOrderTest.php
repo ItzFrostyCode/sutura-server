@@ -150,4 +150,50 @@ class JobOrderTest extends TestCase
         $jobOrder = \App\Models\JobOrder::find($jobId);
         $this->assertEquals($customOrderData, $jobOrder->custom_order_data);
     }
+
+    public function test_cancelling_job_order_requires_a_reason()
+    {
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9001',
+            'total_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'pending',
+        ]);
+
+        $response = $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+            'status' => 'cancelled',
+        ]);
+
+        $response->assertStatus(422)
+                 ->assertJsonValidationErrors('cancellation_reason');
+    }
+
+    public function test_cancelling_job_order_with_forfeited_deposit_reason_persists()
+    {
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9002',
+            'total_amount' => 5000,
+            'balance' => 2500,
+            'payment_status' => 'partial',
+            'status' => 'cutting',
+        ]);
+
+        $response = $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+            'status' => 'cancelled',
+            'cancellation_reason' => 'forfeited_deposit_abandoned',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertDatabaseHas('job_orders', [
+            'id' => $jobOrder->id,
+            'status' => 'cancelled',
+            'cancellation_reason' => 'forfeited_deposit_abandoned',
+        ]);
+    }
 }

@@ -63,6 +63,17 @@ class JobOrder extends Model
      */
     public const MATERIAL_SOURCES = ['shop_supplied', 'customer_supplied'];
 
+    /**
+     * Categorizes why a job order was cancelled. `forfeited_deposit_abandoned`
+     * is the one with real financial-reporting consequences (see
+     * AnalyticsController) — the customer went uncontactable after fabric was
+     * already cut, and per shop policy the deposit already collected is kept,
+     * not refunded. The other three carry no reversal or reporting logic.
+     */
+    public const CANCELLATION_REASONS = [
+        'customer_request', 'shop_unable_to_fulfill', 'forfeited_deposit_abandoned', 'other',
+    ];
+
     protected $fillable = [
         'order_number', 'intake_channel', 'fulfillment_type', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'total_amount',
@@ -70,7 +81,7 @@ class JobOrder extends Model
         'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
         'is_outsourced', 'partner_shop_name', 'outsourcing_cost', 'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source',
-        'discount_amount', 'rejection_reason',
+        'discount_amount', 'rejection_reason', 'cancellation_reason',
     ];
 
     protected $casts = [
