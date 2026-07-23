@@ -234,4 +234,67 @@ class JobOrderTest extends TestCase
         $this->assertEquals('GCash reference number does not match our transaction history.', $payment->rejected_reason);
         $this->assertEquals($this->user->id, $payment->rejected_by);
     }
+
+    public function test_rejecting_a_payment_on_an_already_completed_job_still_reverses_balance()
+    {
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9011',
+            'total_amount' => 5000,
+            'balance' => 0,
+            'payment_status' => 'paid',
+            'status' => 'completed',
+        ]);
+
+        $payment = $jobOrder->payments()->create([
+            'amount' => 5000,
+            'payment_method' => 'bank_transfer',
+            'recorded_by' => $this->user->id,
+        ]);
+
+        $response = $this->actingAs($this->user)->postJson(
+            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'Bank transfer receipt was a reused screenshot from a different customer.']
+        );
+
+        $response->assertStatus(200);
+
+        $this->assertDatabaseHas('job_orders', [
+            'id' => $jobOrder->id,
+            'status' => 'completed',
+            'balance' => 5000.00,
+            'payment_status' => 'unpaid',
+        ]);
+    }
+
+    public function test_cannot_reject_an_already_rejected_payment()
+    {
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9012',
+            'total_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'pending',
+        ]);
+
+        $payment = $jobOrder->payments()->create([
+            'amount' => 1000,
+            'payment_method' => 'cash',
+            'recorded_by' => $this->user->id,
+            'rejected_at' => now(),
+            'rejected_reason' => 'Already flagged once.',
+            'rejected_by' => $this->user->id,
+        ]);
+
+        $response = $this->actingAs($this->user)->postJson(
+            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'Trying again.']
+        );
+
+        $response->assertStatus(422);
+    }
 }

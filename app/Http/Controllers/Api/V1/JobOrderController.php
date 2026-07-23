@@ -580,6 +580,10 @@ class JobOrderController extends Controller
             return $denied;
         }
 
+        if ($payment->rejected_at !== null) {
+            return response()->json(['success' => false, 'message' => 'This payment has already been rejected.'], 422);
+        }
+
         $validated = $request->validate([
             'reason' => 'required|string|max:1000',
         ]);
