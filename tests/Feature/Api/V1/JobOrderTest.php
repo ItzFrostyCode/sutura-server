@@ -196,4 +196,42 @@ class JobOrderTest extends TestCase
             'cancellation_reason' => 'forfeited_deposit_abandoned',
         ]);
     }
+
+    public function test_owner_can_reject_a_payment_and_balance_is_reversed()
+    {
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9010',
+            'total_amount' => 5000,
+            'balance' => 3000,
+            'payment_status' => 'partial',
+            'status' => 'cutting',
+        ]);
+
+        $payment = $jobOrder->payments()->create([
+            'amount' => 2000,
+            'payment_method' => 'gcash',
+            'recorded_by' => $this->user->id,
+        ]);
+
+        $response = $this->actingAs($this->user)->postJson(
+            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'GCash reference number does not match our transaction history.']
+        );
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+
+        $this->assertDatabaseHas('job_orders', [
+            'id' => $jobOrder->id,
+            'balance' => 5000.00,
+            'payment_status' => 'unpaid',
+        ]);
+
+        $payment->refresh();
+        $this->assertNotNull($payment->rejected_at);
+        $this->assertEquals('GCash reference number does not match our transaction history.', $payment->rejected_reason);
+        $this->assertEquals($this->user->id, $payment->rejected_by);
+    }
 }

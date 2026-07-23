@@ -14,6 +14,13 @@ class Payment extends Model
         'recorded_by',
         'notes',
         'receipt_path',
+        'rejected_at',
+        'rejected_reason',
+        'rejected_by',
+    ];
+
+    protected $casts = [
+        'rejected_at' => 'datetime',
     ];
 
     public function jobOrder()
@@ -24,5 +31,10 @@ class Payment extends Model
     public function recordedBy()
     {
         return $this->belongsTo(User::class, 'recorded_by');
+    }
+
+    public function rejectedBy()
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
     }
 }

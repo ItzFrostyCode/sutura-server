@@ -120,6 +120,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs', [JobOrderController::class, 'store']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
+                Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');

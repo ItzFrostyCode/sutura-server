@@ -560,6 +560,75 @@ class JobOrderController extends Controller
         ]);
     }
 
+    /**
+     * Reject a specific payment discovered to be fraudulent/bad after the
+     * fact (e.g. a fake GCash receipt caught during a later review — staff
+     * couldn't have known at the time). Reverses the balance/payment_status
+     * regardless of the job's current production status: the "no balance,
+     * no claim" rule in update() only blocks *advancing to* completed with a
+     * balance owed, it doesn't forbid a completed job from later having a
+     * balance again — that state becoming possible is exactly how a fraud
+     * discovered after the garment was already handed over becomes visible.
+     */
+    public function rejectPayment(Request $request, Shop $shop, JobOrder $jobOrder, Payment $payment): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id || $payment->job_order_id !== $jobOrder->id) {
+            return response()->json(['success' => false, 'message' => 'Payment not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|max:1000',
+        ]);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($jobOrder, $payment, $validated, $request) {
+            $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
+
+            $newBalance = round((float) $locked->balance + (float) $payment->amount, 2);
+            $hasOtherConfirmedPayments = $locked->payments()
+                ->whereNull('rejected_at')
+                ->where('id', '!=', $payment->id)
+                ->exists();
+            $newPaymentStatus = $newBalance <= 0
+                ? 'paid'
+                : ($hasOtherConfirmedPayments ? 'partial' : 'unpaid');
+
+            $locked->update([
+                'balance' => $newBalance,
+                'payment_status' => $newPaymentStatus,
+            ]);
+
+            $payment->update([
+                'rejected_at' => now(),
+                'rejected_reason' => $validated['reason'],
+                'rejected_by' => $request->user()->id,
+            ]);
+
+            $shop = $locked->shop;
+            $shop->auditLogs()->create([
+                'user_id' => $request->user()->id,
+                'action' => 'payment_rejected',
+                'model_type' => Payment::class,
+                'model_id' => $payment->id,
+                'payload' => [
+                    'job_order_id' => $locked->id,
+                    'amount' => (float) $payment->amount,
+                    'reason' => $validated['reason'],
+                ],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment rejected.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages'])
+        ]);
+    }
+
     public function assignStaff(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
     {
         if ($jobOrder->shop_id !== $shop->id) {
