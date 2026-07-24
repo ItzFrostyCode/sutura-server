@@ -297,7 +297,7 @@ class JobOrderTest extends TestCase
             ['reason' => 'Trying again.']
         );
 
-        $response->assertStatus(422);
+        $response->assertStatus(400);
     }
 
     public function test_staff_cannot_reject_a_payment()

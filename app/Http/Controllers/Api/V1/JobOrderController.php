@@ -632,13 +632,14 @@ class JobOrderController extends Controller
                     ],
                     'ip_address' => $request->ip(),
                 ]);
-
-                if ($request->user()->hasRole('branch_manager')) {
-                    $shop->owner?->notify(new \App\Notifications\PaymentRejectedNotification($locked, $lockedPayment, $request->user()));
-                }
             });
         } catch (\RuntimeException $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+        }
+
+        // Notify shop owner of the rejection
+        if ($request->user()->hasRole('branch_manager')) {
+            $shop->owner?->notify(new \App\Notifications\PaymentRejectedNotification($jobOrder, $payment, $request->user()));
         }
 
         return response()->json([
