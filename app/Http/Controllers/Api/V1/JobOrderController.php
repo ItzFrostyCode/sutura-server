@@ -580,51 +580,62 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        if ($payment->rejected_at !== null) {
-            return response()->json(['success' => false, 'message' => 'This payment has already been rejected.'], 422);
-        }
-
         $validated = $request->validate([
             'reason' => 'required|string|max:1000',
         ]);
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($jobOrder, $payment, $validated, $request) {
-            $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($jobOrder, $payment, $validated, $request) {
+                $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
 
-            $newBalance = round((float) $locked->balance + (float) $payment->amount, 2);
-            $hasOtherConfirmedPayments = $locked->payments()
-                ->whereNull('rejected_at')
-                ->where('id', '!=', $payment->id)
-                ->exists();
-            $newPaymentStatus = $newBalance <= 0
-                ? 'paid'
-                : ($hasOtherConfirmedPayments ? 'partial' : 'unpaid');
+                // Lock the Payment row too, and re-check idempotency on the
+                // freshly-locked instance — checking the outer $payment
+                // parameter (loaded before the lock, at request start) would
+                // leave a TOCTOU window where two concurrent requests both
+                // read rejected_at === null and both apply the reversal.
+                $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->firstOrFail();
 
-            $locked->update([
-                'balance' => $newBalance,
-                'payment_status' => $newPaymentStatus,
-            ]);
+                if ($lockedPayment->rejected_at !== null) {
+                    throw new \RuntimeException('This payment has already been rejected.');
+                }
 
-            $payment->update([
-                'rejected_at' => now(),
-                'rejected_reason' => $validated['reason'],
-                'rejected_by' => $request->user()->id,
-            ]);
+                $newBalance = round((float) $locked->balance + (float) $lockedPayment->amount, 2);
+                $hasOtherConfirmedPayments = $locked->payments()
+                    ->whereNull('rejected_at')
+                    ->where('id', '!=', $lockedPayment->id)
+                    ->exists();
+                $newPaymentStatus = $newBalance <= 0
+                    ? 'paid'
+                    : ($hasOtherConfirmedPayments ? 'partial' : 'unpaid');
 
-            $shop = $locked->shop;
-            $shop->auditLogs()->create([
-                'user_id' => $request->user()->id,
-                'action' => 'payment_rejected',
-                'model_type' => Payment::class,
-                'model_id' => $payment->id,
-                'payload' => [
-                    'job_order_id' => $locked->id,
-                    'amount' => (float) $payment->amount,
-                    'reason' => $validated['reason'],
-                ],
-                'ip_address' => $request->ip(),
-            ]);
-        });
+                $locked->update([
+                    'balance' => $newBalance,
+                    'payment_status' => $newPaymentStatus,
+                ]);
+
+                $lockedPayment->update([
+                    'rejected_at' => now(),
+                    'rejected_reason' => $validated['reason'],
+                    'rejected_by' => $request->user()->id,
+                ]);
+
+                $shop = $locked->shop;
+                $shop->auditLogs()->create([
+                    'user_id' => $request->user()->id,
+                    'action' => 'payment_rejected',
+                    'model_type' => Payment::class,
+                    'model_id' => $lockedPayment->id,
+                    'payload' => [
+                        'job_order_id' => $locked->id,
+                        'amount' => (float) $lockedPayment->amount,
+                        'reason' => $validated['reason'],
+                    ],
+                    'ip_address' => $request->ip(),
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
 
         return response()->json([
             'success' => true,
