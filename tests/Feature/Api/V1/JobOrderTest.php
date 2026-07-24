@@ -8,7 +8,9 @@ use App\Models\Service;
 use App\Models\Measurement;
 use App\Models\StaffProfile;
 use App\Models\Role;
+use App\Models\ShopBranch;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 class JobOrderTest extends TestCase
@@ -296,5 +298,116 @@ class JobOrderTest extends TestCase
         );
 
         $response->assertStatus(422);
+    }
+
+    public function test_staff_cannot_reject_a_payment()
+    {
+        $staffRole = Role::firstOrCreate(['name' => 'staff'], ['description' => 'Staff']);
+        $staffUser = User::factory()->create();
+        $staffUser->roles()->attach($staffRole);
+        StaffProfile::create([
+            'shop_id' => $this->shop->id,
+            'user_id' => $staffUser->id,
+            'role' => 'tailor',
+        ]);
+
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9013',
+            'total_amount' => 5000,
+            'balance' => 3000,
+            'status' => 'cutting',
+        ]);
+        $payment = $jobOrder->payments()->create([
+            'amount' => 2000,
+            'payment_method' => 'cash',
+            'recorded_by' => $this->user->id,
+        ]);
+
+        $response = $this->actingAs($staffUser)->postJson(
+            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'test']
+        );
+
+        $response->assertStatus(403);
+    }
+
+    public function test_rejecting_a_payment_writes_an_audit_log_entry()
+    {
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9014',
+            'total_amount' => 5000,
+            'balance' => 3000,
+            'status' => 'cutting',
+        ]);
+        $payment = $jobOrder->payments()->create([
+            'amount' => 2000,
+            'payment_method' => 'cash',
+            'recorded_by' => $this->user->id,
+        ]);
+
+        $this->actingAs($this->user)->postJson(
+            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'Fake receipt.']
+        );
+
+        $this->assertDatabaseHas('audit_logs', [
+            'shop_id' => $this->shop->id,
+            'user_id' => $this->user->id,
+            'action' => 'payment_rejected',
+            'model_type' => \App\Models\Payment::class,
+            'model_id' => $payment->id,
+        ]);
+    }
+
+    public function test_branch_manager_rejecting_a_payment_notifies_the_shop_owner()
+    {
+        Notification::fake();
+
+        $branch = ShopBranch::create([
+            'shop_id' => $this->shop->id,
+            'name' => 'Matina Branch',
+            'address' => 'Matina, Davao City',
+            'city' => 'Davao City',
+        ]);
+        $managerRole = Role::firstOrCreate(['name' => 'branch_manager'], ['description' => 'Branch Manager']);
+        $manager = User::factory()->create();
+        $manager->roles()->attach($managerRole);
+        StaffProfile::create([
+            'shop_id' => $this->shop->id,
+            'shop_branch_id' => $branch->id,
+            'user_id' => $manager->id,
+            'role' => 'head_tailor',
+            'is_branch_manager' => true,
+        ]);
+
+        $jobOrder = \App\Models\JobOrder::create([
+            'shop_id' => $this->shop->id,
+            'shop_branch_id' => $branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9015',
+            'total_amount' => 5000,
+            'balance' => 3000,
+            'status' => 'cutting',
+        ]);
+        $payment = $jobOrder->payments()->create([
+            'amount' => 2000,
+            'payment_method' => 'cash',
+            'recorded_by' => $manager->id,
+        ]);
+
+        $response = $this->actingAs($manager)->postJson(
+            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'Cash count came up short at closing.']
+        );
+
+        $response->assertStatus(200);
+        Notification::assertSentTo($this->user, \App\Notifications\PaymentRejectedNotification::class);
     }
 }
