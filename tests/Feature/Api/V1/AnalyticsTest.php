@@ -83,4 +83,69 @@ class AnalyticsTest extends TestCase
             ->assertJsonPath('data.overdue_jobs', 1)
             ->assertJsonPath('data.pending_deposit_jobs', 1);
     }
+
+    public function test_branch_comparison_and_kpis_report_rejected_and_forfeited_amounts(): void
+    {
+        // Branch A: a completed job with a payment later rejected as fraudulent.
+        $completedJob = JobOrder::create([
+            'order_number' => 'JO-' . Str::random(10),
+            'shop_id' => $this->shop->id,
+            'shop_branch_id' => $this->branchA->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'status' => 'completed',
+            'payment_status' => 'unpaid',
+            'total_amount' => 5000,
+            'balance' => 5000,
+        ]);
+        $completedJob->payments()->create([
+            'amount' => 5000,
+            'payment_method' => 'gcash',
+            'rejected_at' => now(),
+            'rejected_reason' => 'Fake receipt',
+            'rejected_by' => $this->user->id,
+        ]);
+
+        // Branch B: a cancelled job with a forfeited deposit already collected.
+        $forfeitedJob = JobOrder::create([
+            'order_number' => 'JO-' . Str::random(10),
+            'shop_id' => $this->shop->id,
+            'shop_branch_id' => $this->branchB->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'status' => 'cancelled',
+            'cancellation_reason' => 'forfeited_deposit_abandoned',
+            'payment_status' => 'partial',
+            'total_amount' => 8000,
+            'balance' => 5000,
+        ]);
+        $forfeitedJob->payments()->create([
+            'amount' => 3000,
+            'payment_method' => 'cash',
+        ]);
+
+        $indexResponse = $this->actingAs($this->user)
+            ->getJson("/api/v1/shops/{$this->shop->id}/analytics?branch_id={$this->branchA->id}");
+
+        // assertJsonPath() compares with assertSame(): PHP's json_encode()
+        // drops the trailing .0 on whole-number floats (5000.0 -> "5000" in
+        // the wire payload), so json_decode() hands it back as an int and
+        // trips the strict type check even though the computed amount is
+        // correct. assertEquals() (loose) checks the same value without
+        // that false-negative.
+        $indexResponse->assertStatus(200);
+        $this->assertEquals(5000.0, $indexResponse->json('data.rejected_payments_amount'));
+        $this->assertEquals(0.0, $indexResponse->json('data.forfeited_deposit_amount'));
+
+        $response = $this->actingAs($this->user)
+            ->getJson("/api/v1/shops/{$this->shop->id}/analytics/branches");
+
+        $response->assertStatus(200);
+        $rows = collect($response->json('data'));
+        $branchARow = $rows->firstWhere('branch_id', $this->branchA->id);
+        $branchBRow = $rows->firstWhere('branch_id', $this->branchB->id);
+
+        $this->assertEquals(5000.0, $branchARow['rejected_payments_amount']);
+        $this->assertEquals(3000.0, $branchBRow['forfeited_deposit_amount']);
+    }
 }

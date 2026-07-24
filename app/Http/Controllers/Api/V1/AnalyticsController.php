@@ -39,6 +39,18 @@ class AnalyticsController extends Controller
             $totalJobs     = $jobsQuery->count();
             $completedJobs = (clone $jobsQuery)->where('status', 'completed')->count();
 
+            $rejectedAmount = (float) \App\Models\Payment::whereNotNull('rejected_at')
+                ->whereIn('job_order_id', (clone $jobsQuery)->pluck('id'))
+                ->sum('amount');
+
+            $forfeitedIds = (clone $jobsQuery)
+                ->where('status', 'cancelled')
+                ->where('cancellation_reason', 'forfeited_deposit_abandoned')
+                ->pluck('id');
+            $forfeitedAmount = (float) \App\Models\Payment::whereIn('job_order_id', $forfeitedIds)
+                ->whereNull('rejected_at')
+                ->sum('amount');
+
             return [
                 'branch_id'                 => $branchId,
                 'branch_name'               => $name,
@@ -50,6 +62,8 @@ class AnalyticsController extends Controller
                 'total_outstanding_balance' => (clone $jobsQuery)->sum('balance'),
                 'total_appointments'        => $appointmentsQuery->count(),
                 'total_staff'               => $branchId ? \App\Models\StaffProfile::where('shop_branch_id', $branchId)->count() : 0,
+                'rejected_payments_amount'  => $rejectedAmount,
+                'forfeited_deposit_amount'  => $forfeitedAmount,
             ];
         };
 
@@ -300,6 +314,29 @@ class AnalyticsController extends Controller
                 'status' => $job->status,
             ]);
 
+        // Rejected-payments and forfeited-deposit loss figures — branch-scoped
+        // like every other KPI on this endpoint, derived at read time rather
+        // than stored, so they can never drift out of sync with the
+        // underlying Payment/cancellation_reason data.
+        $rejectedPaymentsQuery = \App\Models\Payment::whereNotNull('rejected_at')
+            ->whereHas('jobOrder', function ($q) use ($shop, $branchId) {
+                $q->where('shop_id', $shop->id);
+                if ($branchId) {
+                    $q->where('shop_branch_id', $branchId);
+                }
+            });
+        $rejectedPaymentsCount  = (clone $rejectedPaymentsQuery)->count();
+        $rejectedPaymentsAmount = (float) (clone $rejectedPaymentsQuery)->sum('amount');
+
+        $forfeitedJobIds = $branchJobs()
+            ->where('status', 'cancelled')
+            ->where('cancellation_reason', 'forfeited_deposit_abandoned')
+            ->pluck('id');
+        $forfeitedDepositCount  = $forfeitedJobIds->count();
+        $forfeitedDepositAmount = (float) \App\Models\Payment::whereIn('job_order_id', $forfeitedJobIds)
+            ->whereNull('rejected_at')
+            ->sum('amount');
+
         // Today's appointments
         $todayAppointments = $branchAppointments()
             ->with(['customer:id,name', 'service:id,name'])
@@ -343,6 +380,10 @@ class AnalyticsController extends Controller
                 'avg_order_value'            => $avgOrderValue,
                 'today_appointments'         => $todayAppointments,
                 'outstanding_balances'       => $outstandingBalances,
+                'rejected_payments_count'    => $rejectedPaymentsCount,
+                'rejected_payments_amount'   => $rejectedPaymentsAmount,
+                'forfeited_deposit_count'    => $forfeitedDepositCount,
+                'forfeited_deposit_amount'  => $forfeitedDepositAmount,
             ]
         ]);
     }
