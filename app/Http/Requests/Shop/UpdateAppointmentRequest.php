@@ -39,6 +39,7 @@ class UpdateAppointmentRequest extends FormRequest
             'outcome'          => ['nullable', 'string', 'in:completed,rescheduled,no_show,converted_to_job,cancelled'],
             'priority'         => ['nullable', 'string', 'in:normal,urgent,rush'],
             'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform'],
+            'fitting_notes'    => ['nullable', 'string', 'max:2000'],
 
             // NOTE: shop_branch_id is intentionally NOT updatable.
             // Branch is chosen by the customer at booking time and is immutable.

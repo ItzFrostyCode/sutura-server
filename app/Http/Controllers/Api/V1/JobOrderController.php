@@ -175,6 +175,25 @@ class JobOrderController extends Controller
             $validated['payment_status'] = 'unpaid';
         }
 
+        // Auto-calculates a starting rush fee when the owner/staff flags a job as
+        // rush but doesn't type in their own figure — a sane default instead of a
+        // blank field, never overriding an explicit value the caller actually
+        // provided. Always editable afterward via the normal update() flow, same
+        // as any other field — this only fills in a default.
+        //
+        // A repeat customer (3+ prior jobs at this shop — the same signal already
+        // shown on the Job Detail page as customer_job_count) gets a reduced rate
+        // as a real loyalty perk. Deliberately NOT keyed off suki_tag: that field
+        // holds a customer-type classification (b2b_suki/reseller/walk_in_retail),
+        // not a repeat-customer flag, so it isn't the right signal for this.
+        if (!empty($validated['is_rush']) && empty($validated['rush_fee']) && $totalAmount > 0) {
+            $priorJobCount = JobOrder::where('shop_id', $shop->id)
+                ->where('customer_id', $validated['customer_id'])
+                ->count();
+            $rushFeePercent = $priorJobCount >= 3 ? 0.15 : 0.30;
+            $validated['rush_fee'] = round($totalAmount * $rushFeePercent, 2);
+        }
+
         // Resolve the linked appointment (if any) before creating the job so its
         // design-reference photos/link — attached by the customer at booking time —
         // carry over onto the job the assigned staff actually work from, instead of
@@ -189,6 +208,9 @@ class JobOrderController extends Controller
                 }
                 if (empty($validated['reference_link']) && !empty($appointment->reference_link)) {
                     $validated['reference_link'] = $appointment->reference_link;
+                }
+                if (empty($validated['garment_category']) && !empty($appointment->garment_category)) {
+                    $validated['garment_category'] = $appointment->garment_category;
                 }
             }
         }
@@ -288,6 +310,22 @@ class JobOrderController extends Controller
         $validated = $request->validated();
         $newStatus = $validated['status'] ?? null;
 
+        // Same auto-calculated rush fee default as store() (including the
+        // repeat-customer discount) — only fills in a starting figure when
+        // is_rush is being newly turned on here without the caller also
+        // supplying their own rush_fee; never overrides an explicit value,
+        // and never touches a job that was already rush.
+        if (
+            !empty($validated['is_rush']) && !$jobOrder->is_rush
+            && !isset($validated['rush_fee']) && (float) $jobOrder->total_amount > 0
+        ) {
+            $priorJobCount = JobOrder::where('shop_id', $jobOrder->shop_id)
+                ->where('customer_id', $jobOrder->customer_id)
+                ->count();
+            $rushFeePercent = $priorJobCount >= 3 ? 0.15 : 0.30;
+            $validated['rush_fee'] = round((float) $jobOrder->total_amount * $rushFeePercent, 2);
+        }
+
         // Server-side backstop for the same "No DP, No Cut" / "No Balance, No Claim"
         // rules the Kanban UI enforces — this endpoint is also reachable from the
         // Job Detail page's own status dropdown, so the rule has to live here too,
@@ -314,9 +352,33 @@ class JobOrderController extends Controller
                     'message' => 'The remaining balance must be paid before this job can be marked completed.',
                 ], 422);
             }
+
+            // 'rejected' has its own dedicated endpoint (JobOrderController@rejectOrder)
+            // with rules this generic endpoint doesn't enforce: owner/branch_manager
+            // only (staff can reach this route), pending-only, and a required reason.
+            // Blocking it here closes off a bypass of all three via a plain status edit.
+            if ($newStatus === 'rejected') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Use the dedicated reject endpoint to decline a pending order.',
+                ], 422);
+            }
         }
 
         $jobOrder->update($validated);
+
+        // Tracks how many times a job has entered Final Adjustments, and when
+        // the first one happened — lets the owner judge the shop's own "1 free
+        // adjustment within N days" policy manually (the exact policy varies
+        // shop to shop, so this only surfaces the facts rather than enforcing
+        // one hard-coded rule). Neither field is client-settable (not in
+        // $fillable) — both are server-derived from the status transition itself.
+        if ($jobOrder->status === 'final_adjustments' && $oldStatus !== 'final_adjustments') {
+            $jobOrder->increment('adjustment_count');
+            if (!$jobOrder->first_adjustment_at) {
+                $jobOrder->forceFill(['first_adjustment_at' => now()])->save();
+            }
+        }
 
         // When the OWNER marks a job completed, stamp completion on its staff
         // assignments so "jobs completed" / productivity is derivable without a staff portal.
@@ -646,6 +708,88 @@ class JobOrderController extends Controller
             'success' => true,
             'message' => 'Payment rejected.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages'])
+        ]);
+    }
+
+    /**
+     * Declines a job order before any production has started — a business
+     * decision (feasibility, capacity, fabric availability), not a
+     * production task, so plain staff can't do this any more than they can
+     * touch payments. Only reachable from 'pending': once real work has
+     * started, cancel the job instead (see UpdateJobOrderRequest's
+     * cancellation_reason flow).
+     */
+    public function rejectOrder(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        if ($jobOrder->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a pending order can be rejected — cancel it instead.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|max:2000',
+        ]);
+
+        $jobOrder->update([
+            'status' => 'rejected',
+            'rejection_reason' => $validated['reason'],
+        ]);
+
+        $jobOrder->customer->notify(new \App\Notifications\JobStatusUpdatedNotification($jobOrder, 'rejected'));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Job order rejected.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])
+        ]);
+    }
+
+    /**
+     * Appends a staff-uploaded photo showing real production progress at
+     * whatever stage the job is currently in — the "no proof of progress"
+     * pain point real shop owners named in interview research, distinct from
+     * completion_photo_url (one photo, only at the very end) and
+     * reference_images (the customer's own inspiration photos attached at
+     * intake, not staff-uploaded evidence). Appends, never overwrites — a
+     * job accumulates one photo per stage over its lifetime, same "add a
+     * ledger entry" shape as payments rather than replacing a single field.
+     */
+    public function addProgressPhoto(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'url' => 'required|string|max:2048',
+        ]);
+
+        $photos = $jobOrder->progress_photos ?? [];
+        $photos[] = [
+            'url' => $validated['url'],
+            'stage' => $jobOrder->status,
+            'uploaded_at' => now()->toIso8601String(),
+        ];
+        $jobOrder->forceFill(['progress_photos' => $photos])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Progress photo added.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])
         ]);
     }
 

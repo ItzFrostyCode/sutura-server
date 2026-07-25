@@ -69,6 +69,7 @@ class StoreJobOrderRequest extends FormRequest
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link' => ['nullable', 'string', 'max:500'],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
+            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform'],
             'is_rush' => ['nullable', 'boolean'],
             'rush_fee' => ['nullable', 'numeric', 'min:0'],
             'catalog_item_id' => ['nullable', 'exists:catalog_items,id'],

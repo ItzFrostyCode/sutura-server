@@ -41,6 +41,9 @@ class UpdateShopRequest extends FormRequest
             'change_reserved_hours' => ['nullable', 'integer', 'min:0'],
             'change_reserved_fee_percent' => ['nullable', 'integer', 'min:0', 'max:100'],
             'supported_couriers' => ['nullable', 'array'],
+            'specializations' => ['nullable', 'array'],
+            'specializations.*' => ['string', 'in:barong,gown,suit,filipiniana,uniform'],
+            'is_featured' => ['sometimes', 'boolean'],
         ];
     }
 }

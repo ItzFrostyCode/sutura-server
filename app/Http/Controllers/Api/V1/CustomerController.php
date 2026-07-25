@@ -24,6 +24,11 @@ class CustomerController extends Controller
         
         $customerIds = collect(array_merge($jobCustomerIds, $pivotCustomerIds))->unique();
         
+        // Shop-specific notes live on the shop_customers pivot, not the User
+        // row — fetched once here (keyed by user id) rather than per-customer,
+        // same N+1-avoidance reasoning as the jobOrders/appointments eager loads.
+        $notesByCustomerId = $shop->customers()->pluck('shop_customers.notes', 'users.id');
+
         $customers = User::whereIn('id', $customerIds)
             ->with([
                 'jobOrders' => function ($query) use ($shop) {
@@ -38,13 +43,14 @@ class CustomerController extends Controller
                 },
             ])
             ->get()
-            ->map(function ($user) {
+            ->map(function ($user) use ($notesByCustomerId) {
                 $user->total_spend = $user->jobOrders->sum('total_amount');
                 $user->last_appointment = $user->appointments->first();
                 // Repeat-customer context for the shop owner's manual discount
                 // decision ("this is their 5th order") — not just a display stat.
                 $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
                 $user->completed_jobs = $user->jobOrders->where('status', 'completed')->count();
+                $user->shop_notes = $notesByCustomerId[$user->id] ?? null;
                 return $user;
             });
 
@@ -65,6 +71,7 @@ class CustomerController extends Controller
             'email' => 'nullable|email',
             'phone' => 'required|string|max:20',
             'suki_tag' => 'nullable|string|max:50',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
         $email = $validated['email'] ?? null;
@@ -99,10 +106,13 @@ class CustomerController extends Controller
             ]);
         }
 
-        // Attach to shop if not already attached
-        if (!$shop->customers()->where('user_id', $user->id)->exists()) {
-            $shop->customers()->attach($user->id);
-        }
+        // Attach to shop if not already attached — syncWithoutDetaching handles
+        // both "attach for the first time" and "already attached, just update
+        // the pivot notes" in one call, without touching any other customer's
+        // pivot row the way a plain sync() would.
+        $shop->customers()->syncWithoutDetaching([
+            $user->id => ['notes' => $validated['notes'] ?? null],
+        ]);
 
         return response()->json([
             'success' => true,
@@ -127,6 +137,7 @@ class CustomerController extends Controller
             'email' => 'nullable|email',
             'phone' => 'required|string|max:20',
             'suki_tag' => 'nullable|string|max:50',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
         $email = $validated['email'] ?? null;
@@ -144,6 +155,16 @@ class CustomerController extends Controller
             'phone' => $validated['phone'] ?? null,
             'suki_tag' => array_key_exists('suki_tag', $validated) ? $validated['suki_tag'] : $customer->suki_tag,
         ]);
+
+        // Shop-specific — lives on the pivot, not the User row (see
+        // Shop::customers()). Preserves the existing note when the request
+        // doesn't include the field at all, same "omit = keep as-is" rule
+        // already used above for suki_tag.
+        if (array_key_exists('notes', $validated)) {
+            $shop->customers()->syncWithoutDetaching([
+                $customer->id => ['notes' => $validated['notes']],
+            ]);
+        }
 
         return response()->json([
             'success' => true,

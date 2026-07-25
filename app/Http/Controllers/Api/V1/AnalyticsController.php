@@ -255,9 +255,12 @@ class AnalyticsController extends Controller
         // ── New KPI Metrics ─────────────────────────────────────────────────────
         $today = now()->toDateString();
 
-        // Overdue: active jobs past due_date
+        // Overdue: active jobs past due_date. Excludes on_hold/rejected alongside
+        // completed/cancelled — a job the owner intentionally paused, or one that
+        // never started because it was declined, isn't "overdue," it's a
+        // different state entirely.
         $overdueJobs = $branchJobs()
-            ->whereNotIn('status', ['completed', 'cancelled'])
+            ->whereNotIn('status', ['completed', 'cancelled', 'on_hold', 'rejected'])
             ->whereNotNull('due_date')
             ->whereDate('due_date', '<', $today)
             ->count();

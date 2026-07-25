@@ -29,7 +29,7 @@ class JobOrder extends Model
     public const STATUSES = [
         'pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
         'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
-        'completed', 'cancelled',
+        'completed', 'cancelled', 'rejected', 'on_hold',
     ];
 
     /**
@@ -80,8 +80,8 @@ class JobOrder extends Model
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
         'is_outsourced', 'partner_shop_name', 'outsourcing_cost', 'is_rush', 'rush_fee', 'completion_photo_url',
-        'reference_images', 'reference_link', 'material_source',
-        'discount_amount', 'rejection_reason', 'cancellation_reason',
+        'reference_images', 'reference_link', 'material_source', 'garment_category',
+        'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
     ];
 
     protected $casts = [
@@ -98,6 +98,9 @@ class JobOrder extends Model
         'rush_fee' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'outsourcing_cost' => 'decimal:2',
+        'first_adjustment_at' => 'datetime',
+        'adjustment_count' => 'integer',
+        'progress_photos' => 'array',
     ];
 
     public function shop(): BelongsTo

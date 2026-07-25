@@ -70,6 +70,7 @@ class Appointment extends Model
         'outcome',
         'priority',
         'garment_category',
+        'fitting_notes',
     ];
 
     protected $casts = [

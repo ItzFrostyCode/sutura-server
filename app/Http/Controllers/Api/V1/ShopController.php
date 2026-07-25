@@ -85,7 +85,25 @@ class ShopController extends Controller
 
     public function update(UpdateShopRequest $request, Shop $shop): JsonResponse
     {
-        $shop->update($request->validated());
+        $validated = $request->validated();
+
+        // "Featured Shop Visibility (Top Placement)" is a real Premium-plan
+        // perk per the seeded plan data (SubscriptionPlanSeeder) — it was
+        // documented there but never actually enforced anywhere until now.
+        // Checks the plan's own features list rather than hardcoding the
+        // plan slug, so the entitlement stays correct if plan tiers/features
+        // are ever restructured.
+        if (($validated['is_featured'] ?? false) === true) {
+            $planFeatures = $shop->subscription?->plan?->features ?? [];
+            if (!in_array('Featured Shop Visibility (Top Placement)', $planFeatures, true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Featured placement requires a subscription plan that includes it.',
+                ], 422);
+            }
+        }
+
+        $shop->update($validated);
 
         return response()->json([
             'success' => true,

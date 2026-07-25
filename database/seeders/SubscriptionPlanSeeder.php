@@ -25,7 +25,7 @@ class SubscriptionPlanSeeder extends Seeder
                 'max_staff'                  => 1,
                 'max_services'               => 10,
                 'max_appointments_per_month' => 50,
-                'features'                   => json_encode([
+                'features'                   => [
                     'Customer Management',
                     'Appointment Scheduling',
                     'Order Tracking',
@@ -33,7 +33,7 @@ class SubscriptionPlanSeeder extends Seeder
                     'Text-Only Profile',
                     'Manual Updates (Web Portal)',
                     'Standard Search Listing',
-                ]),
+                ],
                 'is_active'                  => true,
             ]
         );
@@ -51,7 +51,7 @@ class SubscriptionPlanSeeder extends Seeder
                 'max_staff'                  => 5,
                 'max_services'               => 50,
                 'max_appointments_per_month' => 200,
-                'features'                   => json_encode([
+                'features'                   => [
                     'All Basic Plan Features',
                     'Boosted Search Visibility',
                     'Visual Portfolio Gallery',
@@ -61,7 +61,7 @@ class SubscriptionPlanSeeder extends Seeder
                     'Measurement History',
                     'Multi-User Access',
                     'Staff Management',
-                ]),
+                ],
                 'is_active'                  => true,
             ]
         );
@@ -79,14 +79,14 @@ class SubscriptionPlanSeeder extends Seeder
                 'max_staff'                  => -1, // Unlimited
                 'max_services'               => -1, // Unlimited
                 'max_appointments_per_month' => -1, // Unlimited
-                'features'                   => json_encode([
+                'features'                   => [
                     'All Pro Plan Features',
                     'Multi-Branch Management',
                     'Custom Branding',
                     'Featured Shop Visibility (Top Placement)',
                     'Sales Reports & Income Exports',
                     'Advanced Dashboard',
-                ]),
+                ],
                 'is_active'                  => true,
             ]
         );

@@ -13,12 +13,13 @@ class Shop extends Model
 
     protected $fillable = [
         'owner_id', 'name', 'slug', 'description', 'address', 'landmark',
-        'city', 'province', 'postal_code', 'phone', 'email', 
+        'city', 'province', 'postal_code', 'phone', 'email',
         'logo_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
         'security_deposit', 'rental_duration_days', 'overdue_penalty_per_day', 'fitting_fee', 'fitting_limit',
-        'reschedule_fee_percent', 'change_reserved_hours', 'change_reserved_fee_percent', 'supported_couriers'
+        'reschedule_fee_percent', 'change_reserved_hours', 'change_reserved_fee_percent', 'supported_couriers',
+        'specializations', 'is_featured'
     ];
 
     protected $casts = [
@@ -27,6 +28,8 @@ class Shop extends Model
         'social_links' => 'array',
         'operating_hours' => 'array',
         'supported_couriers' => 'array',
+        'specializations' => 'array',
+        'is_featured' => 'boolean',
         'security_deposit' => 'float',
         'overdue_penalty_per_day' => 'float',
         'fitting_fee' => 'float',
@@ -94,7 +97,12 @@ class Shop extends Model
 
     public function customers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'shop_customers');
+        // withPivot('notes') — shop-specific customer notes deliberately live
+        // here, not on the User row: a note like "prefers slim fit" only
+        // makes sense in the context of the specific shop that wrote it, and
+        // suki_tag (which does live on User) already shows the pitfall of a
+        // per-customer field that's meant to be shop-specific but isn't.
+        return $this->belongsToMany(User::class, 'shop_customers')->withPivot('notes')->withTimestamps();
     }
 
     public function jobOrders(): HasMany

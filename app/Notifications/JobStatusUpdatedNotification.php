@@ -18,7 +18,7 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
     use Queueable;
 
     public JobOrder $jobOrder;
-    public string $status; // 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'completed', 'cancelled'
+    public string $status; // 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'completed', 'cancelled', 'rejected'
 
     public function __construct(JobOrder $jobOrder, string $status)
     {
@@ -52,6 +52,7 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
             'qc_ironing'             => 'Order In Progress: Quality Check & Ironing',
             'completed'              => 'Order Completed',
             'cancelled'              => 'Order Cancelled',
+            'rejected'               => 'Order Declined',
         ];
     }
 
@@ -67,8 +68,8 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
             'final_adjustments'      => 'Your order (' . $this->jobOrder->order_number . ') is undergoing final adjustments after your fitting.',
             'qc_ironing'             => 'Your order (' . $this->jobOrder->order_number . ') is receiving its final quality check and ironing.',
             'completed'              => 'Your order (' . $this->jobOrder->order_number . ') is now complete. Thank you for trusting us with your custom tailoring!',
-            'cancelled'              => 'Your order (' . $this->jobOrder->order_number . ') has been cancelled.'
-                . ($this->jobOrder->rejection_reason ? ' Reason: ' . $this->jobOrder->rejection_reason : ''),
+            'cancelled'              => 'Your order (' . $this->jobOrder->order_number . ') has been cancelled.',
+            'rejected'               => 'Your order (' . $this->jobOrder->order_number . ') could not be accepted. Please reach out to the shop directly for details.',
         ];
     }
 

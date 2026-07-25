@@ -86,6 +86,10 @@ Route::prefix('v1')->group(function () {
                 Route::get('/jobs', [JobOrderController::class, 'index']);
                 Route::get(JOB_DETAIL_ROUTE, [JobOrderController::class, 'show']);
                 Route::put(JOB_DETAIL_ROUTE, [JobOrderController::class, 'update']);
+                // Staff are the ones actually at the workbench — production-evidence
+                // photos are a day-to-day task, not a supervisory decision, so this
+                // sits in the staff-accessible group unlike reject/pay/discount below.
+                Route::post('/jobs/{jobOrder}/progress-photos', [JobOrderController::class, 'addProgressPhoto']);
 
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
@@ -121,6 +125,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
+                Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
