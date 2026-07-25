@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use App\Models\User;
 use App\Models\Role;
 use App\Models\Shop;
@@ -124,8 +125,13 @@ class LocalTestSeeder extends Seeder
         }
 
         // 5. Update Shop Branding (Profile Picture/Logo, Bio/Description)
+        // Was hardcoded to http://127.0.0.1:8000/... -- only ever resolved on
+        // one specific machine with `php artisan serve` running on that exact
+        // port. Storage::url() generates the correct host for wherever this
+        // actually runs (local, Postgres test, or real production), same
+        // fix as FileUploadController's UPLOAD_DISK bug.
         $shop->update([
-            'logo_path' => 'http://127.0.0.1:8000/storage/logos/sutura_logo.png',
+            'logo_path' => Storage::disk('public')->url('logos/sutura_logo.png'),
             'description' => "Davao City's premier provider of full sublimation jerseys, corporate uniforms, and custom tailoring.",
         ]);
 

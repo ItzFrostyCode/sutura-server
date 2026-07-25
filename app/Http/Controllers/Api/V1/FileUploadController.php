@@ -13,6 +13,14 @@ class FileUploadController extends Controller
     private const SHOPS_DIR = 'shops/';
     private const NO_FILE_UPLOADED = 'No file uploaded';
 
+    // Single source of truth for which disk uploads live on. Switching this
+    // to 's3' at the real September migration updates both where files are
+    // stored AND where their URLs are generated from, together -- they can't
+    // drift apart again the way they did before (store() said 'public',
+    // url() used the app's default disk instead, which happened to be a
+    // *different* disk with no 'url' config of its own).
+    private const UPLOAD_DISK = 'public';
+
     public function store(Request $request, Shop $shop): JsonResponse
     {
         $request->validate([
@@ -21,12 +29,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::SHOPS_DIR . $shop->id . '/catalog', 'public');
-            
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/catalog', self::UPLOAD_DISK);
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => config('app.url') . Storage::url($path)
+                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path)
                 ]
             ]);
         }
@@ -46,12 +54,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::SHOPS_DIR . $shop->id . '/support', 'public');
-            
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/support', self::UPLOAD_DISK);
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => config('app.url') . Storage::url($path)
+                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path)
                 ]
             ]);
         }
@@ -67,12 +75,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::SHOPS_DIR . $shop->id . '/receipts', 'public');
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/receipts', self::UPLOAD_DISK);
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => config('app.url') . Storage::url($path)
+                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path)
                 ]
             ]);
         }
@@ -92,12 +100,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::SHOPS_DIR . $shop->id . '/references', 'public');
+            $path = $file->store(self::SHOPS_DIR . $shop->id . '/references', self::UPLOAD_DISK);
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => config('app.url') . Storage::url($path)
+                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path)
                 ]
             ]);
         }

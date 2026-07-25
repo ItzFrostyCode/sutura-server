@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -23,6 +24,20 @@ return new class extends Migration
         // moment this ran on real MySQL/PlanetScale. Converting to plain
         // strings — validated only at the app layer, which was already the
         // real authority — removes this whole class of bug going forward.
+        //
+        // On Postgres specifically, the original enum() calls created named
+        // CHECK constraints (staff_profiles_role_check, job_orders_status_check,
+        // appointments_status_check) that a plain string()->change() does NOT
+        // drop -- it only changes the column type while the old constraint
+        // keeps silently enforcing the original short value list underneath.
+        // Drop those explicitly first so the conversion actually removes the
+        // restriction on Postgres, not just on paper.
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE staff_profiles DROP CONSTRAINT IF EXISTS staff_profiles_role_check');
+            DB::statement('ALTER TABLE job_orders DROP CONSTRAINT IF EXISTS job_orders_status_check');
+            DB::statement('ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_status_check');
+        }
+
         Schema::table('staff_profiles', function (Blueprint $table) {
             $table->string('role', 50)->default('tailor')->change();
         });

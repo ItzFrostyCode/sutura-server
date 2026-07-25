@@ -33,7 +33,11 @@ class CatalogController extends Controller
         }
 
         if ($request->filled('search')) {
-            $query->where('name', 'like', '%' . $request->string('search') . '%');
+            // MySQL's default collation makes LIKE case-insensitive; Postgres's
+            // LIKE never is. LOWER() on both sides works identically on both
+            // engines, so search behaves the same after the Postgres migration.
+            $search = strtolower((string) $request->string('search'));
+            $query->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
         }
 
         if ($request->filled('garment_type')) {
