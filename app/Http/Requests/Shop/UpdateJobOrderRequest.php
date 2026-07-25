@@ -63,7 +63,7 @@ class UpdateJobOrderRequest extends FormRequest
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link' => ['nullable', 'string', 'max:500'],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
-            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform'],
+            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear'],
             'hold_reason' => ['nullable', 'string', 'max:2000'],
         ];
     }

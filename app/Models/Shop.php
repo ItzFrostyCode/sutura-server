@@ -14,12 +14,12 @@ class Shop extends Model
     protected $fillable = [
         'owner_id', 'name', 'slug', 'description', 'address', 'landmark',
         'city', 'province', 'postal_code', 'phone', 'email',
-        'logo_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
+        'logo_path', 'banner_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
         'security_deposit', 'rental_duration_days', 'overdue_penalty_per_day', 'fitting_fee', 'fitting_limit',
         'reschedule_fee_percent', 'change_reserved_hours', 'change_reserved_fee_percent', 'supported_couriers',
-        'specializations', 'is_featured'
+        'specializations', 'is_featured', 'is_hidden'
     ];
 
     protected $casts = [
@@ -30,6 +30,7 @@ class Shop extends Model
         'supported_couriers' => 'array',
         'specializations' => 'array',
         'is_featured' => 'boolean',
+        'is_hidden' => 'boolean',
         'security_deposit' => 'float',
         'overdue_penalty_per_day' => 'float',
         'fitting_fee' => 'float',

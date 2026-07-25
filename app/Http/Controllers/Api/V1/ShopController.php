@@ -70,6 +70,17 @@ class ShopController extends Controller
 
     public function publicProfile(Shop $shop): JsonResponse
     {
+        // This route intentionally carries no `auth:sanctum` middleware (it's
+        // the public storefront, guests must be able to load it) but the
+        // owner still needs to reach their own hidden shop's profile to edit
+        // it — resolving the guard manually here (instead of relying on
+        // route middleware to populate $request->user()) lets a Bearer token
+        // still identify the owner without forcing auth on everyone else.
+        $viewer = auth('sanctum')->user();
+        if ($shop->is_hidden && (!$viewer || $viewer->id !== $shop->owner_id)) {
+            return response()->json(['success' => false, 'message' => 'Shop not found'], 404);
+        }
+
         $shop->loadCount('reviews');
         $shop->loadAvg('reviews', 'rating');
         $shop->reviews_avg_rating = round($shop->reviews_avg_rating, 1);

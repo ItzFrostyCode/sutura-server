@@ -17,6 +17,8 @@ class UpdateShopRequest extends FormRequest
         return [
             'name' => ['sometimes', 'required', 'string', 'max:191'],
             'description' => ['nullable', 'string'],
+            'logo_path' => ['nullable', 'string'],
+            'banner_path' => ['nullable', 'string'],
             'address' => ['sometimes', 'required', 'string', 'max:255'],
             'landmark' => ['nullable', 'string', 'max:255'],
             'city' => ['sometimes', 'required', 'string', 'max:100'],
@@ -42,8 +44,9 @@ class UpdateShopRequest extends FormRequest
             'change_reserved_fee_percent' => ['nullable', 'integer', 'min:0', 'max:100'],
             'supported_couriers' => ['nullable', 'array'],
             'specializations' => ['nullable', 'array'],
-            'specializations.*' => ['string', 'in:barong,gown,suit,filipiniana,uniform'],
+            'specializations.*' => ['string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear'],
             'is_featured' => ['sometimes', 'boolean'],
+            'is_hidden' => ['sometimes', 'boolean'],
         ];
     }
 }

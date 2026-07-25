@@ -82,6 +82,12 @@ class SubscriptionController extends Controller
             'ends_at' => now()->addDays($days),
         ]);
 
+        // Mirrors app:expire-subscriptions' auto-hide-on-expiry — a shop the
+        // system hid for a lapsed subscription should come back the moment
+        // the owner renews, not stay hidden until they separately notice and
+        // flip the visibility toggle themselves.
+        \App\Models\Shop::where('id', $shopId)->update(['is_hidden' => false]);
+
         return response()->json([
             'success' => true,
             'message' => 'Successfully subscribed to ' . $plan->name . '.',

@@ -16,3 +16,7 @@ Schedule::command('app:backup-database')->daily();
 // most useful exactly when an owner is too busy (peak season) to remember to
 // check the dashboard themselves.
 Schedule::command('app:notify-overdue-jobs')->dailyAt('08:00');
+
+// REQUIREMENTS.md Phase 5: "Expired subscriptions automatically downgrade
+// shop visibility to Hidden until renewed."
+Schedule::command('app:expire-subscriptions')->daily();

@@ -1,0 +1,32 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('shops', function (Blueprint $table) {
+            // Owner-controlled visibility, separate from `status` (admin
+            // approval: pending/approved/rejected). A hidden shop is still
+            // approved and fully functional for the owner — it just doesn't
+            // show up to customers.
+            $table->boolean('is_hidden')->default(false)->after('is_featured');
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::table('shops', function (Blueprint $table) {
+            $table->dropColumn('is_hidden');
+        });
+    }
+};
