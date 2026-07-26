@@ -222,6 +222,24 @@ class JobOrderController extends Controller
         // ignored on purpose.
         $validated['intake_channel'] = $appointment?->intake_channel === 'online' ? 'online' : 'walk_in';
 
+        // Same idea as the appointment carry-over above, but for a Design Catalog
+        // item the owner/staff explicitly linked at creation time (e.g. "make this
+        // customer's order using this catalog design") — entirely optional, most
+        // jobs are fully custom and have no catalog_item_id at all. Falls back to
+        // the item's primary gallery photo, then its fabric swatch, so staff still
+        // see a reference even for catalog items with no gallery images uploaded.
+        if (!empty($validated['catalog_item_id']) && empty($validated['reference_images'])) {
+            $catalogItem = \App\Models\CatalogItem::with('images')->find($validated['catalog_item_id']);
+            if ($catalogItem && $catalogItem->shop_id === $shop->id) {
+                $catalogImage = $catalogItem->images->firstWhere('is_primary', true)?->image_url
+                    ?? $catalogItem->images->first()?->image_url
+                    ?? $catalogItem->fabric_image_url;
+                if ($catalogImage) {
+                    $validated['reference_images'] = [$catalogImage];
+                }
+            }
+        }
+
         $jobOrder = $shop->jobOrders()->create($validated);
 
         foreach ($staffStages as $assignment) {
@@ -257,7 +275,7 @@ class JobOrderController extends Controller
         }
 
 
-        $jobOrder->load(['customer:id,name', 'service', 'assignedStaff:id,name', 'staffStages']);
+        $jobOrder->load(['customer:id,name', 'service', 'assignedStaff:id,name', 'staffStages', 'catalogItem:id,name']);
 
         // Notify shop owner of the new job order
         $shopOwner = $shop->owner;
@@ -281,7 +299,7 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name']);
+        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url']);
 
         // Repeat-customer context surfaced right on the job so the owner can
         // decide on a manual discount ("this is their 5th order") without
