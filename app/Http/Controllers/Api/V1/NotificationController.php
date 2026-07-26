@@ -50,4 +50,35 @@ class NotificationController extends Controller
 
         return response()->json(['success' => true]);
     }
+
+    /**
+     * Mark a specific notification back as unread — the counterpart to
+     * markAsRead(), for the "Mark as unread" row action.
+     */
+    public function markAsUnread(Request $request, $id): JsonResponse
+    {
+        $notification = $request->user()->notifications()->where('id', $id)->first();
+
+        if ($notification) {
+            $notification->markAsUnread();
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Remove a single notification from the panel for good — distinct from
+     * markAsRead(), which keeps it visible just muted. This is the explicit
+     * "I don't need to see this again" action.
+     */
+    public function destroy(Request $request, $id): JsonResponse
+    {
+        $notification = $request->user()->notifications()->where('id', $id)->first();
+
+        if ($notification) {
+            $notification->delete();
+        }
+
+        return response()->json(['success' => true]);
+    }
 }

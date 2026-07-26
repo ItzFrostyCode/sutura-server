@@ -54,6 +54,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
         Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('/notifications/{id}/unread', [NotificationController::class, 'markAsUnread']);
+        Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
         // Catalog Interactions (Any authenticated user)
         Route::post('/shops/{shop}/catalog/{catalogItem}/save', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'toggleSave']);
