@@ -9,15 +9,21 @@ use Illuminate\Http\JsonResponse;
 class NotificationController extends Controller
 {
     /**
-     * Get unread notifications for the authenticated user.
+     * Get the authenticated user's recent notifications — both read and
+     * unread, newest first. Read ones stay visible (just visually muted on
+     * the frontend and excluded from the unread badge count) instead of
+     * vanishing the moment they're clicked, which previously made it look
+     * like notifications were being deleted rather than just acknowledged.
+     * Capped to the most recent 30 so this stays a quick dropdown, not a
+     * full notification history page.
      */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        
+
         return response()->json([
             'success' => true,
-            'data' => $user->unreadNotifications
+            'data' => $user->notifications()->latest()->limit(30)->get(),
         ]);
     }
 
