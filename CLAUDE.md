@@ -10,6 +10,26 @@ This is the Laravel API. The frontend lives in the sibling `sutura-client` repo 
 
 Don't commit after every small task/feature by default — that produces a wall of tiny commits the owner then has to clean up. When working through a list of several small fixes/features in one sitting, batch them and let the owner decide the commit boundaries, unless they've explicitly asked for a commit per item. Ask before committing if it's not already clear from context that they want it committed now.
 
+## Git workflow — branch per module, not direct commits to `main` (as of 2026-08-12)
+
+**Do not commit or push directly to `main` anymore.** Up through 2026-08-12 all of Joshua's Shop Owner Module work landed straight on `main` (that history stays as-is — don't rewrite it) — the team has since switched to a branch-per-module workflow so `main` stays stable while all four people work in this same repo concurrently. If you're an AI agent picking up work here, check which branch you're on (`git branch --show-current`) before committing:
+
+| Branch | Module | Owner |
+|---|---|---|
+| `feature/customer-module` | Customer Module | Bulotano, Renalyn C. |
+| `feature/admin-module` | Administrative System Module | Bongo, Jossua A. |
+| `feature/shop-owner-module` | Shop Owner Module | Arabejo, Joshua Wayman A. |
+| `feature/staff-module` | Tailoring Staff Module | Masudog, Clareynz June A. |
+
+All four already exist on `origin` (both this repo and `sutura-client`), branched from `main` as of 2026-08-12. Workflow:
+1. `git checkout <your feature branch>` — never work directly on `main`.
+2. Commit normally as work progresses.
+3. `git push origin <your feature branch>` — never `git push origin main` directly.
+4. Merge into `main` via a Pull Request on GitHub once a module's work is ready for review, not by pushing straight to `main`.
+5. Periodically merge `main` into your branch (`git merge main`) to pick up other members' merged work and avoid a large stale diff later.
+
+If a task doesn't obviously belong to one of the four modules above, ask the user which branch to use rather than guessing or defaulting to `main`.
+
 ## What SUTURA actually is
 
 A subscription-tiered (Basic/Pro/Premium), multi-branch platform connecting Davao City tailoring shops with customers: shop owners manage storefronts/staff/orders across branches, customers discover shops by garment specialization on a map and track order production in real time.
