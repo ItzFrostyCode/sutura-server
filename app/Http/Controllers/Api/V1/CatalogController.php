@@ -11,6 +11,27 @@ use Illuminate\Http\JsonResponse;
 class CatalogController extends Controller
 {
     /**
+     * Is the authenticated user (if any) actually this specific shop's
+     * owner or staff? Mirrors CheckRole middleware's own ownership check —
+     * but that middleware only guards the role-protected route path, not
+     * the deliberately-public `/catalog/{shop:slug}` one both index() and
+     * show() are also reachable through, so the controller needs its own
+     * copy of the same logic rather than trusting the route it happened to
+     * be reached by.
+     */
+    private function belongsToShop(Request $request, Shop $shop): bool
+    {
+        $user = $request->user('sanctum');
+        if (!$user) {
+            return false;
+        }
+
+        return $user->hasRole('shop_owner')
+            ? $shop->owner_id === $user->id
+            : $user->staffProfile?->shop_id === $shop->id;
+    }
+
+    /**
      * Display a listing of the resource.
      * Publicly accessible for customer viewing.
      */
@@ -21,14 +42,29 @@ class CatalogController extends Controller
             ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
             ->withAvg('reviews', 'rating')
             ->withSum('catalogOrders as catalog_revenue', 'total_amount')
-            ->withSum('jobOrders as job_revenue', 'total_amount');
+            // JobOrder discounts reduce balance directly, not total_amount,
+            // and an unpaid/partial job hasn't generated this revenue yet —
+            // same fix as CatalogController@show and AnalyticsController's
+            // total_revenue. withSum only aggregates one column at a time,
+            // so pull balance/discount separately and net them out below.
+            ->withSum('jobOrders as job_revenue', 'total_amount')
+            ->withSum('jobOrders as job_balance_sum', 'balance')
+            ->withSum('jobOrders as job_discount_sum', 'discount_amount');
 
-        // Anonymous (public storefront) visitors only ever see active items;
-        // the authenticated owner still sees/manages paused ones from the same endpoint.
-        // Explicit 'sanctum' guard: this endpoint is reachable both with and without a
-        // token, and the app's default guard is 'web' (session), which never resolves
-        // a Bearer-token request — $request->user() alone would always read as a guest.
-        if (!$request->user('sanctum')) {
+        // Anonymous (public storefront) visitors, AND any authenticated user
+        // who isn't this specific shop's owner/staff, only ever see active
+        // items. This route is reachable both through the role-protected
+        // `/shops/{shop}/catalog` path and a second, deliberately public
+        // `/catalog/{shop:slug}` path — a real cross-tenant bug lived here
+        // for a while: being logged in as *any* shop owner was enough to
+        // see paused items and private performance metrics (views/saves/
+        // revenue) for a shop that isn't yours, because the check only
+        // asked "is there a token at all", not "does this token's owner
+        // actually belong to this shop". Explicit 'sanctum' guard: the
+        // app's default guard is 'web' (session), which never resolves a
+        // Bearer-token request — $request->user() alone would always read
+        // as a guest here.
+        if (!$this->belongsToShop($request, $shop)) {
             $query->where('is_active', true);
         }
 
@@ -52,7 +88,8 @@ class CatalogController extends Controller
         // queries per item (96 extra queries for a 48-item catalog).
         $items->each(function($item) {
             $item->reviews_avg_rating = round($item->reviews_avg_rating, 1);
-            $item->total_revenue = (float) $item->catalog_revenue + (float) $item->job_revenue;
+            $netJobRevenue = (float) $item->job_revenue - (float) $item->job_balance_sum - (float) $item->job_discount_sum;
+            $item->total_revenue = (float) $item->catalog_revenue + $netJobRevenue;
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
         });
 
@@ -70,7 +107,7 @@ class CatalogController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'price' => 'nullable|numeric',
+            'price' => 'nullable|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',
             'material' => 'nullable|string|max:255',
             'color' => 'nullable|string|max:100',
@@ -91,7 +128,10 @@ class CatalogController extends Controller
             'images.*.angle' => 'required|string',
             'images.*.is_primary' => 'required|boolean',
             'recommendations' => 'nullable|array',
-            'recommendations.*.id' => 'required|exists:catalog_items,id',
+            'recommendations.*.id' => [
+                'required', 'integer',
+                \Illuminate\Validation\Rule::exists('catalog_items', 'id')->where('shop_id', $shop->id),
+            ],
             'recommendations.*.type' => 'nullable|string',
         ]);
 
@@ -147,9 +187,19 @@ class CatalogController extends Controller
      * Display the specified resource.
      * Publicly accessible.
      */
-    public function show(Shop $shop, CatalogItem $catalog): JsonResponse
+    public function show(Request $request, Shop $shop, CatalogItem $catalog): JsonResponse
     {
         if ($catalog->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        // Pausing an item (is_active = false) is supposed to hide it from the public
+        // storefront entirely, but this only ever filtered the listing grid — a
+        // direct/bookmarked/guessed link to the item still returned full details.
+        // Same belongsToShop() guard as index(): this shop's own owner/staff can
+        // still view/preview a paused item; anonymous visitors AND any other
+        // shop's authenticated owner/staff are blocked, same as everyone else.
+        if (!$this->belongsToShop($request, $shop) && !$catalog->is_active) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
 
@@ -162,9 +212,18 @@ class CatalogController extends Controller
         $catalog->loadAvg('reviews', 'rating');
         $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);
 
-        // Sum up total amounts from both walk-in catalog orders and Job Orders
+        // Sum up total amounts from both walk-in catalog orders and Job Orders.
+        // CatalogOrder discounts reduce total_amount directly, so catalogRev
+        // is already net — but JobOrder discounts reduce balance instead
+        // (see AnalyticsController's own total_revenue for the same fix),
+        // and an unpaid/partial job hasn't actually generated this revenue
+        // yet, so both must be subtracted here too — otherwise a discounted
+        // or still-outstanding job order inflates a catalog item's own
+        // reported earnings.
         $catalogRev = (float) $catalog->catalogOrders()->sum('total_amount');
-        $jobRev = (float) $catalog->jobOrders()->sum('total_amount');
+        $jobRev = (float) $catalog->jobOrders()->sum('total_amount')
+            - (float) $catalog->jobOrders()->sum('balance')
+            - (float) $catalog->jobOrders()->sum('discount_amount');
         $catalog->total_revenue = $catalogRev + $jobRev;
         
         // Sum order counts
@@ -184,7 +243,7 @@ class CatalogController extends Controller
 
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
-            'price' => 'sometimes|numeric',
+            'price' => 'sometimes|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',
             'material' => 'nullable|string|max:255',
             'color' => 'nullable|string|max:100',
@@ -205,7 +264,10 @@ class CatalogController extends Controller
             'images.*.angle' => 'required|string',
             'images.*.is_primary' => 'required|boolean',
             'recommendations' => 'nullable|array',
-            'recommendations.*.id' => 'required|exists:catalog_items,id',
+            'recommendations.*.id' => [
+                'required', 'integer',
+                \Illuminate\Validation\Rule::exists('catalog_items', 'id')->where('shop_id', $shop->id),
+            ],
             'recommendations.*.type' => 'nullable|string',
         ]);
 
@@ -259,11 +321,24 @@ class CatalogController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Shop $shop, CatalogItem $catalog): JsonResponse
+    public function destroy(Request $request, Shop $shop, CatalogItem $catalog): JsonResponse
     {
         if ($catalog->shop_id !== $shop->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
+
+        // Same accountability gap job_order_deleted/staff_removed/
+        // service_deleted/branch_deleted already closed — and CatalogItem
+        // has no SoftDeletes/restore() at all, so unlike those four this is
+        // the *only* trace left once the item is gone.
+        $shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'catalog_item_deleted',
+            'model_type' => CatalogItem::class,
+            'model_id'   => $catalog->id,
+            'payload'    => ['name' => $catalog->name],
+            'ip_address' => $request->ip(),
+        ]);
 
         $catalog->delete();
 

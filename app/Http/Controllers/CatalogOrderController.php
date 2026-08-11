@@ -25,14 +25,28 @@ class CatalogOrderController extends Controller
         return $shop;
     }
 
-    public function index($shopId)
+    public function index($shopId, Request $request)
     {
         $this->authorizeShop($shopId);
 
-        $orders = \App\Models\CatalogOrder::with(['catalogItem.images', 'customer'])
-            ->where('shop_id', $shopId)
-            ->latest()
-            ->get();
+        $query = \App\Models\CatalogOrder::with(['catalogItem.images', 'customer', 'branch:id,name'])
+            ->where('shop_id', $shopId);
+
+        // Same "pinned staff only see their own branch" scoping already
+        // used for jobs/appointments/customers — walk-in orders were the
+        // one order type left without any branch attribution at all. Also
+        // matches null-branch rows (every order that existed before this
+        // column was added) so migrating in doesn't suddenly hide a branch
+        // staff member's own pre-existing order history.
+        $user = $request->user();
+        if (!$user->hasRole('shop_owner') && $user->staffProfile?->shop_branch_id) {
+            $branchId = $user->staffProfile->shop_branch_id;
+            $query->where(fn ($q) => $q->where('shop_branch_id', $branchId)->orWhereNull('shop_branch_id'));
+        } elseif ($request->filled('branch_id')) {
+            $query->where('shop_branch_id', $request->branch_id);
+        }
+
+        $orders = $query->latest()->get();
 
         return response()->json(['data' => $orders]);
     }
@@ -45,23 +59,76 @@ class CatalogOrderController extends Controller
      */
     public function store(Request $request, $shopId)
     {
-        $this->authorizeShop($shopId);
+        $shop = $this->authorizeShop($shopId);
 
         $validated = $request->validate([
             'catalog_item_id' => [
                 'required',
                 Rule::exists('catalog_items', 'id')->where('shop_id', $shopId),
             ],
+            'shop_branch_id' => ['nullable', Rule::exists('shop_branches', 'id')->where('shop_id', $shopId)],
             'selected_size'  => 'nullable|string|max:50',
             'customer_id'    => 'nullable|exists:users,id',
             'total_amount'   => 'required|numeric|min:0',
             'payment_status' => 'required|in:pending,paid',
+            // Model/migration have carried these three columns since day
+            // one, and the Payments page's "Receipts to Verify" queue is
+            // already built to expect them (usePayments.ts checks
+            // payment_method !== 'cash' && payment_status === 'pending' to
+            // decide whether a catalog order needs verification) — but this
+            // endpoint never accepted them, so a real GCash/bank walk-in
+            // sale had no way to actually record its reference/receipt,
+            // and could never appear in that verification queue at all.
+            'payment_method'       => 'nullable|string|in:cash,gcash,bank_transfer',
+            'payment_reference'    => 'nullable|string|max:255',
+            'payment_receipt_path' => 'nullable|string|max:2048',
         ]);
+
+        // Same "auto-assign when there's only one branch" convenience
+        // AppointmentController::store already gives owners/managers —
+        // don't make a single-branch shop pick from a dropdown of one.
+        if (empty($validated['shop_branch_id'])) {
+            $userBranchId = $request->user()->staffProfile?->shop_branch_id;
+            if ($userBranchId) {
+                $validated['shop_branch_id'] = $userBranchId;
+            } elseif ($shop->branches()->count() === 1) {
+                $validated['shop_branch_id'] = $shop->branches()->first()->id;
+            }
+        }
 
         $validated['shop_id']           = $shopId;
         $validated['type']              = 'walkin';
         $validated['status']            = 'ready';
         $validated['fulfillment_type']  = 'pickup';
+
+        // Same reused-screenshot protection as JobOrderController@pay —
+        // now that this endpoint actually records a reference (see above),
+        // it needs the same check, and has to look across all three real
+        // payment surfaces at this shop (job order payments, other walk-in
+        // orders, appointment deposits), not just its own table, since a
+        // customer could just as easily reuse one screenshot across any of
+        // them at the same counter.
+        $duplicateReferenceWarning = null;
+        if (!empty($validated['payment_reference'])) {
+            $ref = $validated['payment_reference'];
+            $dupJobOrder = \App\Models\JobOrder::where('shop_id', $shopId)
+                ->whereHas('payments', fn ($q) => $q->where('reference', $ref)->whereNull('rejected_at'))
+                ->first();
+            $dupCatalogOrder = $dupJobOrder ? null : \App\Models\CatalogOrder::where('shop_id', $shopId)
+                ->where('payment_reference', $ref)
+                ->first();
+            $dupAppointment = ($dupJobOrder || $dupCatalogOrder) ? null : \App\Models\Appointment::where('shop_id', $shopId)
+                ->where('payment_reference', $ref)
+                ->first();
+
+            if ($dupJobOrder) {
+                $duplicateReferenceWarning = "This reference number was already used on job order {$dupJobOrder->order_number} — double-check this isn't a reused receipt before accepting.";
+            } elseif ($dupCatalogOrder) {
+                $duplicateReferenceWarning = "This reference number was already used on order #{$dupCatalogOrder->id} — double-check this isn't a reused receipt before accepting.";
+            } elseif ($dupAppointment) {
+                $duplicateReferenceWarning = "This reference number was already used on an appointment deposit — double-check this isn't a reused receipt before accepting.";
+            }
+        }
 
         $order = \App\Models\CatalogOrder::create($validated);
 
@@ -73,7 +140,10 @@ class CatalogOrderController extends Controller
             $shopOwner->notify(new \App\Notifications\NewCatalogOrderNotification($order));
         }
 
-        return response()->json(['data' => $order->load(['catalogItem', 'customer'])], 201);
+        return response()->json([
+            'data' => $order->load(['catalogItem', 'customer', 'branch:id,name']),
+            'warning' => $duplicateReferenceWarning,
+        ], 201);
     }
 
     public function update(Request $request, $shopId, $orderId)
@@ -88,18 +158,21 @@ class CatalogOrderController extends Controller
         ]);
 
         // A cancelled order voids a mistaken/duplicate entry — once the item has actually
-        // moved (prepped, handed over, etc.) it must be handled through the normal
-        // lifecycle instead, not silently erased.
-        if ($validated['status'] === 'cancelled' && $order->status !== 'pending') {
+        // moved (handed over / picked up) it must be handled through the normal lifecycle
+        // instead, not silently erased. Walk-in orders (store()) are always created
+        // directly as 'ready', never 'pending' — 'pending' only exists as a possible
+        // future status for a non-instant order type — so 'ready' has to be a
+        // cancellable state too, or every walk-in order becomes uncancellable forever.
+        if ($validated['status'] === 'cancelled' && !in_array($order->status, ['pending', 'ready'], true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Only a pending order can be cancelled.',
+                'message' => 'Only a pending or ready order can be cancelled.',
             ], 422);
         }
 
         $order->update($validated);
 
-        return response()->json(['data' => $order->load(['catalogItem', 'customer'])]);
+        return response()->json(['data' => $order->load(['catalogItem', 'customer', 'branch:id,name'])]);
     }
 
     /**
@@ -153,7 +226,7 @@ class CatalogOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Discount applied successfully.',
-            'data'    => $order->load(['catalogItem', 'customer']),
+            'data'    => $order->load(['catalogItem', 'customer', 'branch:id,name']),
         ]);
     }
 
@@ -167,14 +240,22 @@ class CatalogOrderController extends Controller
             'payment_status' => 'required|in:pending,paid,rejected',
         ]);
 
+        $oldPaymentStatus = $order->payment_status;
+
         $order->update([
             'payment_status' => $validated['payment_status']
         ]);
 
+        // Previously silent either way — same gap as the appointment
+        // payment path, just for walk-in/RTW Catalog Orders.
+        if (in_array($validated['payment_status'], ['paid', 'rejected'], true) && $validated['payment_status'] !== $oldPaymentStatus) {
+            $order->customer?->notify(new \App\Notifications\CatalogOrderPaymentStatusNotification($order, $validated['payment_status']));
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Payment status updated.',
-            'data'    => $order->load(['catalogItem', 'customer']),
+            'data'    => $order->load(['catalogItem', 'customer', 'branch:id,name']),
         ]);
     }
 }

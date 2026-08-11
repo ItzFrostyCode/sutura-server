@@ -23,11 +23,27 @@ class UpdateJobOrderRequest extends FormRequest
             // logistics/courier/delivery management from the system's scope.
             'fulfillment_type' => ['sometimes', 'in:pickup'],
             'assigned_staff_id' => [
-                'nullable',
+                'nullable', 'integer',
                 Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
+                function ($attribute, $value, $fail) use ($shop) {
+                    if (!$value) {
+                        return;
+                    }
+                    $jobOrder = $this->route('jobOrder');
+                    $targetBranchId = $this->input('shop_branch_id') ?? $jobOrder?->shop_branch_id;
+                    if (!$targetBranchId) {
+                        return;
+                    }
+                    $staffBranchId = \App\Models\StaffProfile::where('user_id', $value)
+                        ->where('shop_id', $shop?->id)
+                        ->value('shop_branch_id');
+                    if ($staffBranchId && (int) $staffBranchId !== (int) $targetBranchId) {
+                        $fail('This staff member belongs to a different branch than this job order.');
+                    }
+                },
             ],
             'measurement_id' => [
-                'nullable',
+                'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('shop_id', $shop?->id),
             ],
             // balance/payment_status are intentionally NOT editable here — they must
@@ -48,13 +64,19 @@ class UpdateJobOrderRequest extends FormRequest
             'custom_order_data.team_roster.*.print_name' => ['nullable', 'string', 'max:255'],
             'custom_order_data.team_roster.*.number' => ['nullable', 'string', 'max:100'],
             'custom_order_data.team_roster.*.size' => ['required_with:custom_order_data.team_roster', 'string', 'max:50'],
-            'shop_branch_id' => ['nullable', 'exists:shop_branches,id'],
+            'shop_branch_id' => [
+                'nullable', 'integer',
+                Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id),
+            ],
             'is_outsourced' => ['sometimes', 'boolean'],
             'partner_shop_name' => ['nullable', 'string', 'max:255'],
             'outsourcing_cost' => ['nullable', 'numeric', 'min:0'],
             'is_rush' => ['sometimes', 'boolean'],
             'rush_fee' => ['sometimes', 'numeric', 'min:0'],
-            'catalog_item_id' => ['nullable', 'exists:catalog_items,id'],
+            'catalog_item_id' => [
+                'nullable', 'integer',
+                Rule::exists('catalog_items', 'id')->where('shop_id', $shop?->id),
+            ],
             'completion_photo_url' => ['nullable', 'string', 'max:500'],
             'rejection_reason' => ['nullable', 'string', 'max:2000'],
             // Lets a job with no appointment_id (e.g. a walk-in custom order) still
@@ -63,7 +85,7 @@ class UpdateJobOrderRequest extends FormRequest
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link' => ['nullable', 'string', 'max:500'],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
-            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear'],
+            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
             'hold_reason' => ['nullable', 'string', 'max:2000'],
         ];
     }

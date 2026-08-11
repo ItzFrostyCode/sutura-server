@@ -44,7 +44,13 @@ class CustomerController extends Controller
             ])
             ->get()
             ->map(function ($user) use ($notesByCustomerId) {
-                $user->total_spend = $user->jobOrders->sum('total_amount');
+                // Net of balance owed and any discount — a customer's "Total
+                // Spend" should be what they've actually paid, not the
+                // sticker total of every order regardless of whether it's
+                // fully paid, and this figure directly informs the owner's
+                // own repeat-customer discount decisions (see below), so an
+                // inflated number here was actively misleading that call.
+                $user->total_spend = $user->jobOrders->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
                 $user->last_appointment = $user->appointments->first();
                 // Repeat-customer context for the shop owner's manual discount
                 // decision ("this is their 5th order") — not just a display stat.
@@ -75,6 +81,38 @@ class CustomerController extends Controller
         ]);
 
         $email = $validated['email'] ?? null;
+
+        // Walk-in customers routinely have no email at all — the shop's
+        // whole relationship with them is by name and phone number, exactly
+        // per the interview research this system is built on. Without an
+        // email to match on, every walk-in submission used to mint a brand
+        // new synthetic walkin_ account even when the same person (same
+        // phone) had already walked in before, fragmenting their job
+        // history across multiple "customers" and silently breaking the
+        // repeat-customer discount signal (JobOrderController checks job
+        // count per customer_id). Scoped to this shop specifically — a
+        // phone match against a stranger at a different shop must never
+        // merge unrelated customer bases.
+        if (!$email) {
+            // Same "who counts as this shop's customer" definition index()
+            // already uses (CRM pivot ∪ job orders ∪ appointments) — a
+            // phone match has to check all three, not just the CRM pivot,
+            // or a walk-in whose only prior contact was a job order (no CRM
+            // entry) still wouldn't be found.
+            $existingCustomerIds = collect()
+                ->merge($shop->customers()->pluck('users.id'))
+                ->merge($shop->jobOrders()->pluck('customer_id'))
+                ->merge($shop->appointments()->pluck('customer_id'))
+                ->filter()
+                ->unique();
+            $existingByPhone = User::whereIn('id', $existingCustomerIds)
+                ->where('phone', $validated['phone'])
+                ->first();
+            if ($existingByPhone) {
+                $email = $existingByPhone->email;
+            }
+        }
+
         if (!$email) {
             $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . self::SUTURA_DOMAIN;
         }
@@ -89,13 +127,25 @@ class CustomerController extends Controller
             $isBusinessAccount = $user->hasRole('shop_owner') || $user->hasRole('staff')
                 || $user->hasRole('branch_manager') || $user->hasRole('admin');
 
-            if (!$isBusinessAccount) {
-                $user->update([
-                    'name' => $validated['name'],
-                    'phone' => $validated['phone'] ?? $user->phone,
-                    'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
-                ]);
+            // The original guard here only stopped the profile from being
+            // overwritten — it still fell through to attach this business
+            // account to shop_customers below, so a shop owner (or their own
+            // staff) typing their own email into the walk-in form ended up
+            // listed as a customer of their own shop. Reject the whole
+            // operation instead of partially proceeding.
+            if ($isBusinessAccount) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This email belongs to a staff or owner account and cannot be added as a customer.',
+                    'errors'  => ['email' => ['This email belongs to a staff or owner account and cannot be added as a customer.']],
+                ], 422);
             }
+
+            $user->update([
+                'name' => $validated['name'],
+                'phone' => $validated['phone'] ?? $user->phone,
+                'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
+            ]);
         } else {
             $user = User::create([
                 'email' => $email,
@@ -140,13 +190,28 @@ class CustomerController extends Controller
             'notes' => 'nullable|string|max:2000',
         ]);
 
+        // An empty email on the edit form means "leave it as-is" — the form
+        // already pre-fills this field with the customer's real email when
+        // they have one (see CustomerFormModal), so a blank submission here
+        // must never manufacture a fresh walkin_ placeholder and silently
+        // overwrite a real, working login email. Only generate one if the
+        // customer genuinely has no email on file at all.
         $email = $validated['email'] ?? null;
         if (!$email) {
-            if ($customer->email && str_starts_with($customer->email, 'walkin_') && str_ends_with($customer->email, self::SUTURA_DOMAIN)) {
-                $email = $customer->email;
-            } else {
-                $email = 'walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . self::SUTURA_DOMAIN;
-            }
+            $email = $customer->email
+                ?: ('walkin_' . time() . '_' . \Illuminate\Support\Str::random(4) . self::SUTURA_DOMAIN);
+        }
+
+        // Setting this record's email straight from input used to hit the
+        // users.email unique constraint at the DB level with no warning if
+        // it collided with a different user (business account or otherwise)
+        // — a generic 500 instead of a message explaining why.
+        if ($email !== $customer->email && User::where('email', $email)->where('id', '!=', $customer->id)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email is already in use by another account.',
+                'errors'  => ['email' => ['This email is already in use by another account.']],
+            ], 422);
         }
 
         $customer->update([
@@ -179,12 +244,22 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Verify customer belongs to shop
-        if (!$shop->customers()->where('user_id', $customer->id)->exists()) {
+        // Verify customer belongs to shop — mirrors update()'s check exactly.
+        // index() lists a customer if they appear EITHER in the shop_customers
+        // pivot OR in this shop's job_orders, but this check only looked at
+        // the pivot. A customer who arrived via public booking/self-registration/
+        // job creation (Isabelle, Michael, Carlo in this shop's real data) never
+        // gets a pivot row at all, so clicking Delete on a customer clearly
+        // visible in the list 404'd with "Customer not found in this shop."
+        if (!$shop->customers()->where('user_id', $customer->id)->exists() && !$shop->jobOrders()->where('customer_id', $customer->id)->exists()) {
             return response()->json(['message' => 'Customer not found in this shop'], 404);
         }
 
-        // Detach instead of deleting the user, since user might exist in other shops
+        // Detach instead of deleting the user, since user might exist in other
+        // shops. A customer with no pivot row (only reachable via job_orders)
+        // has nothing to detach — that's expected, not an error: their real
+        // order history keeps them in the list regardless, the same way a
+        // completed job order can't be erased from view either.
         $shop->customers()->detach($customer->id);
 
         return response()->json([

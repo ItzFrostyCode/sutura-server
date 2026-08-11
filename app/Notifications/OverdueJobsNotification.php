@@ -46,7 +46,10 @@ class OverdueJobsNotification extends Notification implements ShouldQueue
             'type'          => 'overdue_jobs_digest',
             'title'         => 'Overdue Jobs',
             'message'       => "{$this->overdueCount} {$plural} past their due date at {$this->shop->name}.",
-            'action_url'    => '/dashboard/reports',
+            // Straight to the actual overdue jobs, not just a static count
+            // the owner would then have to go hunt down themselves — see
+            // useJobs' overdueOnly filter.
+            'action_url'    => '/dashboard/jobs?overdue=true',
             'shop_id'       => $this->shop->id,
             'overdue_count' => $this->overdueCount,
         ];

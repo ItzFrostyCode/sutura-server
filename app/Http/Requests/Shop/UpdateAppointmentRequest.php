@@ -29,16 +29,32 @@ class UpdateAppointmentRequest extends FormRequest
 
             // Staff assignment can change before confirmation
             'assigned_staff_id'=> [
-                'sometimes', 'nullable',
+                'sometimes', 'nullable', 'integer',
                 Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
+                function ($attribute, $value, $fail) use ($shop) {
+                    $appointment = $this->route('appointment');
+                    $targetBranchId = $appointment?->shop_branch_id;
+                    if (!$value || !$targetBranchId) {
+                        return;
+                    }
+                    $staffBranchId = \App\Models\StaffProfile::where('user_id', $value)
+                        ->where('shop_id', $shop?->id)
+                        ->value('shop_branch_id');
+                    if ($staffBranchId && (int) $staffBranchId !== (int) $targetBranchId) {
+                        $fail('This staff member belongs to a different branch than this appointment.');
+                    }
+                },
             ],
 
             // Notes always updatable
             'notes'            => ['nullable', 'string', 'max:2000'],
-            'job_order_id'     => ['nullable', 'exists:job_orders,id'],
+            'job_order_id'     => [
+                'nullable', 'integer',
+                Rule::exists('job_orders', 'id')->where('shop_id', $shop?->id),
+            ],
             'outcome'          => ['nullable', 'string', 'in:completed,rescheduled,no_show,converted_to_job,cancelled'],
             'priority'         => ['nullable', 'string', 'in:normal,urgent,rush'],
-            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform'],
+            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
             'fitting_notes'    => ['nullable', 'string', 'max:2000'],
 
             // NOTE: shop_branch_id is intentionally NOT updatable.

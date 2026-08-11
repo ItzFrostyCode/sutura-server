@@ -60,6 +60,36 @@ class SubscriptionController extends Controller
 
         $plan = SubscriptionPlan::findOrFail($request->plan_id);
 
+        // A shop can freely switch plans up OR down, but nothing ever
+        // checked whether the shop's *current* usage still fits the plan
+        // being switched TO — a Premium shop with 3 branches and 8 staff
+        // could downgrade straight to Basic (1 branch, few staff) and be
+        // left silently over-limit on both, with no warning at downgrade
+        // time. The create-time gates (ShopBranchController@store,
+        // StaffController@store) only ever stop *adding* more; they don't
+        // protect against this. Blocking here, not just warning, since
+        // there's no legitimate reason to let a downgrade succeed into an
+        // already-invalid state — unlike the duplicate-payment-reference
+        // warnings elsewhere in this app, there's no plausible "actually
+        // fine" case for this one.
+        $shop = \App\Models\Shop::findOrFail($shopId);
+
+        $currentStaffCount = $shop->staff()->count();
+        if ($plan->max_staff !== -1 && $currentStaffCount > $plan->max_staff) {
+            return response()->json([
+                'success' => false,
+                'message' => "This plan allows up to {$plan->max_staff} staff member" . ($plan->max_staff === 1 ? '' : 's') . ", but you currently have {$currentStaffCount}. Remove staff first, or choose a plan that fits your current team size.",
+            ], 422);
+        }
+
+        $currentBranchCount = $shop->branches()->count();
+        if ($plan->slug !== 'premium' && $currentBranchCount > 1) {
+            return response()->json([
+                'success' => false,
+                'message' => "This plan only supports a single branch, but you currently have {$currentBranchCount}. Remove the extra branches first, or stay on a plan that supports multiple branches.",
+            ], 422);
+        }
+
         // Simulated billing: Instantly create or update subscription
         // In a real app, this is where PayMongo/Stripe checkout session would be created
 

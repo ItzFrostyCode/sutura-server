@@ -21,11 +21,16 @@ class StaffProfile extends Model
 
     protected $fillable = [
         'user_id', 'shop_id', 'shop_branch_id', 'role', 'additional_roles', 'specialization',
-        'bio', 'is_active', 'hired_at', 'is_branch_manager'
+        'bio', 'is_active', 'hired_at', 'is_branch_manager', 'is_available',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        // Was missing from both $fillable and here — ProfileController's
+        // existing toggleAvailability() endpoint has been silently no-op'ing
+        // on every call since the column was added, same silent-drop bug
+        // class as User.profile_picture (see StaffController's bio fix).
+        'is_available' => 'boolean',
         // Explicit Y-m-d — a bare 'date' cast still round-trips through
         // Eloquent's full datetime format on save, silently writing a
         // "00:00:00" time component into a column declared as a pure DATE.

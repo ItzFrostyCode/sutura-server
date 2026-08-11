@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CatalogItemReview extends Model
 {
     protected $fillable = [
-        'catalog_item_id', 'user_id', 'rating', 'comment'
+        'catalog_item_id', 'user_id', 'rating', 'comment', 'reply'
     ];
 
     protected $casts = [

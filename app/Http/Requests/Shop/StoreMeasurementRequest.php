@@ -14,7 +14,7 @@ class StoreMeasurementRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'customer_id' => ['required', 'exists:users,id'],
+            'customer_id' => ['required', 'integer', 'exists:users,id'],
             'source' => ['nullable', 'in:shop_owner,customer'],
             'profile_name' => ['required', 'string', 'max:100'],
             'metrics' => ['required', 'array'],

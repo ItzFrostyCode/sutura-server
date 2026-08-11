@@ -39,7 +39,10 @@ class ShopPostController extends Controller
             'image_urls' => ['required', 'array', 'min:1', 'max:12'],
             'image_urls.*' => ['string', 'max:2048'],
             'caption' => ['required', 'string', 'max:2000'],
-            'service_id' => ['nullable', 'exists:services,id'],
+            'service_id' => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('services', 'id')->where('shop_id', $shop->id),
+            ],
         ]);
 
         $post = $shop->posts()->create($validated);
@@ -57,7 +60,10 @@ class ShopPostController extends Controller
             'image_urls' => ['sometimes', 'array', 'min:1', 'max:12'],
             'image_urls.*' => ['string', 'max:2048'],
             'caption' => ['sometimes', 'string', 'max:2000'],
-            'service_id' => ['nullable', 'exists:services,id'],
+            'service_id' => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('services', 'id')->where('shop_id', $shop->id),
+            ],
         ]);
 
         $post->update($validated);

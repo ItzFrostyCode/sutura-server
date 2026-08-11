@@ -78,6 +78,7 @@ class Appointment extends Model
         'duration_minutes' => 'integer',
         'answers'         => 'array',
         'reference_images' => 'array',
+        'reminder_sent_at' => 'datetime',
     ];
 
     // ─── Relationships ────────────────────────────────────────────────────────
@@ -170,5 +171,20 @@ class Appointment extends Model
                     ->addMinutes($appointment->duration_minutes ?? 60)
                     ->gt($scheduledAt);
             });
+    }
+
+    /**
+     * Same problem JobOrder::booted() already solves: AppointmentBookedNotification
+     * and AppointmentStatusNotification are plain JSON blobs with no foreign
+     * key to this table, so deleting an appointment left them behind as dead
+     * links that 404 the moment someone clicks through. Confirmed live —
+     * "Grace Panganiban booked an appointment..." kept showing in the bell
+     * after the appointment itself was gone.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (self $appointment) {
+            \Illuminate\Notifications\DatabaseNotification::whereJsonContains('data->appointment_id', $appointment->id)->delete();
+        });
     }
 }

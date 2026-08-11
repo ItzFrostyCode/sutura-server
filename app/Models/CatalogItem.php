@@ -22,6 +22,14 @@ class CatalogItem extends Model
         'is_active' => 'boolean',
     ];
 
+    // Missing entirely despite shop_id being a real column — every place
+    // that needed the owning shop had to join/query around it manually.
+    // Needed for CatalogItemReviewReplyNotification's storefront link.
+    public function shop()
+    {
+        return $this->belongsTo(Shop::class);
+    }
+
     public function images()
     {
         return $this->hasMany(CatalogImage::class);

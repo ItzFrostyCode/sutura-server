@@ -32,7 +32,7 @@ class PublicBookingController extends Controller
                 'operating_hours'   => $shop->operating_hours,
                 'active_special_hours' => $shop->active_special_hours,
                 'special_hours'     => $shop->specialHours()->get(),
-                'branches'          => $shop->branches()->get(['id', 'name', 'address', 'city']),
+                'branches'          => $shop->branches()->get(['id', 'slug', 'name', 'address', 'city']),
                 'services'          => $shop->services()
                     ->where('is_active', true)
                     ->get(['id', 'name', 'base_price', 'estimated_days']),
@@ -130,6 +130,17 @@ class PublicBookingController extends Controller
         // ── Double-booking check (only against confirmed appointments) ─────────
         $scheduledAt     = Carbon::parse($validated['scheduled_at']);
         $durationMinutes = $validated['duration_minutes'] ?? 60;
+
+        // Same "we are not open" backstop AppointmentController enforces for
+        // owner-created bookings/reschedules — this public form is actually
+        // the highest-volume path a booking ever comes through, so it was
+        // the biggest hole left before this closure check existed anywhere.
+        if ($closureTitle = $shop->closureTitleOn($scheduledAt, $branchId)) {
+            return response()->json([
+                'success' => false,
+                'message' => "The shop is closed on this date ({$closureTitle}). Please choose a different day.",
+            ], 409);
+        }
 
         if (Appointment::hasSchedulingConflict($shop, $branchId, $scheduledAt, $durationMinutes)) {
             return response()->json([

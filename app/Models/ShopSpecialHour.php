@@ -9,6 +9,7 @@ class ShopSpecialHour extends Model
 {
     protected $fillable = [
         'shop_id',
+        'shop_branch_id',
         'title',
         'start_date',
         'end_date',
@@ -28,5 +29,10 @@ class ShopSpecialHour extends Model
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(ShopBranch::class, 'shop_branch_id');
     }
 }

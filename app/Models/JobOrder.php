@@ -48,10 +48,16 @@ class JobOrder extends Model
      * is committed yet at those stages, only once pattern-making/cutting
      * actually starts. Enforced in JobOrderController@update; the Kanban
      * board mirrors this same array so the UI and the API never drift apart.
+     *
+     * 'ready_for_pickup' is included even though it comes after every other
+     * gated stage — the status dropdown lets a job jump directly from
+     * 'pending'/'design' to ANY stage, not just the next one in sequence, so
+     * without this a job with $0 paid could skip straight to "Ready for
+     * Pickup" and sit there having never actually passed the DP gate.
      */
     public const STAGES_REQUIRING_DOWNPAYMENT = [
         'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
-        'ready_for_fitting', 'final_adjustments', 'qc_ironing',
+        'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
     ];
 
     /**
@@ -75,10 +81,10 @@ class JobOrder extends Model
     ];
 
     protected $fillable = [
-        'order_number', 'intake_channel', 'fulfillment_type', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
+        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
-        'courier_name', 'courier_tracking_number', 'shipping_address', 'custom_order_data',
+        'custom_order_data',
         'is_outsourced', 'partner_shop_name', 'outsourcing_cost', 'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source', 'garment_category',
         'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
@@ -172,4 +178,17 @@ class JobOrder extends Model
         return $this->service?->hasType(Service::TYPE_BULK_SUBLIMATION) ?? false;
     }
 
+    /**
+     * Notifications referencing a job order (NewJobOrderNotification,
+     * JobStatusUpdatedNotification, ShopActivityNotification, etc.) are
+     * plain JSON blobs with no foreign key to this table — deleting the job
+     * used to leave them behind as dead links that 404 the moment someone
+     * clicks through. Cleaned up here instead, on both soft and force delete.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (self $jobOrder) {
+            \Illuminate\Notifications\DatabaseNotification::whereJsonContains('data->job_order_id', $jobOrder->id)->delete();
+        });
+    }
 }

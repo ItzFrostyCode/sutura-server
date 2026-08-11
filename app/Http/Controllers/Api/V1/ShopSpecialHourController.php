@@ -12,7 +12,7 @@ class ShopSpecialHourController extends Controller
 {
     public function index(Shop $shop, Request $request): JsonResponse
     {
-        $query = $shop->specialHours()->orderBy('start_date', 'desc');
+        $query = $shop->specialHours()->with('branch:id,name')->orderBy('start_date', 'desc');
 
         // The management UI needs to see past entries too — otherwise an
         // owner has no way to reach (edit/delete) a lapsed entry once its
@@ -34,6 +34,9 @@ class ShopSpecialHourController extends Controller
     {
         $validated = $request->validate([
             'title'                => ['required', 'string', 'max:255'],
+            // null/omitted = shop-wide (every branch); a real ID scopes the
+            // closure/hours to just that one branch.
+            'shop_branch_id'       => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('shop_branches', 'id')->where('shop_id', $shop->id)],
             'start_date'           => ['required', 'date'],
             'end_date'             => ['required', 'date', 'after_or_equal:start_date'],
             'is_closed'            => ['required', 'boolean'],
@@ -47,7 +50,7 @@ class ShopSpecialHourController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $specialHour
+            'data'    => $specialHour->load('branch:id,name')
         ], 201);
     }
 
@@ -59,6 +62,7 @@ class ShopSpecialHourController extends Controller
 
         $validated = $request->validate([
             'title'                => ['required', 'string', 'max:255'],
+            'shop_branch_id'       => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('shop_branches', 'id')->where('shop_id', $shop->id)],
             'start_date'           => ['required', 'date'],
             'end_date'             => ['required', 'date', 'after_or_equal:start_date'],
             'is_closed'            => ['required', 'boolean'],
@@ -72,7 +76,7 @@ class ShopSpecialHourController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $specialHour
+            'data'    => $specialHour->load('branch:id,name')
         ]);
     }
 

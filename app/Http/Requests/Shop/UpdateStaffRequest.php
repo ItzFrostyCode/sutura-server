@@ -36,6 +36,13 @@ class UpdateStaffRequest extends FormRequest
                 Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id),
             ],
             'is_branch_manager' => ['sometimes', 'boolean'],
+            'bio' => ['nullable', 'string', 'max:1000'],
+            // Distinct from is_active (employed or not) — this is a
+            // temporary "on leave / out today" flag the owner can also set
+            // on the staff member's behalf, not just the staff member
+            // themselves via the existing self-service toggleAvailability
+            // endpoint.
+            'is_available' => ['sometimes', 'boolean'],
         ];
     }
 }

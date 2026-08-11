@@ -14,7 +14,14 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'email', 'password', 'password_set_at', 'phone', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery'])]
+// profile_picture/cover_photo were missing from this list entirely — every
+// ProfileController::uploadImage call silently no-op'd on the actual column
+// write (Eloquent drops non-fillable attributes on update() without an
+// error, same silent-failure class as job_orders.ready_for_pickup_at
+// needing forceFill). Verified live: an upload returned success + a correct
+// URL, but the user record's profile_picture stayed null. The whole avatar
+// upload feature was unreachable for every role, not just newly broken.
+#[Fillable(['name', 'email', 'password', 'password_set_at', 'phone', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery', 'profile_picture', 'cover_photo'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {

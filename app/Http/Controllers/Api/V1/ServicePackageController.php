@@ -101,8 +101,13 @@ class ServicePackageController extends Controller
             'description' => ['nullable', 'string'],
             'bundle_price' => ['nullable', 'numeric', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
+            // 'distinct' belongs on the wildcard item, not the parent array
+            // — Laravel's own rule only actually inspects duplicates that
+            // way. Without it, [2, 2] passed the 'min:2' count check while
+            // only ever bundling one real service (sync() silently dedupes
+            // the pivot), defeating the "2+ services" requirement entirely.
             'service_ids' => ['required', 'array', 'min:2'],
-            'service_ids.*' => [Rule::exists('services', 'id')->where('shop_id', $shop->id)],
+            'service_ids.*' => ['integer', 'distinct', Rule::exists('services', 'id')->where('shop_id', $shop->id)],
         ]);
     }
 }

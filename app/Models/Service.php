@@ -88,12 +88,26 @@ class Service extends Model
             return (float) $this->base_price;
         }
 
+        // sale_starts_at/sale_ends_at only ever carry a bare date (no time)
+        // from the Set Sale Price form. The app runs on UTC, but the shop is
+        // in the Philippines (UTC+8) — comparing the raw 'datetime' cast
+        // (which anchors that bare date at UTC midnight) makes a sale
+        // advertised as "through Aug 10" actually expire at 8am Manila time
+        // on Aug 10, and a sale "starting Aug 5" not kick in until 8am
+        // Manila time instead of the start of that day. Re-anchor to the
+        // shop's local day boundaries instead.
         $now = now();
-        if ($this->sale_starts_at && $now->lt($this->sale_starts_at)) {
-            return (float) $this->base_price;
+        if ($this->sale_starts_at) {
+            $startsAt = \Carbon\Carbon::parse($this->sale_starts_at->toDateString(), 'Asia/Manila')->startOfDay();
+            if ($now->lt($startsAt)) {
+                return (float) $this->base_price;
+            }
         }
-        if ($this->sale_ends_at && $now->gt($this->sale_ends_at)) {
-            return (float) $this->base_price;
+        if ($this->sale_ends_at) {
+            $endsAt = \Carbon\Carbon::parse($this->sale_ends_at->toDateString(), 'Asia/Manila')->endOfDay();
+            if ($now->gt($endsAt)) {
+                return (float) $this->base_price;
+            }
         }
 
         return (float) $this->sale_price;

@@ -17,6 +17,7 @@ class ShopSubscription extends Model
         'ends_at' => 'datetime',
         'trial_ends_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'expiry_reminder_sent_at' => 'datetime',
     ];
 
     public function shop(): BelongsTo

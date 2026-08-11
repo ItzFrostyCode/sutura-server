@@ -87,6 +87,16 @@ class ProfileController extends Controller
         ]);
     }
 
+    // Same fixed pattern as FileUploadController::UPLOAD_DISK — a bare
+    // Storage::url($path) resolves against the app's DEFAULT disk ('local'
+    // here, see config/filesystems.php), not whichever disk the file was
+    // actually store()'d to ('public'). This coincidentally produced a
+    // working URL in local dev (config('app.url') + the local disk's
+    // relative /storage/... fallback happen to line up), but drifts the
+    // moment FILESYSTEM_DISK or the storage disk config changes — exactly
+    // the bug class already fixed once in FileUploadController.
+    private const UPLOAD_DISK = 'public';
+
     /**
      * Upload Profile or Cover Picture.
      */
@@ -99,9 +109,9 @@ class ProfileController extends Controller
 
         $user = $request->user();
         $file = $request->file('file');
-        
-        $path = $file->store('users/' . $user->id, 'public');
-        $url = config('app.url') . Storage::url($path);
+
+        $path = $file->store('users/' . $user->id, self::UPLOAD_DISK);
+        $url = Storage::disk(self::UPLOAD_DISK)->url($path);
 
         if ($request->type === 'avatar') {
             $user->update(['profile_picture' => $url]);

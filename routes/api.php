@@ -35,8 +35,23 @@ if (!defined('TICKETS_DETAIL_ROUTE')) {
 }
 
 Route::prefix('v1')->group(function () {
-    Route::post('/auth/register', [AuthController::class, 'register']);
-    Route::post('/auth/login', [AuthController::class, 'login'])->name('login');
+    // Laravel's throttle middleware keys its bucket by IP alone (see
+    // ThrottleRequests::resolveRequestSignature) — it does NOT factor in the
+    // route by default, so these four endpoints would otherwise silently
+    // share one combined 6-per-minute budget instead of 6 each. The 3rd
+    // throttle argument is a key prefix; giving each route its own makes the
+    // buckets genuinely independent.
+    Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:6,1,register');
+    Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:6,1,login')->name('login');
+    Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:6,1,forgot-password');
+    Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:6,1,reset-password');
+
+    // Public Job Order Tracking — no account needed, just the tracking_code
+    // handed to the customer at intake. Backend-only for now; no consuming
+    // page yet (see the loop's memory note for the pending frontend task).
+    // Throttled per IP, same reasoning as the auth routes above, though the
+    // 8-char code space makes brute-forcing impractical either way.
+    Route::get('/track/{trackingCode}', [\App\Http\Controllers\Api\V1\JobOrderTrackingController::class, 'show'])->middleware('throttle:20,1,track');
 
     // Public Catalog & Booking
     Route::get('/catalog/{shop:slug}', [CatalogController::class, 'index']);
@@ -92,6 +107,9 @@ Route::prefix('v1')->group(function () {
                 // photos are a day-to-day task, not a supervisory decision, so this
                 // sits in the staff-accessible group unlike reject/pay/discount below.
                 Route::post('/jobs/{jobOrder}/progress-photos', [JobOrderController::class, 'addProgressPhoto']);
+                // Per-piece completion on a bulk/team order's roster — same
+                // "staff at the workbench" reasoning as progress photos above.
+                Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
 
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
@@ -130,6 +148,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
+                Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
 
@@ -195,6 +214,13 @@ Route::prefix('v1')->group(function () {
                 Route::get('/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'index']);
                 Route::put('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'update']);
                 Route::delete('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'destroy']);
+
+                // Catalog Item Reviews — per-design-item reviews (e.g. a
+                // specific Barong/gown in the Design Catalog), distinct from
+                // the shop-level reviews above.
+                Route::get('/catalog-item-reviews', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'indexForShop']);
+                Route::put('/catalog-item-reviews/{review}', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'replyToReview']);
+                Route::delete('/catalog-item-reviews/{review}', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'destroyReview']);
 
                 // Shop Posts — completed-work showcase the owner posts to their storefront
                 Route::get('/posts', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'index']);

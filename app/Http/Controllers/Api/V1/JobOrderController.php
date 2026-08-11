@@ -35,6 +35,33 @@ class JobOrderController extends Controller
     }
 
     /**
+     * Notifies the shop owner's own in-app bell whenever staff or a branch
+     * manager makes a change on their behalf — the owner performing the
+     * change themselves already knows what they just did, so this only
+     * fires for other actors, matching StaffAssignedNotification's own
+     * "only notify the party who didn't cause this" precedent.
+     */
+    private function notifyOwnerOfActivity(Request $request, Shop $shop, array $payload): void
+    {
+        if ($request->user()->hasRole('shop_owner')) {
+            return;
+        }
+
+        $owner = $shop->owner;
+        if (!$owner) {
+            return;
+        }
+
+        $owner->notify(new \App\Notifications\ShopActivityNotification(
+            $payload['type'],
+            $payload['title'],
+            $payload['message'],
+            $payload['url'],
+            $payload['extra'] ?? []
+        ));
+    }
+
+    /**
      * "JO-{year}-{sequential}" (e.g. JO-2026-0503) instead of an opaque
      * random string — matches the format already shown throughout the
      * dashboard/print ticket/receipts, and lets an owner recognize order
@@ -57,6 +84,21 @@ class JobOrderController extends Controller
             ->max() ?? 0;
 
         return $prefix . str_pad((string) ($lastNumber + 1), 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Globally unique (not scoped per shop, unlike order_number) — the
+     * public tracking lookup has no other way to know which shop's table to
+     * search. Lets a customer check their order status without an account,
+     * the real "sa na po ba?" pain point named in interview research.
+     */
+    private function generateTrackingCode(): string
+    {
+        do {
+            $code = strtoupper(\Illuminate\Support\Str::random(8));
+        } while (JobOrder::withTrashed()->where('tracking_code', $code)->exists());
+
+        return $code;
     }
 
     public function index(Shop $shop, Request $request): JsonResponse
@@ -136,6 +178,7 @@ class JobOrderController extends Controller
         }
 
         $validated['order_number'] = $this->generateOrderNumber($shop);
+        $validated['tracking_code'] = $this->generateTrackingCode();
         $validated['order_type'] = $validated['order_type'] ?? 'walk_in';
 
         // staff_stages isn't a job_orders column — pull it out before create(),
@@ -156,10 +199,43 @@ class JobOrderController extends Controller
             }
         }
 
-        // Auto-assign branch if creator is staff or branch manager and not explicitly set
+        // Auto-assign branch when not explicitly set. The assigned staff's own
+        // branch is the stronger signal of where the work actually happens —
+        // without this, a branch manager creating a job and staffing it with
+        // someone from a different branch (e.g. borrowing a tailor) silently
+        // saved the job under the creator's own branch, not the staff's,
+        // producing a job whose branch and assigned staff disagreed with no
+        // warning. Falls back to the creator's own branch (staff/branch
+        // manager) when the assigned staff has no fixed branch (a floater).
+        if (empty($validated['shop_branch_id'])) {
+            $assignedStaffId = $validated['assigned_staff_id'] ?? null;
+            if ($assignedStaffId) {
+                $assignedBranchId = \App\Models\StaffProfile::where('user_id', $assignedStaffId)
+                    ->where('shop_id', $shop->id)
+                    ->value('shop_branch_id');
+                if ($assignedBranchId) {
+                    $validated['shop_branch_id'] = $assignedBranchId;
+                }
+            }
+        }
         $staffProfile = $request->user()->staffProfile;
         if ($staffProfile && empty($validated['shop_branch_id'])) {
             $validated['shop_branch_id'] = $staffProfile->shop_branch_id;
+        }
+
+        // The owner (no staffProfile) has no branch to inherit from the block
+        // above, so a job created without explicitly picking one used to be
+        // saved with shop_branch_id = NULL — permanently invisible the moment
+        // anyone filters the Production Pipeline to a specific branch, since
+        // `WHERE shop_branch_id = ?` never matches NULL in SQL. Confirmed live:
+        // an owner-created job vanished from the board under the default
+        // branch view with no error or warning. Default to the shop's main
+        // branch instead, same as any other job with no other signal.
+        if (empty($validated['shop_branch_id'])) {
+            $mainBranch = $shop->branches()->where('is_main', true)->first();
+            if ($mainBranch) {
+                $validated['shop_branch_id'] = $mainBranch->id;
+            }
         }
 
         // Determine payment status based on total amount and balance
@@ -256,8 +332,18 @@ class JobOrderController extends Controller
 
         // Link back to the appointment now that the job exists
         if ($appointment) {
+            // 'outcome' has its own dedicated dropdown on the "Complete
+            // Appointment" modal, but a job order is just as often created
+            // straight from an appointment via this appointment_id linkage
+            // without ever going through that modal — leaving outcome null
+            // forever even though the appointment demonstrably *did*
+            // convert. Set it here too so outcome-based reporting (booking
+            // conversion rate) reflects real conversions regardless of
+            // which of the two paths the owner used. Never overwrites an
+            // outcome that's already set.
             $appointment->update([
                 'job_order_id' => $jobOrder->id,
+                'outcome' => $appointment->outcome ?? 'converted_to_job',
             ]);
             if ($appointment->status === 'pending') {
                 $appointment->update(['status' => 'confirmed']);
@@ -268,7 +354,7 @@ class JobOrderController extends Controller
         if ($initialPayment > 0) {
             $jobOrder->payments()->create([
                 'amount' => $initialPayment,
-                'payment_method' => $request->input('payment_method') ?? 'cash',
+                'payment_method' => $validated['payment_method'] ?? 'cash',
                 'recorded_by' => $request->user()->id,
                 'notes' => 'Initial downpayment recorded during order creation.'
             ]);
@@ -307,6 +393,24 @@ class JobOrderController extends Controller
         $jobOrder->customer_job_count = $jobOrder->customer_id
             ? JobOrder::where('shop_id', $shop->id)->where('customer_id', $jobOrder->customer_id)->count()
             : 0;
+
+        // A job order pins measurement_id at creation and nothing ever
+        // re-points it — Measurement::update() always closes out the old
+        // version and creates a new one (see MeasurementController@update),
+        // so a correction made after this job started (e.g. staff re-measures
+        // at fitting and fixes a wrong waist) never reaches a job already in
+        // production unless someone notices and manually re-links it. Surface
+        // that gap here instead of leaving it silent: tell the frontend
+        // whether a newer version exists and what its id is.
+        if ($jobOrder->measurement) {
+            $currentVersion = \App\Models\Measurement::where('shop_id', $shop->id)
+                ->where('customer_id', $jobOrder->measurement->customer_id)
+                ->where('profile_name', $jobOrder->measurement->profile_name)
+                ->whereNull('superseded_at')
+                ->first();
+            $jobOrder->measurement->is_stale = $currentVersion && $currentVersion->id !== $jobOrder->measurement->id;
+            $jobOrder->measurement->current_version_id = $currentVersion?->id;
+        }
 
         return response()->json([
             'success' => true,
@@ -371,6 +475,13 @@ class JobOrderController extends Controller
                 ], 422);
             }
 
+            // Completion photo upload stays available (upload → column →
+            // print ticket) but is no longer a hard gate on reaching Ready
+            // for Pickup — per explicit owner request, it's optional, not
+            // required. Was previously enforced here ("No QC Photo, No
+            // Ready for Pickup"); removed rather than left as dead
+            // commented-out logic.
+
             // 'rejected' has its own dedicated endpoint (JobOrderController@rejectOrder)
             // with rules this generic endpoint doesn't enforce: owner/branch_manager
             // only (staff can reach this route), pending-only, and a required reason.
@@ -384,6 +495,22 @@ class JobOrderController extends Controller
         }
 
         $jobOrder->update($validated);
+
+        // Cancelling a job leaves its linked fitting appointment(s) dangling
+        // otherwise — still 'pending'/'confirmed' on the calendar for a job
+        // that no longer exists, which staff could show up for, and which
+        // (once confirmed) blocks that time slot for a real future booking.
+        // Confirmed live: cancelling JO-1005 left appointment #35 sitting at
+        // 'pending' with no connection back to anything now dead.
+        if ($jobOrder->status === 'cancelled' && $oldStatus !== 'cancelled') {
+            $jobOrder->appointments()
+                ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+                ->get()
+                ->each(function (\App\Models\Appointment $appointment) {
+                    $appointment->update(['status' => 'cancelled']);
+                    $appointment->customer?->notify(new \App\Notifications\AppointmentStatusNotification($appointment, 'cancelled'));
+                });
+        }
 
         // Tracks how many times a job has entered Final Adjustments, and when
         // the first one happened — lets the owner judge the shop's own "1 free
@@ -407,8 +534,33 @@ class JobOrderController extends Controller
                 ->update(['completed_at' => now()]);
         }
 
+        // Same aging-alert pattern as ready_for_pickup_at below — on_hold is
+        // correctly excluded from the overdue_jobs KPI (the owner paused it
+        // on purpose, it's not "late"), but that left it with zero aging
+        // visibility anywhere at all. Cleared back to null the moment the
+        // job leaves on_hold, so a job that gets held twice gets a fresh
+        // clock each time, not the first hold's stale timestamp.
+        if ($jobOrder->status === 'on_hold' && $oldStatus !== 'on_hold') {
+            $jobOrder->forceFill(['held_at' => now()])->save();
+        } elseif ($oldStatus === 'on_hold' && $jobOrder->status !== 'on_hold' && $jobOrder->held_at) {
+            $jobOrder->forceFill(['held_at' => null])->save();
+        }
+
         if ($jobOrder->status === 'ready_for_pickup' && $oldStatus !== 'ready_for_pickup') {
+            // Server-derived, not client-settable — start of the "unclaimed
+            // pickup" aging clock the Reports page now surfaces, so an item
+            // sitting on the rack gets flagged before it becomes a forfeited
+            // deposit (cancellation_reason=forfeited_deposit_abandoned) instead
+            // of only after.
+            $jobOrder->forceFill(['ready_for_pickup_at' => now()])->save();
             $jobOrder->customer->notify(new \App\Notifications\OrderReadyNotification($jobOrder));
+            $this->notifyOwnerOfActivity($request, $shop, [
+                'type'    => 'job_ready_for_pickup',
+                'title'   => 'Job Order Ready for Pickup',
+                'message' => "{$jobOrder->order_number} ({$jobOrder->customer?->name}) is ready for pickup.",
+                'url'     => '/dashboard/jobs/' . $jobOrder->id,
+                'extra'   => ['job_order_id' => $jobOrder->id, 'order_number' => $jobOrder->order_number],
+            ]);
         }
 
         // Phase 3: "Ready for Fitting" auto-triggers a Fitting appointment for
@@ -433,17 +585,50 @@ class JobOrderController extends Controller
                     ->exists();
 
                 if (!$hasOpenFitting) {
+                    // Fitting session limit — the shop's fitting_limit is how many
+                    // fitting appointments a job gets before fitting_fee kicks in
+                    // (see UpdateShopRequest/SettingsBusinessType; not a rental
+                    // concept — every prior fitting counts toward it, completed or
+                    // not, since a no-show/cancelled session still used the shop's
+                    // time). A job cycling ready_for_fitting → final_adjustments →
+                    // ready_for_fitting again is exactly the real scenario this
+                    // exists for: a second fitting round after adjustments.
+                    $priorFittingCount = $jobOrder->appointments()->where('appointment_type', 'fitting')->count();
+                    $overFittingLimit = $shop->fitting_limit && $priorFittingCount >= $shop->fitting_limit;
+
+                    // "Tomorrow at 10am" is just a rough placeholder the owner
+                    // is expected to reschedule with the customer anyway — but
+                    // landing it on a day the shop announced as closed (see
+                    // Shop::closureTitleOn, also enforced for real bookings in
+                    // AppointmentController) would still look like a real bug
+                    // to whoever opens this appointment first. Walk forward to
+                    // the next open day instead, capped so a long closure
+                    // can't spin this into an unbounded loop.
+                    $placeholderDate = now()->addDay()->setTime(10, 0);
+                    for ($i = 0; $i < 30 && $shop->closureTitleOn($placeholderDate, $jobOrder->shop_branch_id); $i++) {
+                        $placeholderDate = $placeholderDate->copy()->addDay();
+                    }
+
                     $jobOrder->appointments()->create([
                         'shop_id' => $shop->id,
                         'shop_branch_id' => $jobOrder->shop_branch_id,
                         'customer_id' => $jobOrder->customer_id,
                         'appointment_type' => 'fitting',
                         'intake_channel' => 'walk_in',
-                        'scheduled_at' => now()->addDay()->setTime(10, 0),
+                        'scheduled_at' => $placeholderDate,
                         'duration_minutes' => \App\Models\Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
                         'status' => 'pending',
-                        'notes' => "Auto-generated when Job Order {$jobOrder->order_number} became Ready for Fitting — please confirm the actual date/time with the customer.",
+                        'notes' => "Auto-generated when Job Order {$jobOrder->order_number} became Ready for Fitting — please confirm the actual date/time with the customer."
+                            . ($overFittingLimit ? " This is fitting #{$priorFittingCount}+1, past the shop's {$shop->fitting_limit}-session limit — a ₱{$shop->fitting_fee} fitting fee has been added to the balance." : ''),
                     ]);
+
+                    if ($overFittingLimit && $shop->fitting_fee > 0) {
+                        $jobOrder->increment('total_amount', $shop->fitting_fee);
+                        $jobOrder->increment('balance', $shop->fitting_fee);
+                        if ($jobOrder->payment_status === 'paid') {
+                            $jobOrder->update(['payment_status' => 'partial']);
+                        }
+                    }
                 }
             });
         }
@@ -457,6 +642,13 @@ class JobOrderController extends Controller
         $otherNotifiableStatuses = array_diff(JobOrder::STATUSES, ['pending', 'ready_for_pickup']);
         if (in_array($jobOrder->status, $otherNotifiableStatuses, true) && $jobOrder->status !== $oldStatus) {
             $jobOrder->customer->notify(new \App\Notifications\JobStatusUpdatedNotification($jobOrder, $jobOrder->status));
+            $this->notifyOwnerOfActivity($request, $shop, [
+                'type'    => 'job_' . $jobOrder->status,
+                'title'   => 'Job Order Updated',
+                'message' => "{$jobOrder->order_number} ({$jobOrder->customer?->name}) moved to " . str_replace('_', ' ', $jobOrder->status) . '.',
+                'url'     => '/dashboard/jobs/' . $jobOrder->id,
+                'extra'   => ['job_order_id' => $jobOrder->id, 'order_number' => $jobOrder->order_number],
+            ]);
         }
 
         return response()->json([
@@ -477,13 +669,33 @@ class JobOrderController extends Controller
 
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
-            'payment_method' => 'sometimes|string',
+            'payment_method' => 'sometimes|string|in:cash,gcash,bank_transfer',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'receipt_path' => 'nullable|string|max:2048',
         ]);
 
         $paymentAmount = (float) $validated['amount'];
+
+        // A GCash/bank reference number reused across two different orders
+        // is exactly what a reused-screenshot scam looks like — the same
+        // proof-of-payment submitted twice to get credited twice. Warns
+        // rather than blocks: legitimate reference collisions do happen
+        // (some banks' reference formats aren't globally unique), so this
+        // surfaces the fact for the staff member logging it to judge, the
+        // same "surface facts, don't hard-code a rule" approach already
+        // used for adjustment_count.
+        $duplicateReferenceWarning = null;
+        if (!empty($validated['reference'])) {
+            $duplicateOrder = JobOrder::where('shop_id', $shop->id)
+                ->whereHas('payments', function ($q) use ($validated) {
+                    $q->where('reference', $validated['reference'])->whereNull('rejected_at');
+                })
+                ->first();
+            if ($duplicateOrder) {
+                $duplicateReferenceWarning = "This reference number was already used on order {$duplicateOrder->order_number} — double-check this isn't a reused receipt before accepting.";
+            }
+        }
 
         try {
             // Lock the row for the duration of the transaction so two payments
@@ -527,6 +739,7 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment logged successfully',
+            'warning' => $duplicateReferenceWarning,
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages'])
         ]);
     }
@@ -625,7 +838,7 @@ class JobOrderController extends Controller
         }
 
         $validated = $request->validate([
-            'payment_method' => 'sometimes|string',
+            'payment_method' => 'sometimes|string|in:cash,gcash,bank_transfer',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'receipt_path' => 'nullable|string|max:2048',
@@ -722,6 +935,11 @@ class JobOrderController extends Controller
             $shop->owner?->notify(new \App\Notifications\PaymentRejectedNotification($jobOrder, $payment, $request->user()));
         }
 
+        // The customer whose payment this was had no way to find out at
+        // all otherwise — PaymentRejectedNotification above only ever
+        // reaches the owner, and only for a branch_manager's rejection.
+        $jobOrder->customer?->notify(new \App\Notifications\CustomerPaymentRejectedNotification($jobOrder, $payment, $validated['reason']));
+
         return response()->json([
             'success' => true,
             'message' => 'Payment rejected.',
@@ -782,6 +1000,40 @@ class JobOrderController extends Controller
      * job accumulates one photo per stage over its lifetime, same "add a
      * ledger entry" shape as payments rather than replacing a single field.
      */
+    /**
+     * Owner-composed free-form email to the job's customer — separate from
+     * the automatic status-change notifications, which fire on their own.
+     * The frontend renders its own preview before calling this; there's no
+     * separate preview endpoint since nothing here needs server data the
+     * owner doesn't already have in front of them.
+     */
+    public function notifyCustomer(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'subject' => ['required', 'string', 'max:150'],
+            'message' => ['required', 'string', 'max:5000'],
+        ]);
+
+        $customer = $jobOrder->customer;
+        if (!$customer || !$customer->email || str_starts_with($customer->email, 'walkin_')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This customer has no real email on file to send to.',
+            ], 422);
+        }
+
+        $customer->notify(new \App\Notifications\CustomMessageNotification($jobOrder, $validated['subject'], $validated['message']));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Message sent to ' . $customer->email . '.',
+        ]);
+    }
+
     public function addProgressPhoto(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
     {
         if ($jobOrder->shop_id !== $shop->id) {
@@ -811,6 +1063,44 @@ class JobOrderController extends Controller
         ]);
     }
 
+    /**
+     * Flips completed on/off for one member of a bulk/team order's roster
+     * (custom_order_data.team_roster). A 10-jersey job otherwise has a
+     * single status for the whole batch — this is the only place per-piece
+     * progress ("7 of 10 done") is tracked, separate from the job's overall
+     * production stage.
+     */
+    public function toggleRosterItem(Request $request, Shop $shop, JobOrder $jobOrder, int $index): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $data = $jobOrder->custom_order_data ?? [];
+        // 'roster' is an older key some existing orders still use alongside
+        // the current 'team_roster' — same fallback the frontend already
+        // reads with (see teamRoster in the Job Detail page).
+        $rosterKey = array_key_exists('team_roster', $data) ? 'team_roster' : 'roster';
+        $roster = $data[$rosterKey] ?? null;
+
+        if (!is_array($roster) || !array_key_exists($index, $roster)) {
+            return response()->json(['success' => false, 'message' => 'Roster item not found.'], 404);
+        }
+
+        $roster[$index]['completed'] = !($roster[$index]['completed'] ?? false);
+        $data[$rosterKey] = $roster;
+        $jobOrder->forceFill(['custom_order_data' => $data])->save();
+
+        return response()->json([
+            'success' => true,
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
+        ]);
+    }
+
     public function assignStaff(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
     {
         if ($jobOrder->shop_id !== $shop->id) {
@@ -831,6 +1121,17 @@ class JobOrderController extends Controller
             'assignments.*.user_id' => [
                 'required',
                 \Illuminate\Validation\Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop->id),
+                function ($attribute, $value, $fail) use ($shop, $jobOrder) {
+                    if (!$jobOrder->shop_branch_id) {
+                        return;
+                    }
+                    $staffBranchId = \App\Models\StaffProfile::where('user_id', $value)
+                        ->where('shop_id', $shop->id)
+                        ->value('shop_branch_id');
+                    if ($staffBranchId && (int) $staffBranchId !== (int) $jobOrder->shop_branch_id) {
+                        $fail('This staff member belongs to a different branch than this job order.');
+                    }
+                },
             ],
             'assignments.*.stage' => ['required', \Illuminate\Validation\Rule::in(JobOrder::STAFF_STAGES)],
         ]);
@@ -863,10 +1164,31 @@ class JobOrderController extends Controller
             }
         }
 
+        // Same derivation store() does at creation time (first assigned stage,
+        // in production order) — without this, assigning staff here (the only
+        // way to assign/reassign staff on an already-created job) left
+        // assigned_staff_id stale. Staff Productivity analytics already works
+        // around that via a staffStages fallback, but the Kanban card and Job
+        // Detail page's "Assigned Staff" field read assigned_staff_id
+        // directly, so they kept showing "Unassigned" even for a job with a
+        // real staff member actively working a stage. Confirmed live: staff
+        // assigned to Cutting via this exact endpoint, board still said
+        // Unassigned.
+        $stageOrder = JobOrder::STAFF_STAGES;
+        $byStage = collect($validated['assignments'])->keyBy('stage');
+        $derivedStaffId = null;
+        foreach ($stageOrder as $stage) {
+            if ($byStage->has($stage)) {
+                $derivedStaffId = $byStage[$stage]['user_id'];
+                break;
+            }
+        }
+        $jobOrder->update(['assigned_staff_id' => $derivedStaffId]);
+
         return response()->json([
             'success' => true,
             'message' => 'Staff assigned to stages successfully',
-            'data' => $jobOrder->fresh(['staffStages'])
+            'data' => $jobOrder->fresh(['staffStages', 'assignedStaff:id,name'])
         ]);
     }
 
@@ -889,6 +1211,22 @@ class JobOrderController extends Controller
             ], 400);
         }
 
+        // Logged before delete() — a soft delete, so the record itself
+        // survives, but the Audit Log page had no entry at all for who
+        // deleted a job order or when, the same accountability gap
+        // discount_applied/payment_rejected/etc. already closed elsewhere.
+        $shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'job_order_deleted',
+            'model_type' => JobOrder::class,
+            'model_id'   => $jobOrder->id,
+            'payload'    => [
+                'order_number' => $jobOrder->order_number,
+                'status'       => $jobOrder->status,
+            ],
+            'ip_address' => $request->ip(),
+        ]);
+
         $jobOrder->delete();
 
         return response()->json([
@@ -910,6 +1248,18 @@ class JobOrderController extends Controller
         }
 
         $jobOrder->restore();
+
+        $shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'job_order_restored',
+            'model_type' => JobOrder::class,
+            'model_id'   => $jobOrder->id,
+            'payload'    => [
+                'order_number' => $jobOrder->order_number,
+                'status'       => $jobOrder->status,
+            ],
+            'ip_address' => $request->ip(),
+        ]);
 
         return response()->json([
             'success' => true,

@@ -53,9 +53,15 @@ class ServiceController extends Controller
         }
 
         $validated = $request->validate([
-            'sale_price' => ['nullable', 'numeric', 'min:0'],
+            // A sale price that isn't actually below base_price isn't a
+            // sale — the frontend's own Set Sale Price modal already blocks
+            // this client-side, but nothing stopped it being set directly
+            // via the API, storing a "discount" that discounts nothing.
+            'sale_price' => ['nullable', 'numeric', 'min:0', 'lt:' . (float) $service->base_price],
             'sale_starts_at' => ['nullable', 'date'],
             'sale_ends_at' => ['nullable', 'date', 'after_or_equal:sale_starts_at'],
+        ], [
+            'sale_price.lt' => 'The sale price must be lower than the base price (₱' . number_format((float) $service->base_price, 2) . ').',
         ]);
 
         $service->update([
@@ -116,18 +122,30 @@ class ServiceController extends Controller
         }
     }
 
-    public function destroy(Shop $shop, Service $service): JsonResponse
+    public function destroy(Request $request, Shop $shop, Service $service): JsonResponse
     {
         if ($service->shop_id !== $shop->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
+
+        // Same accountability gap job_order_deleted/staff_removed already
+        // closed — deleting a service definition previously left no trace
+        // in the Audit Log at all.
+        $shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'service_deleted',
+            'model_type' => Service::class,
+            'model_id'   => $service->id,
+            'payload'    => ['name' => $service->name],
+            'ip_address' => $request->ip(),
+        ]);
 
         $service->delete();
 
         return response()->json(['success' => true]);
     }
 
-    public function restore(Shop $shop, int $serviceId): JsonResponse
+    public function restore(Request $request, Shop $shop, int $serviceId): JsonResponse
     {
         $service = Service::onlyTrashed()->where('id', $serviceId)->first();
 
@@ -136,6 +154,15 @@ class ServiceController extends Controller
         }
 
         $service->restore();
+
+        $shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'service_restored',
+            'model_type' => Service::class,
+            'model_id'   => $service->id,
+            'payload'    => ['name' => $service->name],
+            'ip_address' => $request->ip(),
+        ]);
 
         return response()->json(['success' => true, 'data' => $service->load('pricing')]);
     }

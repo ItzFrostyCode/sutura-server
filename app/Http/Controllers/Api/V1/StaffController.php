@@ -7,9 +7,11 @@ use App\Http\Requests\Shop\StoreStaffRequest;
 use App\Http\Requests\Shop\UpdateStaffRequest;
 use App\Models\Shop;
 use App\Models\StaffProfile;
+use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Models\Role;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class StaffController extends Controller
@@ -35,16 +37,27 @@ class StaffController extends Controller
 
     public function index(Shop $shop): JsonResponse
     {
-        $staff = $shop->staff()->with(['user:id,name,email,phone,last_seen_at', 'branch:id,name'])->get();
+        $staff = $shop->staff()->with(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])->get();
 
         // One grouped query for all staff instead of 2 queries per staff
         // member — previously scaled linearly with the shop's headcount.
         $userIds = $staff->pluck('user_id');
-        // CASE WHEN (not MySQL's boolean-as-integer shorthand) so this stays
-        // portable to Postgres, which doesn't implicitly cast booleans in SUM().
+        // COUNT(DISTINCT job_order_id), not a raw row SUM — job_order_staff
+        // has one row per production STAGE, and a staff member is routinely
+        // assigned to several stages of the same job order (e.g. design +
+        // pattern_making + cutting, all still incomplete). A raw row count
+        // over-reports "active jobs" for exactly that staff member: verified
+        // live, one staff member with 2 open stage-rows on the same job
+        // order showed "2 active jobs" for what was really only 1 actual
+        // job. The whole point of this number is "how many distinct jobs is
+        // this person on right now," not "how many stage-assignments."
         $counts = \Illuminate\Support\Facades\DB::table('job_order_staff')
             ->whereIn('user_id', $userIds)
-            ->selectRaw('user_id, SUM(CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END) as active_jobs, SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) as completed_jobs')
+            ->selectRaw('
+                user_id,
+                COUNT(DISTINCT CASE WHEN completed_at IS NULL THEN job_order_id END) as active_jobs,
+                COUNT(DISTINCT CASE WHEN completed_at IS NOT NULL THEN job_order_id END) as completed_jobs
+            ')
             ->groupBy('user_id')
             ->get()
             ->keyBy('user_id');
@@ -88,10 +101,18 @@ class StaffController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'staff' => $staff->load('user:id,name,email,phone'),
+                'staff' => $staff->load('user:id,name,email,phone,profile_picture'),
+                // total_assigned/total_completed intentionally stay as raw
+                // stage-assignment counts — they correspond 1:1 with the
+                // per-stage `assignments` log rendered below. 'active' is
+                // the one figure meant to answer "how many distinct jobs,"
+                // same question the Staff List's Active Jobs column
+                // answers — so it needs the same distinct-job-order fix
+                // (see StaffController::index), or the two "Active" numbers
+                // for the same person would silently disagree.
                 'total_assigned' => $assignments->count(),
                 'total_completed' => $assignments->whereNotNull('completed_at')->count(),
-                'active' => $assignments->whereNull('completed_at')->count(),
+                'active' => $assignments->whereNull('completed_at')->pluck('job_order_id')->unique()->count(),
                 'assignments' => $assignments,
             ],
         ]);
@@ -99,6 +120,27 @@ class StaffController extends Controller
 
     public function store(StoreStaffRequest $request, Shop $shop): JsonResponse
     {
+        // SubscriptionPlan::max_staff is configurable per plan (unlike the
+        // branch limit, which is a flat premium-only gate) but was never
+        // actually checked here — a shop on the cheapest plan could hire an
+        // unlimited staff roster with no enforcement at all.
+        $subscription = $shop->subscription()->whereIn('status', ['active', 'trial'])->first();
+        // A shop with no active/trial subscription at all must fall back to
+        // the cheapest plan's cap, not skip the gate entirely — treating a
+        // missing subscription as "unlimited" let a shop with literally no
+        // plan hire more staff than a paying Basic subscriber, the opposite
+        // of ShopBranchController's equivalent gate, which already fails
+        // closed the same way (no subscription => no premium perks).
+        $maxStaff = $subscription?->plan?->max_staff ?? SubscriptionPlan::where('slug', 'basic')->value('max_staff') ?? 1;
+        // -1 is this table's documented "unlimited" sentinel (see
+        // SubscriptionPlanSeeder) — not a real cap to compare against.
+        if ($maxStaff !== -1 && $shop->staff()->count() >= $maxStaff) {
+            return response()->json([
+                'success' => false,
+                'message' => "Your plan allows up to {$maxStaff} staff member" . ($maxStaff === 1 ? '' : 's') . '. Upgrade your plan to add more.',
+            ], 403);
+        }
+
         $existing = User::where('email', $request->email)->first();
 
         if ($existing && $existing->password_set_at !== null) {
@@ -107,6 +149,29 @@ class StaffController extends Controller
                 'message' => 'This email already belongs to a registered account.',
                 'errors'  => ['email' => ['This email already belongs to a registered account.']],
             ], 422);
+        }
+
+        // password_set_at alone doesn't catch every real identity — a
+        // walk-in customer created via CustomerController::store() never
+        // gets that field set at all, so this email could belong to a real,
+        // named customer (with real order/appointment history) even though
+        // the check above passed. Confirmed live: hiring "staff" with an
+        // existing customer's email silently overwrote their name and
+        // enrolled them as an employee. Block on any sign this identity is
+        // already a known customer, of this shop or any other.
+        if ($existing) {
+            $isKnownCustomer = $existing->hasRole('customer')
+                || \Illuminate\Support\Facades\DB::table('shop_customers')->where('user_id', $existing->id)->exists()
+                || \App\Models\JobOrder::where('customer_id', $existing->id)->exists()
+                || \App\Models\Appointment::where('customer_id', $existing->id)->exists();
+
+            if ($isKnownCustomer) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This email belongs to an existing customer and cannot be used for a staff account.',
+                    'errors'  => ['email' => ['This email belongs to an existing customer and cannot be used for a staff account.']],
+                ], 422);
+            }
         }
 
         if ($existing) {
@@ -138,6 +203,7 @@ class StaffController extends Controller
             'hired_at' => $request->hired_at,
             'shop_branch_id' => $request->shop_branch_id,
             'is_branch_manager' => $isBranchManager,
+            'bio' => $request->bio,
         ]);
 
         return response()->json([
@@ -163,7 +229,7 @@ class StaffController extends Controller
         }
 
         // Update the StaffProfile
-        $staff->update($request->only(['role', 'additional_roles', 'specialization', 'hired_at', 'is_active', 'shop_branch_id', 'is_branch_manager']));
+        $staff->update($request->only(['role', 'additional_roles', 'specialization', 'hired_at', 'is_active', 'shop_branch_id', 'is_branch_manager', 'bio', 'is_available']));
 
         if ($user && $request->has('is_branch_manager')) {
             $this->syncPlatformRole($user, $staff->is_branch_manager);
@@ -171,20 +237,40 @@ class StaffController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $staff->load('user:id,name,email,phone')
+            'data' => $staff->load('user:id,name,email,phone,profile_picture')
         ]);
     }
 
-    public function destroy(Shop $shop, StaffProfile $staff): JsonResponse
+    public function destroy(Request $request, Shop $shop, StaffProfile $staff): JsonResponse
     {
         if ($staff->shop_id !== $shop->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        // Delete the associated User model since they were created for this staff account
-        if ($staff->user) {
-            $staff->user()->delete();
-        }
+        // Only remove the StaffProfile — the roster entry — and leave the
+        // underlying User row alone. Deleting the User here used to cascade
+        // into every historical record that references them by user id
+        // (JobOrder::assignedStaff, Payment::recordedBy/rejectedBy,
+        // AuditLog::user), silently blanking out "who did this" across the
+        // shop's entire history the moment a staff member was offboarded —
+        // a routine action, not a reason to lose past attribution.
+        //
+        // Logged before delete() (the StaffProfile itself, not the User row,
+        // so name/email still need to be captured now) — removing a staff
+        // member is exactly the kind of action the owner needs to see in
+        // the Audit Log for a branch_manager's own actions, and previously
+        // there was no record it happened at all.
+        $shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'staff_removed',
+            'model_type' => StaffProfile::class,
+            'model_id'   => $staff->id,
+            'payload'    => [
+                'name' => $staff->user?->name,
+                'role' => $staff->role,
+            ],
+            'ip_address' => $request->ip(),
+        ]);
 
         $staff->delete();
 

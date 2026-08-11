@@ -88,6 +88,7 @@ class LocalTestSeeder extends Seeder
         $mainBranch = ShopBranch::firstOrCreate(
             ['shop_id' => $shop->id, 'name' => 'Main Branch'],
             [
+                'slug' => \Illuminate\Support\Str::slug('Main Branch') . '-' . uniqid(),
                 'address' => '123 Rizal Avenue',
                 'city' => 'Davao City',
                 'latitude' => 7.0702,
@@ -348,6 +349,7 @@ class LocalTestSeeder extends Seeder
         $branch2 = ShopBranch::firstOrCreate(
             ['shop_id' => $shop->id, 'name' => 'SUTURA (Lanang Branch)'],
             [
+                'slug' => \Illuminate\Support\Str::slug('SUTURA (Lanang Branch)') . '-' . uniqid(),
                 'address' => 'Lanang Business Park',
                 'city' => 'Davao City',
                 'latitude' => 7.0988,
@@ -360,6 +362,7 @@ class LocalTestSeeder extends Seeder
         $branch3 = ShopBranch::firstOrCreate(
             ['shop_id' => $shop->id, 'name' => 'SUTURA (Matina Branch)'],
             [
+                'slug' => \Illuminate\Support\Str::slug('SUTURA (Matina Branch)') . '-' . uniqid(),
                 'address' => 'Matina Crossing Road',
                 'city' => 'Davao City',
                 'latitude' => 7.0543,
@@ -401,6 +404,15 @@ class LocalTestSeeder extends Seeder
             }
             $staffUsers[] = $sUser;
         }
+
+        // Branch managers for the two satellite branches (Lanang, Matina) —
+        // created live through the real branch-manager invite flow, not by
+        // this seeder. Job orders/stages below prefer them over $staffUsers
+        // (all Main Branch) so a Lanang/Matina job is staffed by someone who
+        // actually works there; falls back to a Main Branch staffer if this
+        // is a fresh install where those two accounts don't exist yet.
+        $lanangStaff = User::where('email', 'ferdinand.cruz@sutura.com')->first() ?? $staffUsers[1];
+        $matinaStaff = User::where('email', 'rowena.aquino@sutura.com')->first() ?? $staffUsers[0];
 
         // 9. Seed 3 Customers
         $customerRole = Role::where('name', 'customer')->first();
@@ -522,15 +534,16 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // 10b. Seed 2 pending appointments paid via GCash/Bank Transfer, awaiting
+        // 10b. Seed 3 pending appointments paid via GCash/Bank Transfer, awaiting
         // the owner's manual receipt verification — populates the "GCash & Bank
         // Receipts" tab on Collect Payments (only unverified, non-cash payments
         // show there; see JobOrderController/AppointmentController's queue query).
-        \App\Models\Appointment::firstOrCreate(
+        \App\Models\Appointment::updateOrCreate(
             ['shop_id' => $shop->id, 'payment_reference' => 'GC-2201394857'],
             [
                 'customer_id' => $onlineCustomers['Liza Fernandez']->id,
                 'service_id' => $service2->id,
+                'shop_branch_id' => $mainBranch->id,
                 'appointment_type' => 'consultation',
                 'intake_channel' => 'online',
                 'scheduled_at' => now()->addDays(2),
@@ -542,17 +555,36 @@ class LocalTestSeeder extends Seeder
         );
 
         $bridalService = \App\Models\Service::where('name', 'Bridal & Wedding Gown Design')->first();
-        \App\Models\Appointment::firstOrCreate(
+        \App\Models\Appointment::updateOrCreate(
             ['shop_id' => $shop->id, 'payment_reference' => 'BDO-88213340'],
             [
                 'customer_id' => $onlineCustomers['Mark Villanueva']->id,
                 'service_id' => $bridalService?->id,
+                'shop_branch_id' => $branch2->id,
                 'appointment_type' => 'fitting',
                 'intake_channel' => 'online',
                 'scheduled_at' => now()->addDays(4),
                 'duration_minutes' => 60,
                 'status' => 'pending',
                 'payment_method' => 'bank_transfer',
+                'payment_status' => 'pending',
+            ]
+        );
+
+        $alterationService = \App\Models\Service::where('name', 'Garment Alterations & Repair Services')->first();
+        \App\Models\Appointment::updateOrCreate(
+            ['shop_id' => $shop->id, 'payment_reference' => 'GC-3390215671'],
+            [
+                'customer_id' => $onlineCustomers['Cristina Ramos']->id,
+                'service_id' => $alterationService?->id,
+                'shop_branch_id' => $branch3->id,
+                'appointment_type' => 'fitting',
+                'garment_category' => 'alteration_repair',
+                'intake_channel' => 'online',
+                'scheduled_at' => now()->addDays(3),
+                'duration_minutes' => 30,
+                'status' => 'pending',
+                'payment_method' => 'gcash',
                 'payment_status' => 'pending',
             ]
         );
@@ -576,13 +608,13 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        $jo2 = \App\Models\JobOrder::firstOrCreate(
+        $jo2 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1002'],
             [
                 'shop_branch_id' => $branch2->id,
                 'customer_id' => $customers[1]->id,
                 'service_id' => $service1->id,
-                'assigned_staff_id' => $staffUsers[1]->id,
+                'assigned_staff_id' => $lanangStaff->id,
                 'total_amount' => 6500.00,
                 'balance' => 6500.00,
                 'payment_status' => 'unpaid',
@@ -609,23 +641,28 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        $jo3 = \App\Models\JobOrder::firstOrCreate(
+        $jo3 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1003'],
             [
                 'shop_branch_id' => $branch3->id,
                 'customer_id' => $customers[2]->id,
                 'service_id' => $service2->id,
-                'assigned_staff_id' => $staffUsers[0]->id,
+                'assigned_staff_id' => $matinaStaff->id,
                 'total_amount' => 12000.00,
                 'balance' => 0.00,
                 'payment_status' => 'paid',
                 'status' => 'ready_for_pickup',
-                'due_date' => now()->addDays(1)->format('Y-m-d'),
+                'due_date' => now()->subDays(20)->format('Y-m-d'),
                 'notes' => 'Bespoke corporate dress suit',
                 'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
             ]
         );
+        // ready_for_pickup_at is server-derived (not in $fillable, same as
+        // adjustment_count/first_adjustment_at) — 3 weeks past due and
+        // already fully paid, the exact "customer never came back for it"
+        // scenario the new Unclaimed Pickups aging list on Reports catches.
+        $jo3->forceFill(['ready_for_pickup_at' => now()->subDays(21)])->save();
 
         $jo4 = \App\Models\JobOrder::firstOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1004'],
@@ -691,13 +728,13 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        $jo6 = \App\Models\JobOrder::firstOrCreate(
+        $jo6 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1006'],
             [
                 'shop_branch_id' => $branch2->id,
                 'customer_id' => $customers[2]->id,
                 'service_id' => $service1->id,
-                'assigned_staff_id' => $staffUsers[2]->id,
+                'assigned_staff_id' => $lanangStaff->id,
                 'total_amount' => 9750.00,
                 'balance' => 4875.00,
                 'payment_status' => 'partial',
@@ -735,13 +772,13 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        $jo8 = \App\Models\JobOrder::firstOrCreate(
+        $jo8 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1008'],
             [
                 'shop_branch_id' => $branch3->id,
                 'customer_id' => $customers[1]->id,
                 'service_id' => $service2->id,
-                'assigned_staff_id' => $staffUsers[1]->id,
+                'assigned_staff_id' => $matinaStaff->id,
                 'total_amount' => 11000.00,
                 'balance' => 5500.00,
                 'payment_status' => 'partial',
@@ -768,16 +805,16 @@ class LocalTestSeeder extends Seeder
                 ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => null],
             ],
             $jo2->id => [ // status: cutting — design/pattern_making done, cutting in progress
-                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 4, 'completed' => 3],
-                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 3, 'completed' => 1],
-                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 1, 'completed' => null],
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 4, 'completed' => 3],
+                ['stage' => 'pattern_making', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 1],
+                ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 1, 'completed' => null],
             ],
             $jo3->id => [ // status: ready_for_pickup — all staff stages already closed out
-                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 10, 'completed' => 9],
-                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 9, 'completed' => 8],
-                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 6],
-                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 6, 'completed' => 4],
-                ['stage' => 'qc_ironing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => 1],
+                ['stage' => 'design', 'staff' => $matinaStaff, 'assigned' => 10, 'completed' => 9],
+                ['stage' => 'pattern_making', 'staff' => $matinaStaff, 'assigned' => 9, 'completed' => 8],
+                ['stage' => 'cutting', 'staff' => $matinaStaff, 'assigned' => 8, 'completed' => 6],
+                ['stage' => 'sewing', 'staff' => $matinaStaff, 'assigned' => 6, 'completed' => 4],
+                ['stage' => 'qc_ironing', 'staff' => $matinaStaff, 'assigned' => 2, 'completed' => 1],
             ],
             $jo4->id => [ // status: completed — all staff stages already closed out
                 ['stage' => 'design', 'staff' => $staffUsers[2], 'assigned' => 9, 'completed' => 8],
@@ -793,8 +830,8 @@ class LocalTestSeeder extends Seeder
                 ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 4, 'completed' => 1],
             ],
             $jo6->id => [ // status: mass_cutting_printing — bulk order, pattern_making skipped
-                ['stage' => 'design', 'staff' => $staffUsers[2], 'assigned' => 3, 'completed' => 2],
-                ['stage' => 'cutting', 'staff' => $staffUsers[2], 'assigned' => 2, 'completed' => null],
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
+                ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => null],
             ],
             $jo7->id => [ // status: final_adjustments — reverted here after fitting
                 ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 12, 'completed' => 11],
@@ -803,11 +840,11 @@ class LocalTestSeeder extends Seeder
                 ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 5],
             ],
             $jo8->id => [ // status: qc_ironing — final quality check in progress
-                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 9, 'completed' => 8],
-                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 8, 'completed' => 7],
-                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 7, 'completed' => 5],
-                ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 5, 'completed' => 3],
-                ['stage' => 'qc_ironing', 'staff' => $staffUsers[1], 'assigned' => 2, 'completed' => null],
+                ['stage' => 'design', 'staff' => $matinaStaff, 'assigned' => 9, 'completed' => 8],
+                ['stage' => 'pattern_making', 'staff' => $matinaStaff, 'assigned' => 8, 'completed' => 7],
+                ['stage' => 'cutting', 'staff' => $matinaStaff, 'assigned' => 7, 'completed' => 5],
+                ['stage' => 'sewing', 'staff' => $matinaStaff, 'assigned' => 5, 'completed' => 3],
+                ['stage' => 'qc_ironing', 'staff' => $matinaStaff, 'assigned' => 2, 'completed' => null],
             ],
         ];
         foreach ($stageAssignments as $jobOrderId => $stages) {
@@ -996,6 +1033,10 @@ class LocalTestSeeder extends Seeder
                 ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'completed'],
                 [
                     'type' => 'walkin',
+                    // Branch-attributed so Reports' branch comparison has a
+                    // real per-branch walk-in-orders split from first seed,
+                    // not everything piled into the "Unassigned" bucket.
+                    'shop_branch_id' => $mainBranch->id,
                     'total_amount' => 4500.00,
                     'payment_status' => 'paid',
                     'payment_method' => 'gcash',
@@ -1009,6 +1050,7 @@ class LocalTestSeeder extends Seeder
                 ['shop_id' => $shop->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'ready'],
                 [
                     'type' => 'walkin',
+                    'shop_branch_id' => $branch2->id,
                     'total_amount' => 4200.00,
                     'discount_amount' => 300.00,
                     'payment_status' => 'paid',
@@ -1046,6 +1088,7 @@ class LocalTestSeeder extends Seeder
             \App\Models\CatalogOrder::updateOrCreate(
                 ['shop_id' => $shop->id, 'catalog_item_id' => $item2->id, 'customer_id' => $customers[1]->id, 'type' => 'walkin', 'status' => 'completed'],
                 [
+                    'shop_branch_id' => $branch3->id,
                     'total_amount' => 1300.00,
                     'payment_status' => 'paid',
                     'payment_method' => 'cash',
@@ -1065,7 +1108,7 @@ class LocalTestSeeder extends Seeder
                     'total_amount' => 650.00,
                     'payment_status' => 'pending',
                     'payment_method' => 'gcash',
-                    'payment_receipt_path' => 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=500&auto=format&fit=crop&q=60',
+                    'payment_receipt_path' => '/receipts/gcash-884920194.svg',
                     'intake_channel' => 'walk_in',
                     'fulfillment_type' => 'pickup',
                 ]

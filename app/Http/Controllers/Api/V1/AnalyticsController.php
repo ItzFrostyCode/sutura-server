@@ -13,10 +13,26 @@ class AnalyticsController extends Controller
      * location is actually profitable), so it is deliberately not exposed to
      * branch managers the way the regular branch-scoped analytics are.
      */
+    /**
+     * start_date/end_date used to be read straight off the query string and
+     * handed to Carbon::parse()/whereBetween() unvalidated — a malformed
+     * value (e.g. a garbled URL edit, not just malicious input) crashed the
+     * endpoint with an uncaught Carbon\Exceptions\InvalidFormatException,
+     * leaking a full stack trace with server file paths in the response.
+     */
+    private function validateDateRange(\Illuminate\Http\Request $request): array
+    {
+        $validated = $request->validate([
+            'start_date' => ['nullable', 'date'],
+            'end_date'   => ['nullable', 'date', 'after_or_equal:start_date'],
+        ]);
+
+        return [$validated['start_date'] ?? null, $validated['end_date'] ?? null];
+    }
+
     public function branchComparison(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
     {
-        $startDate = $request->query('start_date');
-        $endDate   = $request->query('end_date');
+        [$startDate, $endDate] = $this->validateDateRange($request);
 
         $scopeToRange = function ($query, string $dateColumn) use ($startDate, $endDate) {
             if ($startDate && $endDate) {
@@ -32,9 +48,14 @@ class AnalyticsController extends Controller
             $appointmentsQuery = $branchId
                 ? $shop->appointments()->where('shop_branch_id', $branchId)
                 : $shop->appointments()->whereNull('shop_branch_id');
+            // Walk-in/RTW orders now carry branch attribution too (previously
+            // the only order type this comparison couldn't see at all).
+            $catalogOrdersQuery = \App\Models\CatalogOrder::where('shop_id', $shop->id)
+                ->when($branchId, fn ($q) => $q->where('shop_branch_id', $branchId), fn ($q) => $q->whereNull('shop_branch_id'));
 
             $scopeToRange($jobsQuery, 'created_at');
             $scopeToRange($appointmentsQuery, 'scheduled_at');
+            $scopeToRange($catalogOrdersQuery, 'created_at');
 
             $totalJobs     = $jobsQuery->count();
             $completedJobs = (clone $jobsQuery)->where('status', 'completed')->count();
@@ -58,9 +79,14 @@ class AnalyticsController extends Controller
                 'total_jobs'                => $totalJobs,
                 'completed_jobs'            => $completedJobs,
                 'completion_rate'           => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
-                'total_revenue'             => (clone $jobsQuery)->sum('total_amount') - (clone $jobsQuery)->sum('balance'),
+                // applyDiscount reduces balance directly, not total_amount —
+                // subtracting discount_amount too keeps this an actual
+                // "money earned" figure instead of counting a discount as
+                // if it were collected revenue.
+                'total_revenue'             => (clone $jobsQuery)->sum('total_amount') - (clone $jobsQuery)->sum('balance') - (clone $jobsQuery)->sum('discount_amount'),
                 'total_outstanding_balance' => (clone $jobsQuery)->sum('balance'),
                 'total_appointments'        => $appointmentsQuery->count(),
+                'total_walkin_orders'       => $catalogOrdersQuery->count(),
                 'total_staff'               => $branchId ? \App\Models\StaffProfile::where('shop_branch_id', $branchId)->count() : 0,
                 'rejected_payments_amount'  => $rejectedAmount,
                 'forfeited_deposit_amount'  => $forfeitedAmount,
@@ -74,7 +100,7 @@ class AnalyticsController extends Controller
         // single-branch shop) still need to be visible somewhere, not silently
         // dropped from the comparison.
         $unassigned = $buildRow(null, 'Unassigned', false);
-        if ($unassigned['total_jobs'] > 0 || $unassigned['total_appointments'] > 0) {
+        if ($unassigned['total_jobs'] > 0 || $unassigned['total_appointments'] > 0 || $unassigned['total_walkin_orders'] > 0) {
             $rows->push($unassigned);
         }
 
@@ -91,8 +117,7 @@ class AnalyticsController extends Controller
      */
     public function staffProductivity(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
     {
-        $startDate = $request->query('start_date');
-        $endDate   = $request->query('end_date');
+        [$startDate, $endDate] = $this->validateDateRange($request);
         $branchId  = $request->filled('branch_id') ? $request->branch_id : null;
 
         $scopeToRange = function ($query) use ($startDate, $endDate) {
@@ -131,14 +156,29 @@ class AnalyticsController extends Controller
             $totalJobs     = $jobsQuery->count();
             $completedJobs = (clone $jobsQuery)->where('status', 'completed')->count();
 
+            // Average Final Adjustment rounds across this staff member's jobs
+            // — a real quality signal (which tailor's work needs redoing most
+            // often), possible now that adjustment_count is actually tracked
+            // (see JobOrderController@update) but was never connected to a
+            // per-staff view before.
+            $avgAdjustments = $totalJobs > 0
+                ? round((float) (clone $jobsQuery)->avg('adjustment_count'), 1)
+                : 0;
+
             return [
-                'staff_id'        => $profile->user_id,
-                'name'            => $profile->user?->name,
-                'role'            => $profile->role,
-                'total_jobs'      => $totalJobs,
-                'completed_jobs'  => $completedJobs,
-                'completion_rate' => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
-                'total_revenue'   => (float) (clone $jobsQuery)->where('status', 'completed')->sum('total_amount'),
+                'staff_id'            => $profile->user_id,
+                'name'                => $profile->user?->name,
+                'role'                => $profile->role,
+                'total_jobs'          => $totalJobs,
+                'completed_jobs'      => $completedJobs,
+                'completion_rate'     => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
+                // Same discount fix as the shop-wide/branch revenue figures —
+                // a completed job's total_amount alone still includes any
+                // discount, overstating what this staff member's work
+                // actually brought in.
+                'total_revenue'       => (float) (clone $jobsQuery)->where('status', 'completed')->sum('total_amount')
+                    - (float) (clone $jobsQuery)->where('status', 'completed')->sum('discount_amount'),
+                'avg_adjustments'     => $avgAdjustments,
             ];
         })->sortByDesc('completed_jobs')->values();
 
@@ -150,8 +190,7 @@ class AnalyticsController extends Controller
 
     public function index(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
     {
-        $startDate = $request->query('start_date');
-        $endDate   = $request->query('end_date');
+        [$startDate, $endDate] = $this->validateDateRange($request);
 
         $branchId = null;
         if ($request->user()->hasRole('branch_manager')) {
@@ -187,8 +226,27 @@ class AnalyticsController extends Controller
 
         $totalJobs     = $jobsQuery->count();
         $completedJobs = (clone $jobsQuery)->where('status', 'completed')->count();
-        $totalRevenue  = (clone $jobsQuery)->sum('total_amount') - (clone $jobsQuery)->sum('balance');
+        // Same discount-vs-collected-cash fix as branchComparison — a
+        // discount reduces balance directly, never total_amount, so it has
+        // to be subtracted separately or it inflates this top-line KPI.
+        $totalRevenue  = (clone $jobsQuery)->sum('total_amount') - (clone $jobsQuery)->sum('balance') - (clone $jobsQuery)->sum('discount_amount');
         $totalBalance  = (clone $jobsQuery)->sum('balance');
+
+        // Booking conversion rate — job_order_id (not the 'outcome' column)
+        // is the reliable signal: outcome only gets set when an owner goes
+        // through the "Complete Appointment" modal, but a job is just as
+        // often created straight from an appointment via the separate
+        // Job Creation form's own appointment_id link (now also stamping
+        // outcome, see JobOrderController@store, but job_order_id has
+        // always been the ground truth regardless of which path was used).
+        // cancelled/no_show appointments were never going to convert, so
+        // they're excluded from the denominator rather than counted as a
+        // conversion failure.
+        $convertibleAppointments = (clone $appointmentsQuery)->whereNotIn('status', ['cancelled', 'no_show'])->count();
+        $convertedAppointments = (clone $appointmentsQuery)->whereNotIn('status', ['cancelled', 'no_show'])->whereNotNull('job_order_id')->count();
+        $bookingConversionRate = $convertibleAppointments > 0
+            ? round(($convertedAppointments / $convertibleAppointments) * 100, 1)
+            : 0;
 
         $upcomingAppointments = $appointmentsQuery
             ->where('status', 'confirmed')
@@ -219,6 +277,32 @@ class AnalyticsController extends Controller
             ->values()
             ->toArray();
 
+        // Orders by garment category — descriptive breakdown of what the shop
+        // is actually being asked to make (barong vs. gown vs. alterations,
+        // etc.), the literal core of a "tailoring" report. Reports previously
+        // had no view of this at all, only revenue/status/branch/staff
+        // breakdowns — nothing tied to the garment itself. Purely descriptive
+        // counts/sums over the same date-range/branch scope as every other
+        // KPI here, not predictive — stays within the thesis's descriptive-
+        // reporting scope (no forecasting).
+        $garmentBreakdown = (clone $jobsQuery)
+            ->whereNotNull('garment_category')
+            ->select(
+                'garment_category',
+                \Illuminate\Support\Facades\DB::raw('COUNT(*) as count'),
+                \Illuminate\Support\Facades\DB::raw('SUM(total_amount) as revenue')
+            )
+            ->groupBy('garment_category')
+            ->orderByDesc('count')
+            ->get()
+            ->map(fn ($row) => [
+                'garment_category' => $row->garment_category,
+                'count' => (int) $row->count,
+                'revenue' => (float) $row->revenue,
+            ])
+            ->values()
+            ->toArray();
+
         // Compute revenue data split into 4 buckets across the selected range
         // (defaults to the current month), branch-scoped.
         $rangeStart = $startDate ? \Illuminate\Support\Carbon::parse($startDate)->startOfDay() : now()->startOfMonth();
@@ -229,18 +313,34 @@ class AnalyticsController extends Controller
             ->whereBetween('created_at', [$rangeStart, $rangeEnd])
             ->get();
             
-        $revenueData = [
-            ['month' => "Week 1", 'revenue' => 0],
-            ['month' => "Week 2", 'revenue' => 0],
-            ['month' => "Week 3", 'revenue' => 0],
-            ['month' => "Week 4", 'revenue' => 0],
-        ];
+        // Bucket labels used to be hard-coded "Week 1"-"Week 4" regardless of
+        // the selected range — correct-looking for the "This Month" default,
+        // but nonsensical once a period selector actually varies the range
+        // (see the dashboard's Business Performance chart): a full year
+        // split into 4 buckets isn't "Week 1", it's roughly a quarter. Label
+        // each bucket by its own real start date instead, which reads
+        // correctly no matter how wide the range is.
+        $bucketSeconds = $rangeSeconds / 4;
+        $revenueData = [];
+        for ($i = 0; $i < 4; $i++) {
+            $bucketStart = $rangeStart->copy()->addSeconds((int) round($i * $bucketSeconds));
+            // 'date' (ISO) alongside the display 'month' label — the frontend's
+            // "vs previous period" trend badge needs to know which buckets are
+            // still in the future (e.g. viewing "This Month" on the 8th, the
+            // Aug 16/24 buckets haven't happened yet). Comparing against a
+            // not-yet-elapsed bucket always reads as revenue "dropping to
+            // zero," which is just time passing, not a real decline.
+            $revenueData[] = ['month' => $bucketStart->format('M j'), 'date' => $bucketStart->toDateString(), 'revenue' => 0];
+        }
         
         foreach($jobsThisMonth as $job) {
             $elapsed = abs($rangeStart->diffInSeconds($job->created_at));
             $bucket = (int) floor(($elapsed / $rangeSeconds) * 4);
             $bucket = max(0, min(3, $bucket));
-            $revenue = floatval($job->total_amount) - floatval($job->balance);
+            // Same discount-vs-collected-cash fix as total_revenue/branchComparison
+            // above — applyDiscount reduces balance directly, not total_amount,
+            // so this trend chart was counting discounts as revenue too.
+            $revenue = floatval($job->total_amount) - floatval($job->balance) - floatval($job->discount_amount ?? 0);
             if ($revenue > 0) {
                 $revenueData[$bucket]['revenue'] += $revenue;
             }
@@ -293,10 +393,33 @@ class AnalyticsController extends Controller
         // Completion rate
         $completionRate = $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0;
 
-        // Average order value (from completed jobs)
+        // Average order value (from completed jobs) — net of any discount,
+        // same reasoning as total_revenue above; avg() can't express
+        // "average of (total_amount - discount_amount)" directly, so this
+        // sums both and divides rather than averaging the raw column.
         $avgOrderValue = $completedJobs > 0
-            ? round($branchJobs()->where('status', 'completed')->avg('total_amount'), 2)
+            ? round(
+                ($branchJobs()->where('status', 'completed')->sum('total_amount')
+                    - $branchJobs()->where('status', 'completed')->sum('discount_amount'))
+                / $completedJobs,
+                2
+            )
             : 0;
+
+        // Average actual turnaround (days from creation to completion), for
+        // jobs completed within the selected range — a real operational
+        // signal ("are we actually hitting our own promised delivery
+        // windows") that nothing on Reports tracked before. No dedicated
+        // completed_at column exists on job_orders (only staffStages has
+        // per-stage completion timestamps, a different thing), so this uses
+        // updated_at as the completion marker — an approximation, since a
+        // completed job could theoretically be touched again afterward, but
+        // reasonable given most completed jobs aren't edited further.
+        $avgTurnaroundDays = (clone $jobsQuery)
+            ->where('status', 'completed')
+            ->selectRaw('AVG(DATEDIFF(updated_at, created_at)) as avg_days')
+            ->value('avg_days');
+        $avgTurnaroundDays = $avgTurnaroundDays !== null ? round((float) $avgTurnaroundDays, 1) : null;
 
         // Outstanding balances ledger — who owes how much, not just the aggregate
         // total, so the owner can actually chase specific unpaid accounts.
@@ -306,15 +429,71 @@ class AnalyticsController extends Controller
             ->with('customer:id,name,phone')
             ->orderByDesc('balance')
             ->take(20)
-            ->get(['id', 'order_number', 'customer_id', 'total_amount', 'balance', 'due_date', 'status'])
+            ->get(['id', 'order_number', 'customer_id', 'total_amount', 'balance', 'discount_amount', 'due_date', 'status'])
             ->map(fn ($job) => [
                 'id' => $job->id,
                 'order_number' => $job->order_number,
                 'customer' => $job->customer ? ['id' => $job->customer->id, 'name' => $job->customer->name, 'phone' => $job->customer->phone] : null,
                 'total_amount' => (float) $job->total_amount,
                 'balance' => (float) $job->balance,
+                // applyDiscount reduces balance directly, not total_amount —
+                // without this, the Payments list's "Paid: ₱X" figure
+                // (total_amount - balance) silently counted a discount as
+                // if it were cash the customer actually handed over.
+                'discount_amount' => (float) ($job->discount_amount ?? 0),
                 'due_date' => $job->due_date,
                 'status' => $job->status,
+            ]);
+
+        // Unclaimed pickups — garments that reached ready_for_pickup and have
+        // sat there 14+ days. Real tailoring shops lose rack space and end up
+        // forfeiting deposits on items customers simply never come back for
+        // (cancellation_reason=forfeited_deposit_abandoned already tracks that
+        // outcome after the fact); this surfaces the warning *before* the
+        // owner gives up on it, so they can actually follow up first.
+        $unclaimedPickups = $branchJobs()
+            ->where('status', 'ready_for_pickup')
+            ->whereNotNull('ready_for_pickup_at')
+            ->where('ready_for_pickup_at', '<=', now()->subDays(14))
+            ->with('customer:id,name,phone')
+            ->orderBy('ready_for_pickup_at')
+            ->take(20)
+            ->get(['id', 'order_number', 'customer_id', 'total_amount', 'balance', 'ready_for_pickup_at'])
+            ->map(fn ($job) => [
+                'id' => $job->id,
+                'order_number' => $job->order_number,
+                'customer' => $job->customer ? ['id' => $job->customer->id, 'name' => $job->customer->name, 'phone' => $job->customer->phone] : null,
+                'total_amount' => (float) $job->total_amount,
+                'balance' => (float) $job->balance,
+                'ready_for_pickup_at' => $job->ready_for_pickup_at,
+                // Carbon 3's diffInDays defaults to a signed result (not
+                // absolute like Carbon 2) — a past timestamp came back
+                // negative here (verified live: -21 instead of 21) until
+                // wrapped in abs().
+                'days_waiting' => abs((int) now()->diffInDays($job->ready_for_pickup_at)),
+            ]);
+
+        // Jobs on hold 7+ days — on_hold is correctly excluded from the
+        // overdue_jobs KPI (the owner paused it deliberately, it isn't
+        // "late"), but that also meant a held job had zero aging visibility
+        // anywhere at all. Shorter threshold than unclaimed pickups (7 vs
+        // 14 days) — a paused job is more likely to be a genuinely
+        // forgotten one than a customer just running late to collect.
+        $jobsOnHold = $branchJobs()
+            ->where('status', 'on_hold')
+            ->whereNotNull('held_at')
+            ->where('held_at', '<=', now()->subDays(7))
+            ->with('customer:id,name,phone')
+            ->orderBy('held_at')
+            ->take(20)
+            ->get(['id', 'order_number', 'customer_id', 'hold_reason', 'held_at'])
+            ->map(fn ($job) => [
+                'id' => $job->id,
+                'order_number' => $job->order_number,
+                'customer' => $job->customer ? ['id' => $job->customer->id, 'name' => $job->customer->name, 'phone' => $job->customer->phone] : null,
+                'hold_reason' => $job->hold_reason,
+                'held_at' => $job->held_at,
+                'days_held' => abs((int) now()->diffInDays($job->held_at)),
             ]);
 
         // Rejected-payments and forfeited-deposit loss figures — branch-scoped
@@ -340,6 +519,13 @@ class AnalyticsController extends Controller
             ->whereNull('rejected_at')
             ->sum('amount');
 
+        // Customer Satisfaction — shop-level reviews only, not branch-scoped
+        // (ShopReview has no shop_branch_id) and not date-range-scoped (a
+        // rating average is a standing reputation figure, not a period
+        // metric). Reports previously had zero visibility into ratings at
+        // all — an owner had to go count them manually on the Reviews page.
+        $reviewStats = $shop->reviews()->selectRaw('AVG(rating) as avg_rating, COUNT(*) as total')->first();
+
         // Today's appointments
         $todayAppointments = $branchAppointments()
             ->with(['customer:id,name', 'service:id,name'])
@@ -364,14 +550,16 @@ class AnalyticsController extends Controller
                 'total_revenue'              => $totalRevenue,
                 'total_outstanding_balance'  => $totalBalance,
                 'upcoming_appointments'      => $upcomingAppointments,
+                'booking_conversion_rate'    => $bookingConversionRate,
                 'total_appointments'         => $shop->appointments()->count(),
                 'total_services'             => $shop->services()->count(),
-                'total_collections'          => $shop->catalogItems()->count(),
+                'total_collections'          => \App\Models\CatalogOrder::where('shop_id', $shop->id)->count(),
                 'total_branches'             => \App\Models\ShopBranch::where('shop_id', $shop->id)->count(),
                 'total_staff'                => $totalStaff,
                 'total_customers'            => $totalCustomers,
                 'revenue_data'               => $revenueData,
                 'jobs_by_status'             => $jobsByStatus,
+                'garment_breakdown'          => $garmentBreakdown,
                 'recent_jobs'                => $recentJobs,
                 // ── New KPIs ──────────────────────────────────────────────────
                 'overdue_jobs'               => $overdueJobs,
@@ -381,12 +569,17 @@ class AnalyticsController extends Controller
                 'today_revenue'              => $todayRevenue,
                 'completion_rate'            => $completionRate,
                 'avg_order_value'            => $avgOrderValue,
+                'avg_turnaround_days'        => $avgTurnaroundDays,
                 'today_appointments'         => $todayAppointments,
                 'outstanding_balances'       => $outstandingBalances,
+                'unclaimed_pickups'          => $unclaimedPickups,
+                'jobs_on_hold'                => $jobsOnHold,
                 'rejected_payments_count'    => $rejectedPaymentsCount,
                 'rejected_payments_amount'   => $rejectedPaymentsAmount,
                 'forfeited_deposit_count'    => $forfeitedDepositCount,
                 'forfeited_deposit_amount'  => $forfeitedDepositAmount,
+                'avg_rating'                 => $reviewStats->avg_rating ? round((float) $reviewStats->avg_rating, 1) : null,
+                'total_reviews'              => (int) ($reviewStats->total ?? 0),
             ]
         ]);
     }

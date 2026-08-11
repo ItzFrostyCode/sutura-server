@@ -14,25 +14,23 @@ class Shop extends Model
     protected $fillable = [
         'owner_id', 'name', 'slug', 'description', 'address', 'landmark',
         'city', 'province', 'postal_code', 'phone', 'email',
-        'logo_path', 'banner_path', 'status', 'rejection_reason', 'approved_at', 'approved_by',
+        'logo_path', 'banner_path', 'gallery_images', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
-        'security_deposit', 'rental_duration_days', 'overdue_penalty_per_day', 'fitting_fee', 'fitting_limit',
-        'reschedule_fee_percent', 'change_reserved_hours', 'change_reserved_fee_percent', 'supported_couriers',
-        'specializations', 'is_featured', 'is_hidden'
+        'fitting_fee', 'fitting_limit',
+        'specializations', 'is_featured', 'is_hidden',
+        'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
         'booking_questions' => 'array',
         'social_links' => 'array',
+        'gallery_images' => 'array',
         'operating_hours' => 'array',
-        'supported_couriers' => 'array',
         'specializations' => 'array',
         'is_featured' => 'boolean',
         'is_hidden' => 'boolean',
-        'security_deposit' => 'float',
-        'overdue_penalty_per_day' => 'float',
         'fitting_fee' => 'float',
         'max_appointments_per_day' => 'integer',
     ];
@@ -138,6 +136,11 @@ class Shop extends Model
         // to 8 hours off from the shop's actual local day boundary.
         $today = now('Asia/Manila')->toDateString();
         return $this->specialHours()
+            // This top-of-storefront banner has no branch context to filter
+            // by (it renders before a location is picked), so it only ever
+            // shows shop-wide announcements — a branch-specific closure
+            // shows on that branch's own card instead (see branches()).
+            ->whereNull('shop_branch_id')
             ->where('start_date', '<=', $today)
             ->where('end_date', '>=', $today)
             // Most-recently-created wins when two ranges overlap (e.g. an
@@ -145,5 +148,33 @@ class Shop extends Model
             // otherwise which one displays is undefined DB row order.
             ->orderByDesc('created_at')
             ->first();
+    }
+
+    /**
+     * Title of the announced closure covering $date, or null if the shop is
+     * open. Shared by AppointmentController (blocking a new booking/
+     * reschedule) and JobOrderController (picking a real open day for the
+     * auto-generated fitting appointment) instead of duplicating the same
+     * query in both — this data previously only ever reached the frontend
+     * for display, nothing on the backend ever checked it.
+     */
+    /**
+     * $branchId null matches shop-wide closures only. Passing the branch a
+     * booking/appointment actually belongs to also matches a closure
+     * announced for just that one branch (shop_branch_id set) — e.g.
+     * "Lanang closed for renovation" no longer has to close Main/Matina too.
+     */
+    public function closureTitleOn(\Carbon\Carbon $date, ?int $branchId = null): ?string
+    {
+        return $this->specialHours()
+            ->where('is_closed', true)
+            ->whereDate('start_date', '<=', $date->toDateString())
+            ->whereDate('end_date', '>=', $date->toDateString())
+            ->when(
+                $branchId,
+                fn ($q) => $q->where(fn ($q2) => $q2->whereNull('shop_branch_id')->orWhere('shop_branch_id', $branchId)),
+                fn ($q) => $q->whereNull('shop_branch_id')
+            )
+            ->value('title');
     }
 }

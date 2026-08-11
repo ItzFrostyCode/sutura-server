@@ -39,6 +39,13 @@ class StoreStaffRequest extends FormRequest
                 Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id),
             ],
             'is_branch_manager' => ['sometimes', 'boolean'],
+            // Model/migration have carried this column since day one, but
+            // nothing ever validated or wrote to it — a real "structurally
+            // dead" field, same bug class as CatalogOrderController's
+            // payment fields found earlier. Owner-set, short profile note
+            // ("15 years in bespoke suits, specializes in barong") shown on
+            // the Staff Profile view.
+            'bio' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }
