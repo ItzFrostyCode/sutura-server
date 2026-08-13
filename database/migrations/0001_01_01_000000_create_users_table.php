@@ -23,12 +23,19 @@ return new class extends Migration
             $table->softDeletes();
         });
 
-        Schema::create('password_reset_tokens', function (Blueprint $table) {
-            $table->string('email')->primary();
-            $table->string('token');
-            $table->timestamp('created_at')->nullable();
-        });
-
+        // password_reset_tokens is NOT created here — it's owned by the
+        // dedicated 2026_08_06_140230_create_password_reset_tokens_table
+        // migration. This file used to create it too (a duplicate left over
+        // from before that migration existed) — harmless on the local dev
+        // MySQL DB, since both migrations were already recorded as "Ran"
+        // before the duplication was introduced, so neither ever re-executes
+        // here. But on any genuinely fresh migration run — the test suite's
+        // SQLite :memory: DB, a new teammate's first setup, or the real
+        // Postgres migration planned for September — this duplicate
+        // `Schema::create` collided with the dedicated migration's own
+        // create and failed outright with "table already exists" every
+        // single time. Confirmed live: all 38 feature tests were failing on
+        // this exact error before removing the duplicate.
         Schema::create('sessions', function (Blueprint $table) {
             $table->string('id')->primary();
             $table->foreignId('user_id')->nullable()->index();
@@ -45,7 +52,6 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('users');
-        Schema::dropIfExists('password_reset_tokens');
         Schema::dropIfExists('sessions');
     }
 };

@@ -790,6 +790,71 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
+        // 11a-1. Two more scenarios added for the Home dashboard's newer
+        // alert widgets (completed-unpaid + due-today), which every existing
+        // JO above happened to miss — none were both completed and still
+        // owing money, and none had due_date exactly today. Without these,
+        // reseeding always left those two widgets empty, which read as
+        // "broken" even though the feature itself worked fine.
+        $jo9 = \App\Models\JobOrder::updateOrCreate(
+            ['shop_id' => $shop->id, 'order_number' => 'JO-1009'],
+            [
+                'shop_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[2]->id,
+                'service_id' => $service1->id,
+                'assigned_staff_id' => $staffUsers[1]->id,
+                'total_amount' => 4200.00,
+                'balance' => 1200.00,
+                'payment_status' => 'partial',
+                'status' => 'completed',
+                'due_date' => now()->subDays(3)->format('Y-m-d'),
+                'notes' => 'Picked up already — owner let the customer take it and settle the rest later.',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+            ]
+        );
+
+        $jo10 = \App\Models\JobOrder::updateOrCreate(
+            ['shop_id' => $shop->id, 'order_number' => 'JO-1010'],
+            [
+                'shop_branch_id' => $branch2->id,
+                'customer_id' => $customers[0]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $lanangStaff->id,
+                'total_amount' => 7800.00,
+                'balance' => 3900.00,
+                'payment_status' => 'partial',
+                'status' => 'sewing',
+                'due_date' => now()->format('Y-m-d'),
+                'notes' => 'Due today — customer is picking this up this afternoon.',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+            ]
+        );
+
+        // jo2 (JO-1002) starts unpaid above but receives a partial payment
+        // later in this same seeder (a deliberate "started unpaid, later
+        // paid something" scenario) — so nothing genuinely stays unpaid
+        // without this one, leaving the "no downpayment collected" alert
+        // permanently empty on every reseed.
+        $jo11 = \App\Models\JobOrder::updateOrCreate(
+            ['shop_id' => $shop->id, 'order_number' => 'JO-1011'],
+            [
+                'shop_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[1]->id,
+                'service_id' => $service1->id,
+                'assigned_staff_id' => $staffUsers[2]->id,
+                'total_amount' => 5000.00,
+                'balance' => 5000.00,
+                'payment_status' => 'unpaid',
+                'status' => 'pending',
+                'due_date' => now()->addDays(9)->format('Y-m-d'),
+                'notes' => 'Just booked — no downpayment collected yet.',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+            ]
+        );
+
         // 11b. Seed Multi-Stage Staff Assignments for each job order — otherwise
         // the "Multi-Stage Staff Assignment" card on every job's detail page
         // shows all 6 stages as "Unassigned", even though the feature (and its
@@ -845,6 +910,18 @@ class LocalTestSeeder extends Seeder
                 ['stage' => 'cutting', 'staff' => $matinaStaff, 'assigned' => 7, 'completed' => 5],
                 ['stage' => 'sewing', 'staff' => $matinaStaff, 'assigned' => 5, 'completed' => 3],
                 ['stage' => 'qc_ironing', 'staff' => $matinaStaff, 'assigned' => 2, 'completed' => null],
+            ],
+            $jo9->id => [ // status: completed — all staff stages already closed out
+                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 7, 'completed' => 6],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 6, 'completed' => 5],
+                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 5, 'completed' => 4],
+                ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 4, 'completed' => 3],
+            ],
+            $jo10->id => [ // status: sewing — design/pattern_making/cutting done, sewing in progress
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
+                ['stage' => 'pattern_making', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => 1],
+                ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 1, 'completed' => null],
+                ['stage' => 'sewing', 'staff' => $lanangStaff, 'assigned' => 0, 'completed' => null],
             ],
         ];
         foreach ($stageAssignments as $jobOrderId => $stages) {
@@ -1264,6 +1341,201 @@ class LocalTestSeeder extends Seeder
             [
                 'user_id' => $admin->id,
                 'is_admin_reply' => true,
+            ]
+        );
+
+        // 20. Seed Notifications — a shop this active (11 job orders, 40
+        // staff stage assignments, 8 appointments, 4 payments) would
+        // generate a real stream of in-app notifications, but every one of
+        // those rows above was created by writing straight to Eloquent,
+        // bypassing the controllers where notification-firing actually
+        // lives (JobOrderController@store/@assignStaff, the payment/
+        // appointment endpoints, etc.) — so the notifications table stayed
+        // empty even on a freshly reseeded "realistic" demo shop, which
+        // looked like a bug but was really just missing seed coverage.
+        // Fire the real Notification classes against already-seeded data
+        // so the format matches production exactly, then mark the older
+        // half read and leave the newest unread — never all-read or
+        // all-unread, and never delete any of them. notify() has no
+        // built-in dedup (unlike the updateOrCreate/firstOrCreate calls
+        // everywhere else in this file), so clear this seeder's own prior
+        // batch first — otherwise re-running db:seed doubles them up.
+        $owner->notifications()->delete();
+        $staffUsers[0]->notifications()->delete();
+        $lanangStaff->notifications()->delete();
+        $matinaStaff->notifications()->delete();
+
+        $owner->notify(new \App\Notifications\PaymentReceivedNotification($jo1, 7500.00));
+        $owner->notify(new \App\Notifications\PaymentReceivedNotification($jo3, 12000.00));
+        $owner->notify(new \App\Notifications\PaymentReceivedNotification($jo4, 3250.00));
+        $owner->notify(new \App\Notifications\PaymentReceivedNotification($jo2, 3250.00));
+
+        $staffUsers[0]->notify(new \App\Notifications\StaffAssignedNotification($jo1, 'sewing'));
+        $lanangStaff->notify(new \App\Notifications\StaffAssignedNotification($jo10, 'sewing'));
+        $matinaStaff->notify(new \App\Notifications\StaffAssignedNotification($jo8, 'qc_ironing'));
+
+        $seededAppointments = \App\Models\Appointment::where('shop_id', $shop->id)->latest()->take(3)->get();
+        foreach ($seededAppointments as $appt) {
+            $owner->notify(new \App\Notifications\AppointmentBookedNotification($appt));
+        }
+
+        $owner->notify(new \App\Notifications\NewJobOrderNotification($jo9));
+        $owner->notify(new \App\Notifications\NewJobOrderNotification($jo10));
+        $owner->notify(new \App\Notifications\NewJobOrderNotification($jo11));
+
+        // notify() stamps created_at as "now" for every call, and they all
+        // land within the same script run (same second) — ordering by
+        // created_at alone leaves ties broken arbitrarily by MySQL, which
+        // silently marked some of the *newest* events (e.g. a just-created
+        // job order) read while leaving an older payment unread. Order by
+        // the auto-increment id instead — it's the one column that reliably
+        // reflects actual insertion order — and stagger real created_at
+        // values across it so "oldest half read, newest half unread" means
+        // what it says.
+        $ownerNotifications = $owner->notifications()->orderBy('id')->get();
+        $total = $ownerNotifications->count();
+        $readCutoff = (int) ceil($total / 2);
+        foreach ($ownerNotifications as $i => $n) {
+            $daysAgo = $total - $i;
+            $n->created_at = now()->subDays($daysAgo);
+            $n->updated_at = $n->created_at;
+            if ($i < $readCutoff) {
+                $n->read_at = $n->created_at->copy()->addHours(2);
+            }
+            $n->save();
+        }
+
+        // 21. Second Shop Owner account — a separate login for testing
+        // multi-tenant isolation (does this shop ever leak Thread & Needle's
+        // data or vice versa?) and lower-tier plan behavior (Basic here vs.
+        // Premium above, e.g. the single-branch limit gate). Deliberately
+        // light — one shop, one branch, no jobs/catalog — this is a login
+        // fixture, not a second fully-populated demo shop.
+        $owner2 = User::firstOrCreate(
+            ['email' => 'owner2@sutura.com'],
+            [
+                'name' => 'Ana Bautista',
+                'password' => Hash::make('password'),
+                'email_verified_at' => now(),
+            ]
+        );
+        if (!$owner2->roles()->where('role_id', $ownerRole->id)->exists()) {
+            $owner2->roles()->attach($ownerRole->id);
+        }
+
+        $shop2 = Shop::firstOrCreate(
+            ['owner_id' => $owner2->id],
+            [
+                'name' => 'Bautista Custom Tailors',
+                'slug' => 'bautista-tailors',
+                'description' => 'Everyday tailoring and school uniform specialists.',
+                'address' => '45 Bonifacio Street',
+                'city' => 'Davao City',
+                'province' => 'Davao del Sur',
+                'email' => 'hello@bautistatailors.com',
+                'phone' => '+639111111111',
+                'status' => 'approved',
+                'approved_at' => now(),
+                'operating_hours' => [
+                    'monday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
+                    'tuesday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
+                    'wednesday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
+                    'thursday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
+                    'friday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
+                    'saturday' => ['is_open' => true, 'open' => '08:00', 'close' => '12:00'],
+                    'sunday' => ['is_open' => false, 'open' => '08:00', 'close' => '17:00'],
+                ],
+            ]
+        );
+
+        $basicPlan = \App\Models\SubscriptionPlan::where('slug', 'basic')->first();
+        if ($basicPlan && !$shop2->subscription()->exists()) {
+            \App\Models\ShopSubscription::create([
+                'shop_id' => $shop2->id,
+                'plan_id' => $basicPlan->id,
+                'status' => 'trial',
+                'starts_at' => now(),
+                'ends_at' => now()->addDays(30),
+                'trial_ends_at' => now()->addDays(30),
+            ]);
+        }
+
+        ShopBranch::firstOrCreate(
+            ['shop_id' => $shop2->id, 'name' => 'Main Branch'],
+            [
+                'slug' => \Illuminate\Support\Str::slug('Main Branch') . '-' . uniqid(),
+                'address' => '45 Bonifacio Street',
+                'city' => 'Davao City',
+                'latitude' => 7.0644,
+                'longitude' => 125.6108,
+                'contact_number' => '+63 911 111 1111',
+                'is_main' => true,
+            ]
+        );
+
+        // 22. Third Shop Owner account — completes one login per plan tier
+        // (owner@ = Premium, owner2@ = Basic, owner3@ = Pro), so all three
+        // subscription tiers have a real account to log into and test
+        // against instead of only the two extremes.
+        $owner3 = User::firstOrCreate(
+            ['email' => 'owner3@sutura.com'],
+            [
+                'name' => 'Carlos Villanueva',
+                'password' => Hash::make('password'),
+                'email_verified_at' => now(),
+            ]
+        );
+        if (!$owner3->roles()->where('role_id', $ownerRole->id)->exists()) {
+            $owner3->roles()->attach($ownerRole->id);
+        }
+
+        $shop3 = Shop::firstOrCreate(
+            ['owner_id' => $owner3->id],
+            [
+                'name' => 'Villanueva Bespoke Atelier',
+                'slug' => 'villanueva-atelier',
+                'description' => 'Formal wear and bridal atelier serving multiple branches.',
+                'address' => '78 J.P. Laurel Avenue',
+                'city' => 'Davao City',
+                'province' => 'Davao del Sur',
+                'email' => 'hello@villanuevaatelier.com',
+                'phone' => '+639222222222',
+                'status' => 'approved',
+                'approved_at' => now(),
+                'operating_hours' => [
+                    'monday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
+                    'tuesday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
+                    'wednesday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
+                    'thursday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
+                    'friday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
+                    'saturday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
+                    'sunday' => ['is_open' => false, 'open' => '10:00', 'close' => '19:00'],
+                ],
+            ]
+        );
+
+        $proPlan = \App\Models\SubscriptionPlan::where('slug', 'pro')->first();
+        if ($proPlan && !$shop3->subscription()->exists()) {
+            \App\Models\ShopSubscription::create([
+                'shop_id' => $shop3->id,
+                'plan_id' => $proPlan->id,
+                'status' => 'trial',
+                'starts_at' => now(),
+                'ends_at' => now()->addDays(30),
+                'trial_ends_at' => now()->addDays(30),
+            ]);
+        }
+
+        ShopBranch::firstOrCreate(
+            ['shop_id' => $shop3->id, 'name' => 'Main Branch'],
+            [
+                'slug' => \Illuminate\Support\Str::slug('Main Branch') . '-' . uniqid(),
+                'address' => '78 J.P. Laurel Avenue',
+                'city' => 'Davao City',
+                'latitude' => 7.0731,
+                'longitude' => 125.6128,
+                'contact_number' => '+63 922 222 2222',
+                'is_main' => true,
             ]
         );
     }

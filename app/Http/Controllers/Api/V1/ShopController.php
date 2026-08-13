@@ -62,6 +62,15 @@ class ShopController extends Controller
             ], 403);
         }
 
+        // Not currently rendered by any owner-side page, but publicProfile()
+        // computes these for anyone viewing the shop publicly — an owner's
+        // own authenticated view of their own shop shouldn't return less
+        // data about it than a random visitor gets. Found while comparing
+        // storefront-preview vs owner-dashboard consistency.
+        $shop->loadCount('reviews');
+        $shop->loadAvg('reviews', 'rating');
+        $shop->reviews_avg_rating = round($shop->reviews_avg_rating, 1);
+
         return response()->json([
             'success' => true,
             'data' => $shop->load(['owner', 'subscriptions.plan'])
@@ -84,9 +93,16 @@ class ShopController extends Controller
         $shop->loadCount('reviews');
         $shop->loadAvg('reviews', 'rating');
         $shop->reviews_avg_rating = round($shop->reviews_avg_rating, 1);
+        // Column-restricted eager load: this is the public, unauthenticated
+        // storefront — the frontend only ever reads id/name/email/profile_picture
+        // off `owner` (see ShopProfile.owner in shop/[shop_id]/page.tsx), but an
+        // unrestricted load() was shipping the owner's full User record —
+        // phone, exact last_seen_at, bio/education/skills, deleted_at — to any
+        // anonymous visitor. Every other public endpoint here (reviews, posts)
+        // already minimizes user data the same way; this one was the outlier.
         $shop->load(['branches' => function ($query) {
             $query->where('status', 'active');
-        }, 'owner']);
+        }, 'owner:id,name,email,profile_picture']);
 
         return response()->json([
             'success' => true,

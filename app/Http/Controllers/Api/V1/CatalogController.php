@@ -64,7 +64,8 @@ class CatalogController extends Controller
         // app's default guard is 'web' (session), which never resolves a
         // Bearer-token request — $request->user() alone would always read
         // as a guest here.
-        if (!$this->belongsToShop($request, $shop)) {
+        $isOwnerOrStaff = $this->belongsToShop($request, $shop);
+        if (!$isOwnerOrStaff) {
             $query->where('is_active', true);
         }
 
@@ -80,17 +81,36 @@ class CatalogController extends Controller
             $query->where('garment_type', $request->string('garment_type'));
         }
 
+        match ($request->string('sort')->toString()) {
+            'price_desc' => $query->orderByDesc('price'),
+            'price_asc' => $query->orderBy('price'),
+            default => $query->latest(),
+        };
+
         $items = $query->get();
 
         // Format the average rating nicely and attach dynamic sales performance metrics.
         // catalog_revenue/job_revenue come from withSum() above (one query for all
         // items) rather than a per-item ->sum() call, which used to run 2 extra
         // queries per item (96 extra queries for a 48-item catalog).
-        $items->each(function($item) {
+        $items->each(function($item) use ($isOwnerOrStaff) {
             $item->reviews_avg_rating = round($item->reviews_avg_rating, 1);
             $netJobRevenue = (float) $item->job_revenue - (float) $item->job_balance_sum - (float) $item->job_discount_sum;
             $item->total_revenue = (float) $item->catalog_revenue + $netJobRevenue;
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
+
+            // Sales/performance figures are the shop owner's own business data —
+            // exact revenue and order counts have no business being visible to an
+            // anonymous storefront visitor (or a competitor). The public catalog
+            // card only ever renders reviews_count/reviews_avg_rating, so those
+            // stay; everything money- or count-related below is owner/staff-only.
+            if (!$isOwnerOrStaff) {
+                $item->makeHidden([
+                    'views_count', 'saves_count', 'catalog_orders_count', 'job_orders_count',
+                    'catalog_revenue', 'job_revenue', 'job_balance_sum', 'job_discount_sum',
+                    'total_revenue', 'order_count',
+                ]);
+            }
         });
 
         return response()->json([
@@ -225,9 +245,19 @@ class CatalogController extends Controller
             - (float) $catalog->jobOrders()->sum('balance')
             - (float) $catalog->jobOrders()->sum('discount_amount');
         $catalog->total_revenue = $catalogRev + $jobRev;
-        
+
         // Sum order counts
         $catalog->order_count = $catalog->catalog_orders_count + $catalog->job_orders_count;
+
+        // Same public-vs-owner split as index() — an anonymous storefront
+        // visitor (or a direct link) should never see this item's exact
+        // revenue/order/save figures, only the owner/staff previewing it.
+        if (!$this->belongsToShop($request, $shop)) {
+            $catalog->makeHidden([
+                'views_count', 'saves_count', 'catalog_orders_count', 'job_orders_count',
+                'total_revenue', 'order_count',
+            ]);
+        }
 
         return response()->json(['success' => true, 'data' => $catalog]);
     }
