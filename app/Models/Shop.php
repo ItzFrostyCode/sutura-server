@@ -20,6 +20,7 @@ class Shop extends Model
         'fitting_fee', 'fitting_limit',
         'specializations', 'is_featured', 'is_hidden',
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
+        'gcash_qr_path', 'bank_qr_path',
     ];
 
     protected $casts = [
