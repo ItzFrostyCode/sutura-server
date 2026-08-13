@@ -29,9 +29,10 @@ class JobOrderTest extends TestCase
         parent::setUp();
 
         $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $customerRole = Role::create(['name' => 'customer', 'description' => 'Customer']);
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
-        
+
         $this->shop = Shop::create([
             'owner_id' => $this->user->id,
             'name' => 'Test Shop',
@@ -41,9 +42,14 @@ class JobOrderTest extends TestCase
             'province' => 'Metro Manila',
             'status' => 'approved'
         ]);
-        
+
+        // Was previously (mistakenly) attached the shop_owner role too — the
+        // StoreJobOrderRequest customer_id check correctly rejects any
+        // account with a staff/owner/admin role as a job order's customer,
+        // so every test creating a job order for this "customer" got a 422
+        // instead of the 201 it expected. Confirmed live before this fix.
         $this->customer = User::factory()->create();
-        $this->customer->roles()->attach($role);
+        $this->customer->roles()->attach($customerRole);
         
         $this->service = Service::create([
             'shop_id' => $this->shop->id,
@@ -67,10 +73,16 @@ class JobOrderTest extends TestCase
 
     public function test_can_create_job_order()
     {
+        // assigned_staff_id resolves against staff_profiles.user_id (a real
+        // users.id), not the StaffProfile row's own id — sending the wrong
+        // one used to pass here only by accident, when a fresh :memory: DB
+        // happened to auto-increment both to the same coincidental value;
+        // running the full suite (more prior rows, ids diverge) exposed it
+        // as a real 422. Confirmed live before this fix.
         $response = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
-            'assigned_staff_id' => $this->staffProfile->id,
+            'assigned_staff_id' => $this->staffProfile->user_id,
             'measurement_id' => $this->measurement->id,
             'total_amount' => 5000,
             'balance' => 2500,

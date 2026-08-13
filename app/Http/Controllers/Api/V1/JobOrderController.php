@@ -139,9 +139,57 @@ class JobOrderController extends Controller
             $query->onlyTrashed();
         }
 
+        // The Jobs list page's own search box used to run entirely
+        // client-side against the same per_page=200-capped fetch — a shop
+        // with more than 200 total historical jobs could search for a real
+        // order number or customer name that exists beyond that window and
+        // get "no results" even though it's genuinely there. Same
+        // LOWER()+LIKE pattern as CatalogController::index's search — plain
+        // LIKE isn't case-insensitive on Postgres the way it is on MySQL by
+        // default, and this project has a Postgres migration planned.
+        if ($request->filled('search')) {
+            $search = strtolower((string) $request->string('search'));
+            $query->where(function ($q) use ($search) {
+                $q->whereRaw('LOWER(order_number) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereHas('customer', function ($cq) use ($search) {
+                        $cq->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
+                    });
+            });
+        }
+
+        // Used by the Payments page's "Job Balances" tab, which needs every
+        // job still owing money regardless of production status. It used to
+        // fetch the shop's entire job history (per_page=500, paid jobs
+        // included) just to filter down client-side — the same
+        // undercounting risk as the other capped-array bugs fixed this
+        // session, and wasteful besides. Filtering server-side means the
+        // response only ever contains genuinely-relevant rows, which stay
+        // naturally small for any shop actually chasing its payments.
+        if ($request->boolean('unpaid_only')) {
+            $query->where('payment_status', '!=', 'paid')->where('status', '!=', 'cancelled');
+        }
+
+        // The Jobs list page's own tab badges ("All Orders 12", "Walk-in 8",
+        // "Online 4") used to be re-derived client-side from this same list
+        // fetched at per_page=200 — a shop with more than 200 total
+        // historical job orders (old completed/cancelled ones included,
+        // nothing prunes them) would see those badges silently undercount.
+        // Same fix as the Home dashboard's alert widgets: real, unbounded
+        // counts, cloned off the already-filtered query before pagination
+        // consumes it, so branch/status/customer/staff filters still apply
+        // consistently to both the list and these counts.
+        $walkInCount = (clone $query)->where('intake_channel', 'walk_in')->count();
+        $onlineCount = (clone $query)->where('intake_channel', 'online')->count();
+        // Same fix, same reasoning, for the "X job orders awaiting feasibility
+        // review" banner (pending status).
+        $pendingCount = (clone $query)->where('status', 'pending')->count();
+
         return response()->json([
             'success' => true,
-            'data' => $query->latest()->paginate($request->input('per_page', 15))
+            'data' => $query->latest()->paginate($request->input('per_page', 15)),
+            'walk_in_count' => $walkInCount,
+            'online_count' => $onlineCount,
+            'pending_count' => $pendingCount,
         ]);
     }
 

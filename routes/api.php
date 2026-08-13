@@ -65,6 +65,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
         
+        // System News — real commit history from both repos, not a
+        // hardcoded changelog (see SystemNewsController for why).
+        Route::get('/system-news', [\App\Http\Controllers\Api\V1\SystemNewsController::class, 'index']);
+
         // Notifications
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);

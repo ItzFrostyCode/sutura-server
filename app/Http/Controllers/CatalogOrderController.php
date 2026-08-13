@@ -96,6 +96,20 @@ class CatalogOrderController extends Controller
             }
         }
 
+        // The Branch field on the walk-in order form is explicitly optional
+        // ("Not specified" is a real, selectable option) — an owner at a
+        // multi-branch shop who leaves it blank used to save the order with
+        // shop_branch_id = NULL, permanently invisible under any branch
+        // filter (`WHERE shop_branch_id = ?` never matches NULL in SQL).
+        // Same bug, same fix as JobOrderController@store: default to the
+        // shop's main branch rather than leaving it unset.
+        if (empty($validated['shop_branch_id'])) {
+            $mainBranch = $shop->branches()->where('is_main', true)->first();
+            if ($mainBranch) {
+                $validated['shop_branch_id'] = $mainBranch->id;
+            }
+        }
+
         $validated['shop_id']           = $shopId;
         $validated['type']              = 'walkin';
         $validated['status']            = 'ready';
@@ -194,39 +208,49 @@ class CatalogOrderController extends Controller
         ]);
 
         $discountAmount = (float) $validated['amount'];
-        $currentTotal = (float) $order->total_amount;
 
-        if ($discountAmount > $currentTotal) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Discount cannot exceed the order total (₱' . number_format($currentTotal, 2) . ').',
-            ], 400);
+        // Lock the row for the duration of the transaction, same as
+        // JobOrderController@applyDiscount — without it, two discounts
+        // applied to the same walk-in order at nearly the same time could
+        // both read the same starting total_amount and both apply on top
+        // of it, silently discounting twice instead of stacking correctly.
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($order, $discountAmount, $validated, $request, $shop) {
+                $locked = \App\Models\CatalogOrder::where('id', $order->id)->lockForUpdate()->firstOrFail();
+
+                $currentTotal = (float) $locked->total_amount;
+                if ($discountAmount > $currentTotal) {
+                    throw new \RuntimeException('Discount cannot exceed the order total (₱' . number_format($currentTotal, 2) . ').');
+                }
+
+                $newTotal = round($currentTotal - $discountAmount, 2);
+                $newDiscountTotal = round((float) ($locked->discount_amount ?? 0) + $discountAmount, 2);
+
+                $locked->update([
+                    'total_amount' => $newTotal,
+                    'discount_amount' => $newDiscountTotal,
+                ]);
+
+                $shop->auditLogs()->create([
+                    'user_id'    => $request->user()->id,
+                    'action'     => 'discount_applied',
+                    'model_type' => \App\Models\CatalogOrder::class,
+                    'model_id'   => $locked->id,
+                    'payload'    => [
+                        'amount' => $discountAmount,
+                        'reason' => $validated['reason'] ?? null,
+                    ],
+                    'ip_address' => $request->ip(),
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
         }
-
-        $newTotal = round($currentTotal - $discountAmount, 2);
-        $newDiscountTotal = round((float) ($order->discount_amount ?? 0) + $discountAmount, 2);
-
-        $order->update([
-            'total_amount' => $newTotal,
-            'discount_amount' => $newDiscountTotal,
-        ]);
-
-        $shop->auditLogs()->create([
-            'user_id'    => $request->user()->id,
-            'action'     => 'discount_applied',
-            'model_type' => \App\Models\CatalogOrder::class,
-            'model_id'   => $order->id,
-            'payload'    => [
-                'amount' => $discountAmount,
-                'reason' => $validated['reason'] ?? null,
-            ],
-            'ip_address' => $request->ip(),
-        ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Discount applied successfully.',
-            'data'    => $order->load(['catalogItem', 'customer', 'branch:id,name']),
+            'data'    => $order->fresh(['catalogItem', 'customer', 'branch:id,name']),
         ]);
     }
 

@@ -175,8 +175,14 @@ class AnalyticsController extends Controller
                 // Same discount fix as the shop-wide/branch revenue figures —
                 // a completed job's total_amount alone still includes any
                 // discount, overstating what this staff member's work
-                // actually brought in.
+                // actually brought in. Also subtract balance, not just
+                // discount_amount: a completed job's balance is normally 0,
+                // but rejectPayment() can reopen it after the fact (a fraud
+                // catch on an already-completed job), and this figure must
+                // not keep counting that reversed amount as earned revenue —
+                // same formula as every other revenue figure in this file.
                 'total_revenue'       => (float) (clone $jobsQuery)->where('status', 'completed')->sum('total_amount')
+                    - (float) (clone $jobsQuery)->where('status', 'completed')->sum('balance')
                     - (float) (clone $jobsQuery)->where('status', 'completed')->sum('discount_amount'),
                 'avg_adjustments'     => $avgAdjustments,
             ];
@@ -415,11 +421,16 @@ class AnalyticsController extends Controller
         // updated_at as the completion marker — an approximation, since a
         // completed job could theoretically be touched again afterward, but
         // reasonable given most completed jobs aren't edited further.
-        $avgTurnaroundDays = (clone $jobsQuery)
-            ->where('status', 'completed')
-            ->selectRaw('AVG(DATEDIFF(updated_at, created_at)) as avg_days')
-            ->value('avg_days');
-        $avgTurnaroundDays = $avgTurnaroundDays !== null ? round((float) $avgTurnaroundDays, 1) : null;
+        // Computed in PHP rather than a raw DATEDIFF() — that's MySQL-only
+        // syntax (Postgres has no DATEDIFF at all, SQLite doesn't either),
+        // and this project has a real Postgres migration planned. Same
+        // portability class as the LIKE case-sensitivity fix elsewhere in
+        // this file — confirmed live: this exact query 500'd on SQLite
+        // before switching to a plain Carbon diff.
+        $completedTurnarounds = (clone $jobsQuery)->where('status', 'completed')->get(['created_at', 'updated_at']);
+        $avgTurnaroundDays = $completedTurnarounds->isNotEmpty()
+            ? round($completedTurnarounds->avg(fn ($job) => $job->created_at->diffInDays($job->updated_at)), 1)
+            : null;
 
         // Outstanding balances ledger — who owes how much, not just the aggregate
         // total, so the owner can actually chase specific unpaid accounts.
@@ -444,6 +455,96 @@ class AnalyticsController extends Controller
                 'due_date' => $job->due_date,
                 'status' => $job->status,
             ]);
+
+        // Completed jobs still owing a balance — "the garment's already been
+        // handed over, the customer just hasn't fully paid yet." The Home
+        // dashboard's Balance Collection alert used to derive this itself
+        // from its own capped (per_page=200) jobs fetch, which silently
+        // missed older completed-unpaid jobs on any shop past ~200 total
+        // historical job orders — same undercounting shape as the
+        // notification badge bug. total_count is unbounded (a real COUNT
+        // query, not capped by the list below) so the alert's own count
+        // never falls out of sync with what take(20) can actually list.
+        $completedUnpaidQuery = $branchJobs()
+            ->where('status', 'completed')
+            ->where('payment_status', '!=', 'paid')
+            ->where('balance', '>', 0);
+        $completedUnpaidJobsCount = (clone $completedUnpaidQuery)->count();
+        $completedUnpaidJobs = (clone $completedUnpaidQuery)
+            ->with('customer:id,name,phone')
+            ->orderByDesc('balance')
+            ->take(20)
+            ->get(['id', 'order_number', 'customer_id', 'total_amount', 'balance', 'discount_amount', 'due_date', 'status', 'payment_status'])
+            ->map(fn ($job) => [
+                'id' => $job->id,
+                'order_number' => $job->order_number,
+                'customer' => $job->customer ? ['id' => $job->customer->id, 'name' => $job->customer->name, 'phone' => $job->customer->phone] : null,
+                'total_amount' => (float) $job->total_amount,
+                'balance' => (float) $job->balance,
+                'discount_amount' => (float) ($job->discount_amount ?? 0),
+                'due_date' => $job->due_date,
+                'status' => $job->status,
+                'payment_status' => $job->payment_status,
+            ]);
+
+        // Active jobs with zero downpayment collected — same undercounting
+        // shape as completed_unpaid_jobs above, same fix: a real, unbounded
+        // count instead of the Home dashboard re-deriving this from its own
+        // capped (per_page=200) jobs fetch. "Active" mirrors the frontend's
+        // own exclusion set (dashboard/page.tsx's activeStatuses) — anything
+        // that isn't completed/cancelled/rejected/on_hold.
+        $pendingDpQuery = $branchJobs()
+            ->whereNotIn('status', ['completed', 'cancelled', 'rejected', 'on_hold'])
+            ->where('payment_status', 'unpaid')
+            ->where('total_amount', '>', 0);
+        $pendingDpJobsCount = (clone $pendingDpQuery)->count();
+        $pendingDpJobsList = (clone $pendingDpQuery)
+            ->with('customer:id,name,phone')
+            ->latest()
+            ->take(20)
+            ->get(['id', 'order_number', 'customer_id', 'total_amount', 'balance', 'discount_amount', 'due_date', 'status', 'payment_status'])
+            ->map(fn ($job) => [
+                'id' => $job->id,
+                'order_number' => $job->order_number,
+                'customer' => $job->customer ? ['id' => $job->customer->id, 'name' => $job->customer->name, 'phone' => $job->customer->phone] : null,
+                'total_amount' => (float) $job->total_amount,
+                'balance' => (float) $job->balance,
+                'discount_amount' => (float) ($job->discount_amount ?? 0),
+                'due_date' => $job->due_date,
+                'status' => $job->status,
+                'payment_status' => $job->payment_status,
+            ]);
+
+        // Due Today / Due This Week — same undercounting shape as the other
+        // Home-dashboard alerts above, and arguably the highest-stakes one
+        // to get right: a long-lead-time order (e.g. a bridal gown booked
+        // months ahead of the wedding date) can easily have been *created*
+        // long before the capped (per_page=200) allJobs fetch's recency
+        // window, even though its due_date is genuinely today or this week.
+        $dueJobsActiveStatuses = ['pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup'];
+        $dueTodayQuery = $branchJobs()
+            ->whereIn('status', $dueJobsActiveStatuses)
+            ->whereDate('due_date', $today);
+        $dueTodayCount = (clone $dueTodayQuery)->count();
+        $dueThisWeekQuery = $branchJobs()
+            ->whereIn('status', $dueJobsActiveStatuses)
+            ->whereDate('due_date', '>', $today)
+            ->whereDate('due_date', '<=', now()->addDays(7)->toDateString());
+        $dueThisWeekCount = (clone $dueThisWeekQuery)->count();
+        $dueJobFields = ['id', 'order_number', 'customer_id', 'total_amount', 'balance', 'discount_amount', 'due_date', 'status', 'payment_status'];
+        $mapDueJob = fn ($job) => [
+            'id' => $job->id,
+            'order_number' => $job->order_number,
+            'customer' => $job->customer ? ['id' => $job->customer->id, 'name' => $job->customer->name, 'phone' => $job->customer->phone] : null,
+            'total_amount' => (float) $job->total_amount,
+            'balance' => (float) $job->balance,
+            'discount_amount' => (float) ($job->discount_amount ?? 0),
+            'due_date' => $job->due_date,
+            'status' => $job->status,
+            'payment_status' => $job->payment_status,
+        ];
+        $dueTodayJobs = (clone $dueTodayQuery)->with('customer:id,name,phone')->take(20)->get($dueJobFields)->map($mapDueJob);
+        $dueThisWeekJobs = (clone $dueThisWeekQuery)->with('customer:id,name,phone')->orderBy('due_date')->take(20)->get($dueJobFields)->map($mapDueJob);
 
         // Unclaimed pickups — garments that reached ready_for_pickup and have
         // sat there 14+ days. Real tailoring shops lose rack space and end up
@@ -572,6 +673,14 @@ class AnalyticsController extends Controller
                 'avg_turnaround_days'        => $avgTurnaroundDays,
                 'today_appointments'         => $todayAppointments,
                 'outstanding_balances'       => $outstandingBalances,
+                'completed_unpaid_jobs'       => $completedUnpaidJobs,
+                'completed_unpaid_jobs_count' => $completedUnpaidJobsCount,
+                'pending_dp_jobs_list'        => $pendingDpJobsList,
+                'pending_dp_jobs_list_count'  => $pendingDpJobsCount,
+                'due_today_jobs'              => $dueTodayJobs,
+                'due_today_jobs_count'        => $dueTodayCount,
+                'due_this_week_jobs'          => $dueThisWeekJobs,
+                'due_this_week_jobs_count'    => $dueThisWeekCount,
                 'unclaimed_pickups'          => $unclaimedPickups,
                 'jobs_on_hold'                => $jobsOnHold,
                 'rejected_payments_count'    => $rejectedPaymentsCount,

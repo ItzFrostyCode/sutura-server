@@ -102,6 +102,21 @@ class ServiceController extends Controller
         $validated['tags'] = array_column($tiers, 'label');
 
         $service->update($validated);
+
+        // The main edit form doesn't touch sale_price at all (that's
+        // updateSale()'s job, which already validates sale_price < base_price
+        // at write time) — but editing base_price here can silently leave a
+        // previously-valid sale_price stale and inverted (e.g. base_price
+        // drops from ₱1000 to ₱700 while a ₱800 sale_price from before is
+        // still on the row). The storefront's own getActiveSale() already
+        // ignores a sale_price >= price, so customers never see a fake
+        // "markup disguised as a discount" — but the owner's dashboard would
+        // still show that stale number as if a sale were configured. Clear
+        // it here so the data itself stays consistent, not just its display.
+        if ($service->sale_price !== null && (float) $service->sale_price >= (float) $service->base_price) {
+            $service->update(['sale_price' => null, 'sale_starts_at' => null, 'sale_ends_at' => null]);
+        }
+
         $this->syncPricingTiers($service, $tiers);
 
         return response()->json(['success' => true, 'data' => $service->fresh('pricing')]);

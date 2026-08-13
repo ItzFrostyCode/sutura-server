@@ -24,6 +24,13 @@ class NotificationController extends Controller
         return response()->json([
             'success' => true,
             'data' => $user->notifications()->latest()->limit(30)->get(),
+            // The frontend's bell badge used to count unread rows within
+            // this same capped list — correct as long as unread notifications
+            // never exceeded 30, but any owner with more than that sitting
+            // unread would see the badge silently undercount instead of
+            // reflecting their real total. A dedicated, unlimited count
+            // query is the only way this stays accurate at any volume.
+            'unread_count' => $user->unreadNotifications()->count(),
         ]);
     }
 
