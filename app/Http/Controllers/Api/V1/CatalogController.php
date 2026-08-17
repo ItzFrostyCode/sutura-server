@@ -223,11 +223,18 @@ class CatalogController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
 
-        $catalog->load([
+        $relations = [
             'images',
             'recommendations.recommendedItem.images',
-            'reviews' => fn ($q) => $q->with('user:id,name')->latest()->limit(20),
-        ]);
+            'reviews' => fn ($q) => $q->with('user:id,name')->latest()->limit(50),
+        ];
+
+        if ($this->belongsToShop($request, $shop)) {
+            $relations['catalogOrders'] = fn ($q) => $q->with('customer:id,name,phone,email')->latest()->limit(50);
+            $relations['jobOrders'] = fn ($q) => $q->with('customer:id,name,phone,email')->latest()->limit(50);
+        }
+
+        $catalog->load($relations);
         $catalog->loadCount(['saves', 'reviews', 'catalogOrders', 'jobOrders']);
         $catalog->loadAvg('reviews', 'rating');
         $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);

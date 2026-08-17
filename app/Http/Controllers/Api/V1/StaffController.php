@@ -101,7 +101,7 @@ class StaffController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'staff' => $staff->load('user:id,name,email,phone,profile_picture'),
+                'staff' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name']),
                 // total_assigned/total_completed intentionally stay as raw
                 // stage-assignment counts — they correspond 1:1 with the
                 // per-stage `assignments` log rendered below. 'active' is
@@ -208,7 +208,7 @@ class StaffController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $staff->load('user:id,name,email')
+            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])
         ], 201);
     }
 
@@ -237,7 +237,7 @@ class StaffController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $staff->load('user:id,name,email,phone,profile_picture')
+            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])
         ]);
     }
 

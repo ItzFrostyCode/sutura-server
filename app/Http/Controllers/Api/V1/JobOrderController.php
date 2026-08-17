@@ -103,7 +103,7 @@ class JobOrderController extends Controller
 
     public function index(Shop $shop, Request $request): JsonResponse
     {
-        $query = $shop->jobOrders()->with(['customer:id,name,suki_tag', 'service', 'assignedStaff:id,name']);
+        $query = $shop->jobOrders()->with(['customer:id,name,suki_tag', 'service', 'assignedStaff:id,name', 'branch:id,name']);
 
         $branchId = null;
         if (!$request->user()->hasRole('shop_owner') && $request->user()->staffProfile?->shop_branch_id) {
@@ -433,7 +433,7 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images']);
+        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name']);
 
         // Repeat-customer context surfaced right on the job so the owner can
         // decide on a manual discount ("this is their 5th order") without
@@ -1107,6 +1107,34 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Progress photo added.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])
+        ]);
+    }
+
+    public function deleteProgressPhoto(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'url' => 'required|string',
+        ]);
+
+        $photos = collect($jobOrder->progress_photos ?? [])
+            ->filter(fn ($p) => ($p['url'] ?? '') !== $validated['url'])
+            ->values()
+            ->all();
+
+        $jobOrder->forceFill(['progress_photos' => $photos])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Progress photo removed.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])
         ]);
     }

@@ -132,7 +132,7 @@ class LocalTestSeeder extends Seeder
         // actually runs (local, Postgres test, or real production), same
         // fix as FileUploadController's UPLOAD_DISK bug.
         $shop->update([
-            'logo_path' => Storage::disk('public')->url('logos/sutura_logo.png'),
+            'logo_path' => Storage::url('logos/sutura_logo.png'),
             'description' => "Davao City's premier provider of full sublimation jerseys, corporate uniforms, and custom tailoring.",
         ]);
 
@@ -745,10 +745,23 @@ class LocalTestSeeder extends Seeder
                 'fulfillment_type' => 'pickup',
                 'custom_order_data' => [
                     'team_name' => 'Matina Spikers',
+                    'fabric_preference' => 'Drifit Mesh',
                     'team_roster' => [
-                        ['name' => 'Anna Reyes', 'print_name' => 'ANNA', 'number' => '4', 'size' => 'M'],
-                        ['name' => 'Bea Santos', 'print_name' => 'BEA', 'number' => '12', 'size' => 'S'],
-                        ['name' => 'Carla Cruz', 'print_name' => 'CARLA', 'number' => '7', 'size' => 'L'],
+                        ['name' => 'Anna Reyes', 'print_name' => 'ANNA', 'number' => '4', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Bea Santos', 'print_name' => 'BEA', 'number' => '12', 'size' => 'S', 'completed' => false],
+                        ['name' => 'Carla Cruz', 'print_name' => 'CARLA', 'number' => '7', 'size' => 'L', 'completed' => false],
+                        ['name' => 'Diana Mendoza', 'print_name' => 'DIANA', 'number' => '1', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Elena Garcia', 'print_name' => 'ELENA', 'number' => '9', 'size' => 'S', 'completed' => false],
+                        ['name' => 'Faith Ramos', 'print_name' => 'FAITH', 'number' => '14', 'size' => 'XL', 'completed' => false],
+                        ['name' => 'Grace Torres', 'print_name' => 'GRACE', 'number' => '3', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Hannah Lopez', 'print_name' => 'HANNAH', 'number' => '10', 'size' => 'S', 'completed' => false],
+                        ['name' => 'Ivy Flores', 'print_name' => 'IVY', 'number' => '6', 'size' => 'L', 'completed' => false],
+                        ['name' => 'Joyce Castro', 'print_name' => 'JOYCE', 'number' => '8', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Karen Diaz', 'print_name' => 'KAREN', 'number' => '15', 'size' => 'L', 'completed' => false],
+                        ['name' => 'Lea Morales', 'print_name' => 'LEA', 'number' => '11', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Mia Navarro', 'print_name' => 'MIA', 'number' => '2', 'size' => 'S', 'completed' => false],
+                        ['name' => 'Nicole Salazar', 'print_name' => 'NICOLE', 'number' => '5', 'size' => 'XL', 'completed' => false],
+                        ['name' => 'Olivia Tan', 'print_name' => 'OLIVIA', 'number' => '13', 'size' => 'M', 'completed' => false],
                     ],
                 ],
             ]
@@ -849,9 +862,20 @@ class LocalTestSeeder extends Seeder
                 'payment_status' => 'unpaid',
                 'status' => 'pending',
                 'due_date' => now()->addDays(9)->format('Y-m-d'),
-                'notes' => 'Just booked — no downpayment collected yet.',
+                'notes' => "Full Sublimation Team Jerseys (5 sets). Red & Gold gradient print with team logo on left chest. Fabric: Drifit Honeycomb. Double-stitched seams on collar and armholes.",
                 'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'team_name' => 'Katipunan Ballers',
+                    'fabric_preference' => 'Honeycomb',
+                    'team_roster' => [
+                        ['name' => 'Andres Bonifacio', 'print_name' => 'A. BONIFACIO', 'number' => '1', 'size' => 'L', 'completed' => false],
+                        ['name' => 'Emilio Jacinto', 'print_name' => 'E. JACINTO', 'number' => '2', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Pio Valenzuela', 'print_name' => 'P. VALENZUELA', 'number' => '3', 'size' => 'XL', 'completed' => false],
+                        ['name' => 'Apolinario Mabini', 'print_name' => 'A. MABINI', 'number' => '4', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Melchora Aquino', 'print_name' => 'M. AQUINO', 'number' => '5', 'size' => 'S', 'completed' => false],
+                    ],
+                ],
             ]
         );
 
@@ -1315,7 +1339,7 @@ class LocalTestSeeder extends Seeder
         // 19. Seed Support Tickets — otherwise the owner's "Help & Support"
         // page is always empty, with no example of an open thread or a
         // resolved one with a reply to show the flow works end-to-end.
-        $openTicket = \App\Models\SupportTicket::updateOrCreate(
+        \App\Models\SupportTicket::updateOrCreate(
             ['shop_id' => $shop->id, 'subject' => 'Payment shows as pending even after customer paid via GCash'],
             [
                 'user_id' => $owner->id,
