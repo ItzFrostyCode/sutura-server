@@ -105,7 +105,9 @@ class AppointmentController extends Controller
             $query->where('shop_branch_id', $branchId);
         }
 
-        // Optional filters
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', $request->customer_id);
+        }
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
@@ -200,7 +202,7 @@ class AppointmentController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $appointment,
+            'data'    => $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
         ], 201);
     }
 

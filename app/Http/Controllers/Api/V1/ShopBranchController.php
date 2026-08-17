@@ -97,6 +97,8 @@ class ShopBranchController extends Controller
             'guide_image_url' => $request->guide_image_url,
         ]);
 
+        $branch->loadCount(['staffProfiles', 'jobOrders']);
+
         return response()->json(['success' => true, 'message' => 'Branch updated successfully.', 'data' => $branch]);
     }
 

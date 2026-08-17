@@ -45,7 +45,10 @@ class NotificationController extends Controller
             $notification->markAsRead();
         }
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => true,
+            'unread_count' => $request->user()->unreadNotifications()->count(),
+        ]);
     }
 
     /**
@@ -55,7 +58,10 @@ class NotificationController extends Controller
     {
         $request->user()->unreadNotifications->markAsRead();
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => true,
+            'unread_count' => 0,
+        ]);
     }
 
     /**
@@ -70,7 +76,10 @@ class NotificationController extends Controller
             $notification->markAsUnread();
         }
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => true,
+            'unread_count' => $request->user()->unreadNotifications()->count(),
+        ]);
     }
 
     /**
@@ -86,6 +95,9 @@ class NotificationController extends Controller
             $notification->delete();
         }
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => true,
+            'unread_count' => $request->user()->unreadNotifications()->count(),
+        ]);
     }
 }

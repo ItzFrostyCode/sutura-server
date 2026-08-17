@@ -33,6 +33,12 @@ if (!defined('TICKETS_ROUTE')) {
 if (!defined('TICKETS_DETAIL_ROUTE')) {
     define('TICKETS_DETAIL_ROUTE', '/tickets/{ticket}');
 }
+if (!defined('CUSTOMER_DETAIL_ROUTE')) {
+    define('CUSTOMER_DETAIL_ROUTE', '/customers/{customer}');
+}
+if (!defined('STAFF_DETAIL_ROUTE')) {
+    define('STAFF_DETAIL_ROUTE', '/staff/{staff}');
+}
 
 Route::prefix('v1')->group(function () {
     // Laravel's throttle middleware keys its bucket by IP alone (see
@@ -111,6 +117,7 @@ Route::prefix('v1')->group(function () {
                 // photos are a day-to-day task, not a supervisory decision, so this
                 // sits in the staff-accessible group unlike reject/pay/discount below.
                 Route::post('/jobs/{jobOrder}/progress-photos', [JobOrderController::class, 'addProgressPhoto']);
+                Route::delete('/jobs/{jobOrder}/progress-photos', [JobOrderController::class, 'deleteProgressPhoto']);
                 // Per-piece completion on a bulk/team order's roster — same
                 // "staff at the workbench" reasoning as progress photos above.
                 Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
@@ -132,9 +139,10 @@ Route::prefix('v1')->group(function () {
                 // day too; CustomerController's own authorization already permits
                 // staff for every method here, so the route gate must match it.
                 Route::get('/customers', [CustomerController::class, 'index']);
+                Route::get(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'show']);
                 Route::post('/customers', [CustomerController::class, 'store']);
-                Route::put('/customers/{customer}', [CustomerController::class, 'update']);
-                Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
+                Route::put(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'update']);
+                Route::delete(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'destroy']);
 
                 // Services (read-only) — every role that can create/edit an
                 // appointment or job order needs to populate a service picker;
@@ -181,10 +189,10 @@ Route::prefix('v1')->group(function () {
             // Owner Only Access
             Route::middleware('role:shop_owner')->group(function () {
                 // Staff Management (list/read is granted to shop_owner+branch_manager above)
-                Route::get('/staff/{staff}', [StaffController::class, 'show']);
+                Route::get(STAFF_DETAIL_ROUTE, [StaffController::class, 'show']);
                 Route::post('/staff', [StaffController::class, 'store']);
-                Route::put('/staff/{staff}', [StaffController::class, 'update']);
-                Route::delete('/staff/{staff}', [StaffController::class, 'destroy']);
+                Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
+                Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
 
                 // Services (list/read is granted to shop_owner+branch_manager+staff above)
                 Route::post('/services', [ServiceController::class, 'store']);

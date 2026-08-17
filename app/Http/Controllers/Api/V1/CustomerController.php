@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 class CustomerController extends Controller
 {
     private const SUTURA_DOMAIN = '@sutura.com';
+    private const MSG_NOT_FOUND = 'Customer not found in this shop';
 
     public function index(Request $request, Shop $shop): JsonResponse
     {
@@ -44,25 +45,83 @@ class CustomerController extends Controller
             ])
             ->get()
             ->map(function ($user) use ($notesByCustomerId) {
-                // Net of balance owed and any discount — a customer's "Total
-                // Spend" should be what they've actually paid, not the
-                // sticker total of every order regardless of whether it's
-                // fully paid, and this figure directly informs the owner's
-                // own repeat-customer discount decisions (see below), so an
-                // inflated number here was actively misleading that call.
+                $hasWalkInJobs = $user->jobOrders->where('intake_channel', 'walk_in')->isNotEmpty();
+                $hasWalkInAppts = $user->appointments->where('intake_channel', 'walk_in')->isNotEmpty();
+                $isSyntheticWalkIn = \Illuminate\Support\Str::startsWith($user->email, 'walkin_');
+
                 $user->total_spend = $user->jobOrders->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
                 $user->last_appointment = $user->appointments->first();
-                // Repeat-customer context for the shop owner's manual discount
-                // decision ("this is their 5th order") — not just a display stat.
                 $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
                 $user->completed_jobs = $user->jobOrders->where('status', 'completed')->count();
                 $user->shop_notes = $notesByCustomerId[$user->id] ?? null;
+                $user->is_walk_in = $isSyntheticWalkIn || $hasWalkInJobs || $hasWalkInAppts || $user->suki_tag === 'walk_in_retail';
+                $user->intake_channel = $user->is_walk_in ? 'walk_in' : 'online';
                 return $user;
             });
 
         return response()->json([
             'success' => true,
             'data' => collect($customers)->sortByDesc('total_spend')->values()
+        ]);
+    }
+
+    public function show(Request $request, Shop $shop, User $customer): JsonResponse
+    {
+        if (!$request->user()->hasRole('shop_owner') && !$request->user()->hasRole('branch_manager') && !$request->user()->hasRole('staff')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Verify customer belongs to shop
+        $isCustomerOfShop = $shop->customers()->where('user_id', $customer->id)->exists()
+            || $shop->jobOrders()->where('customer_id', $customer->id)->exists()
+            || $shop->appointments()->where('customer_id', $customer->id)->exists();
+
+        if (!$isCustomerOfShop) {
+            return response()->json(['message' => self::MSG_NOT_FOUND], 404);
+        }
+
+        $shopNotes = $shop->customers()->where('user_id', $customer->id)->value('shop_customers.notes');
+
+        $measurements = $shop->measurements()
+            ->where('customer_id', $customer->id)
+            ->with('customer:id,name,email')
+            ->latest()
+            ->get();
+
+        $jobs = $shop->jobOrders()
+            ->where('customer_id', $customer->id)
+            ->with(['service', 'assignedStaff:id,name', 'staffStages', 'payments.recordedBy:id,name', 'branch:id,name'])
+            ->latest()
+            ->get();
+
+        $appointments = $shop->appointments()
+            ->where('customer_id', $customer->id)
+            ->with(['service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number'])
+            ->orderBy('scheduled_at', 'desc')
+            ->get();
+
+        $hasWalkInJobs = $jobs->where('intake_channel', 'walk_in')->isNotEmpty();
+        $hasWalkInAppts = $appointments->where('intake_channel', 'walk_in')->isNotEmpty();
+        $isSyntheticWalkIn = \Illuminate\Support\Str::startsWith($customer->email, 'walkin_');
+
+        $customerData = $customer->toArray();
+        $customerData['shop_notes'] = $shopNotes;
+        $customerData['is_walk_in'] = $isSyntheticWalkIn || $hasWalkInJobs || $hasWalkInAppts || $customer->suki_tag === 'walk_in_retail';
+        $customerData['intake_channel'] = $customerData['is_walk_in'] ? 'walk_in' : 'online';
+        $customerData['total_spend'] = (float) $jobs->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
+        $customerData['active_jobs'] = $jobs->whereNotIn('status', ['completed', 'cancelled'])->count();
+        $customerData['completed_jobs'] = $jobs->where('status', 'completed')->count();
+        $customerData['no_show_count'] = $appointments->where('status', 'no_show')->count();
+        $customerData['last_appointment'] = $appointments->first();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'customer'     => $customerData,
+                'measurements' => $measurements,
+                'jobs'         => $jobs,
+                'appointments' => $appointments,
+            ]
         ]);
     }
 
@@ -179,7 +238,7 @@ class CustomerController extends Controller
 
         // Verify customer belongs to shop
         if (!$shop->customers()->where('user_id', $customer->id)->exists() && !$shop->jobOrders()->where('customer_id', $customer->id)->exists()) {
-            return response()->json(['message' => 'Customer not found in this shop'], 404);
+            return response()->json(['message' => self::MSG_NOT_FOUND], 404);
         }
 
         $validated = $request->validate([
@@ -231,6 +290,8 @@ class CustomerController extends Controller
             ]);
         }
 
+        $customer->shop_notes = $shop->customers()->where('user_id', $customer->id)->value('shop_customers.notes');
+
         return response()->json([
             'success' => true,
             'data' => $customer,
@@ -252,7 +313,7 @@ class CustomerController extends Controller
         // gets a pivot row at all, so clicking Delete on a customer clearly
         // visible in the list 404'd with "Customer not found in this shop."
         if (!$shop->customers()->where('user_id', $customer->id)->exists() && !$shop->jobOrders()->where('customer_id', $customer->id)->exists()) {
-            return response()->json(['message' => 'Customer not found in this shop'], 404);
+            return response()->json(['message' => self::MSG_NOT_FOUND], 404);
         }
 
         // Detach instead of deleting the user, since user might exist in other
