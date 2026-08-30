@@ -63,11 +63,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_3 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => 'Shop Long Tail Wedding Gown '],
+            ['shop_id' => $shop->id, 'name' => 'Shop Long Tail Wedding Gown'],
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Shop Long Tail Wedding Gown  made to order with custom sizing.',
+                'description' => 'Elegant designer Shop Long Tail Wedding Gown made to order with custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -75,7 +75,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_3->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown .jpg'],
+            ['catalog_item_id' => $item_3->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_4 = \App\Models\CatalogItem::firstOrCreate(
@@ -111,11 +111,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_6 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => "Women's Esports Jersey with Customized Design "],
+            ['shop_id' => $shop->id, 'name' => "Women's Esports Jersey with Customized Design"],
             [
                 'price' => 650.0,
                 'material' => 'Drifit Mesh',
-                'description' => "Custom sublimation activewear Women's Esports Jersey with Customized Design  designed for maximum breathability.",
+                'description' => "Custom sublimation activewear Women's Esports Jersey with Customized Design designed for maximum breathability.",
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -123,7 +123,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_6->id, 'image_url' => "/catalog/Women's Esports Jersey with Customized Design .jpg"],
+            ['catalog_item_id' => $item_6->id, 'image_url' => "/catalog/Women's Esports Jersey with Customized Design.jpg"],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_7 = \App\Models\CatalogItem::firstOrCreate(
@@ -143,11 +143,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_8 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => 'Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns '],
+            ['shop_id' => $shop->id, 'name' => 'Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns'],
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns  made to order with custom sizing.',
+                'description' => 'Elegant designer Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns made to order with custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -155,7 +155,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_8->id, 'image_url' => '/catalog/Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns .jpg'],
+            ['catalog_item_id' => $item_8->id, 'image_url' => '/catalog/Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_9 = \App\Models\CatalogItem::firstOrCreate(
@@ -207,11 +207,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_12 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => 'Best Custom Tuxedos in NYC | Bespoke Groom Tuxedos '],
+            ['shop_id' => $shop->id, 'name' => 'Best Custom Tuxedos in NYC - Bespoke Groom Tuxedos'],
             [
                 'price' => 12000.0,
                 'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Best Custom Tuxedos in NYC | Bespoke Groom Tuxedos  crafted for formal attire and weddings.',
+                'description' => 'Bespoke premium Best Custom Tuxedos in NYC - Bespoke Groom Tuxedos crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -219,7 +219,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_12->id, 'image_url' => '/catalog/Best Custom Tuxedos in NYC | Bespoke Groom Tuxedos .jpeg'],
+            ['catalog_item_id' => $item_12->id, 'image_url' => '/catalog/Best Custom Tuxedos in NYC - Bespoke Groom Tuxedos.jpeg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_13 = \App\Models\CatalogItem::firstOrCreate(
@@ -239,11 +239,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_14 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => 'Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery | Elegant Bridal Dress with Corset Back | Floor-Length Wedding Dress for Women (in, Alpha, 2XL, White with Champagne-Gold Embroidery) at Amazon.in '],
+            ['shop_id' => $shop->id, 'name' => 'Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery - Elegant Bridal Dress with Corset Back - Floor-Length Wedding Dress for Women'],
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery | Elegant Bridal Dress with Corset Back | Floor-Length Wedding Dress for Women (in, Alpha, 2XL, White with Champagne-Gold Embroidery) at Amazon.in  made to order with custom sizing.',
+                'description' => 'Elegant designer Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery - Elegant Bridal Dress with Corset Back - Floor-Length Wedding Dress for Women made to order with custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -251,15 +251,15 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_14->id, 'image_url' => '/catalog/Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery | Elegant Bridal Dress with Corset Back | Floor-Length Wedding Dress for Women (in, Alpha, 2XL, White with Champagne-Gold Embroidery) at Amazon.in .jpg'],
+            ['catalog_item_id' => $item_14->id, 'image_url' => '/catalog/Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery - Elegant Bridal Dress with Corset Back - Floor-Length Wedding Dress for Women.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_15 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => 'Traditional Ivory Color Barong Tagalog | Formal Fit'],
+            ['shop_id' => $shop->id, 'name' => 'Traditional Ivory Color Barong Tagalog - Formal Fit'],
             [
                 'price' => 4500.0,
                 'material' => 'Pina Cocoon',
-                'description' => 'Traditional Filipino Traditional Ivory Color Barong Tagalog | Formal Fit featuring delicate hand embroidery.',
+                'description' => 'Traditional Filipino Traditional Ivory Color Barong Tagalog - Formal Fit featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -267,7 +267,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_15->id, 'image_url' => '/catalog/Traditional Ivory Color Barong Tagalog | Formal Fit.jpg'],
+            ['catalog_item_id' => $item_15->id, 'image_url' => '/catalog/Traditional Ivory Color Barong Tagalog - Formal Fit.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_16 = \App\Models\CatalogItem::firstOrCreate(
@@ -607,11 +607,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_37 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => 'esport tshirt '],
+            ['shop_id' => $shop->id, 'name' => 'esport tshirt'],
             [
                 'price' => 650.0,
                 'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear esport tshirt  designed for maximum breathability.',
+                'description' => 'Custom sublimation activewear esport tshirt designed for maximum breathability.',
                 'garment_type' => 'uniform',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -619,7 +619,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_37->id, 'image_url' => '/catalog/esport tshirt .webp'],
+            ['catalog_item_id' => $item_37->id, 'image_url' => '/catalog/esport tshirt.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_38 = \App\Models\CatalogItem::firstOrCreate(
@@ -639,11 +639,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_39 = \App\Models\CatalogItem::firstOrCreate(
-            ['shop_id' => $shop->id, 'name' => 'Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M – Tagged "barong with lining'],
+            ['shop_id' => $shop->id, 'name' => 'Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining'],
             [
                 'price' => 4500.0,
                 'material' => 'Pina Cocoon',
-                'description' => 'Traditional Filipino Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M – Tagged "barong with lining featuring delicate hand embroidery.',
+                'description' => 'Traditional Filipino Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -651,7 +651,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_39->id, 'image_url' => '/catalog/Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M – Tagged "barong with lining.webp'],
+            ['catalog_item_id' => $item_39->id, 'image_url' => '/catalog/Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_40 = \App\Models\CatalogItem::firstOrCreate(
