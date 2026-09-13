@@ -275,7 +275,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 20,
-                'image_url' => '/catalog/Women\'s Esports Jersey with Customized Design .jpg',
+                'image_url' => '/catalog/school-uniforms.jpg',
                 'tiers' => [
                     ['label' => 'Elementary Uniform Set', 'amount' => 450],
                     ['label' => 'High School Uniform Set', 'amount' => 650],

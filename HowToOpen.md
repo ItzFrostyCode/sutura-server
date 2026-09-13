@@ -1,139 +1,131 @@
 # How to Run SUTURA (Shop Owner System)
 
-Two projects, two terminals, running **at the same time**:
+SUTURA consists of two separate projects running **at the same time**:
 
 - `sutura-server` — Laravel API → `http://127.0.0.1:8000`
 - `sutura-client` — Next.js dashboard → `http://localhost:3000`
 
-**Start the backend first, then the frontend.**
+**Always start the backend first, then the frontend.**
 
 ---
 
-# 🪟 WINDOWS
+# 🪟 WINDOWS SETUP (Using XAMPP)
 
 ### Requirements
-- PHP 8.3+, Composer, Node.js 20+
-- **XAMPP** (for MySQL) — download from [apachefriends.org](https://www.apachefriends.org) if you don't have it
+- **PHP 8.3+** (`php -v` to check)
+  - *Notice*: Laravel 13 strictly requires PHP 8.3 or higher. If your XAMPP has PHP 8.1 or 8.2, download XAMPP with PHP 8.3 from [apachefriends.org](https://www.apachefriends.org) or install PHP 8.3 from [windows.php.net](https://windows.php.net/download/).
+  - Ensure PHP is added to your Windows Environment System PATH (e.g. `C:\xampp\php`).
+- **Composer** (`composer -V` to check)
+- **Node.js 20+** (`node -v` to check)
+- **XAMPP** (used for MySQL & phpMyAdmin)
 
-### 1. Clone
+### Important: Enable Required PHP Extensions
+In `C:\xampp\php\php.ini`, make sure the following lines do **NOT** have a semicolon `;` in front:
+```ini
+extension=pdo_mysql
+extension=mysqli
+extension=fileinfo
+extension=curl
+extension=mbstring
+extension=openssl
+extension=zip
+extension=gd
 ```
+
+### 1. Clone the Repositories
+Run in your desired folder (e.g. `C:\Projects`):
+```bash
 git clone https://github.com/ItzFrostyCode/sutura-server.git
 git clone https://github.com/ItzFrostyCode/sutura-client.git
 ```
 
-### 2. Create the database
-Open **XAMPP Control Panel** → Start **MySQL** → click **Admin** (opens phpMyAdmin) → **SQL** tab → paste and run:
-```sql
-CREATE DATABASE sutura CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'sutura'@'localhost' IDENTIFIED BY 'sutura_local_dev';
-GRANT ALL PRIVILEGES ON sutura.* TO 'sutura'@'localhost';
-FLUSH PRIVILEGES;
-```
+### 2. Start MySQL in XAMPP & Create Database
+1. Open **XAMPP Control Panel** and click **Start** next to **MySQL** (port 3306).
+2. Click **Admin** next to MySQL (opens phpMyAdmin at `http://localhost/phpmyadmin`).
+3. Click **New** in the left sidebar, name the database `sutura`, and click **Create**.
+   *(Default user is `root` with no password — `.env.example` already matches this!)*
 
-### 3. Backend setup (Terminal 1)
-`cd` into `sutura-server` using its full path, e.g.:
+### 3. Backend Setup (Terminal 1)
+Open a terminal in `sutura-server`:
+```bash
+cd "C:\path\to\sutura-server"
 ```
-cd "C:\Users\yourname\Desktop\sutura-server"
+You can either run the automated script:
+```bash
+setup-windows.bat
 ```
-Then:
-```
+Or run the commands manually:
+```bash
 composer install
 copy .env.example .env
 php artisan key:generate
 php artisan migrate --seed
 php artisan storage:link
 ```
-`storage:link` needs **Developer Mode ON** (Settings → For Developers) or run the terminal **as Administrator** — otherwise it fails.
+> **Note on `storage:link`**: Turn **Developer Mode ON** in Windows Settings (*Settings → System → For Developers*) or run your terminal as Administrator so Windows allows symlinks.
 
-### 4. Start backend
-```
+### 4. Start the Backend
+```bash
 php artisan serve
 ```
-Leave this running.
+Leave this terminal running. It will output `Server running on [http://127.0.0.1:8000]`.
 
-### 5. Frontend (Terminal 2 — new window)
-`cd` into `sutura-client` using its full path, then:
-```
+### 5. Frontend Setup (Terminal 2 — new window)
+Open a second terminal in `sutura-client`:
+```bash
+cd "C:\path\to\sutura-client"
 npm install
+copy .env.example .env.local
 npm run dev
 ```
-Leave this running. Open **http://localhost:3000**
-
-### If it won't start (stuck port)
-```
-netstat -ano | findstr :8000
-netstat -ano | findstr :3000
-taskkill /PID <PID> /F
-```
-Then repeat steps 4–5.
+Leave this terminal running. Open **http://localhost:3000** in your browser.
 
 ---
 
-# 🍎 macOS
+# 🍎 macOS SETUP
 
 ### Requirements
-- PHP 8.3+, Composer, Node.js 20+
+- **PHP 8.3+**, **Composer**, **Node.js 20+**
 - **MySQL 8.4** via Homebrew:
-```
+```bash
 brew install mysql@8.4
 brew services start mysql@8.4
 ```
 
 ### 1. Clone
-```
+```bash
 git clone https://github.com/ItzFrostyCode/sutura-server.git
 git clone https://github.com/ItzFrostyCode/sutura-client.git
 ```
 
-### 2. Create the database
-```
-/opt/homebrew/opt/mysql@8.4/bin/mysql -u root -e "
-CREATE DATABASE sutura CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'sutura'@'localhost' IDENTIFIED BY 'sutura_local_dev';
-GRANT ALL PRIVILEGES ON sutura.* TO 'sutura'@'localhost';
-FLUSH PRIVILEGES;
-"
+### 2. Create the Database
+```bash
+/opt/homebrew/opt/mysql@8.4/bin/mysql -u root -e "CREATE DATABASE IF NOT EXISTS sutura CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ```
 
-### 3. Backend setup (Terminal 1)
-`cd` into `sutura-server` using its full path, e.g.:
-```
-cd /Users/yourname/Desktop/sutura-server
-```
-Then:
-```
+### 3. Backend Setup (Terminal 1)
+```bash
+cd /path/to/sutura-server
 composer install
 cp .env.example .env
 php artisan key:generate
 php artisan migrate --seed
 php artisan storage:link
-```
-
-### 4. Start backend
-```
 php artisan serve
 ```
-Leave this running.
 
-### 5. Frontend (Terminal 2 — new window)
-`cd` into `sutura-client` using its full path, then:
-```
+### 4. Frontend Setup (Terminal 2)
+```bash
+cd /path/to/sutura-client
 npm install
+cp .env.example .env.local
 npm run dev
 ```
-Leave this running. Open **http://localhost:3000**
-
-### If it won't start (stuck port)
-```
-lsof -i :8000
-lsof -i :3000
-kill -9 <PID>
-```
-Then repeat steps 4–5.
+Open **http://localhost:3000** in your browser.
 
 ---
 
-# Login
+# Test Logins
 
 | Role | Email | Password |
 |---|---|---|
@@ -141,17 +133,15 @@ Then repeat steps 4–5.
 | Staff | `staff@sutura.com` | `password` |
 | Admin | `admin@sutura.com` | `password` |
 
-Use **Shop Owner** — that's the dashboard being built (Jobs, Appointments, Catalog, Payments, Staff, Reports).
-
 ---
 
-# Common Errors
+# Common Troubleshooting
 
-| Error | Fix |
+| Issue | Solution |
 |---|---|
-| "Connection refused" on `migrate` | MySQL isn't running — start it (XAMPP Control Panel / `brew services start mysql@8.4`) |
-| "Access denied for user 'sutura'" | `.env`'s `DB_PASSWORD` must be `sutura_local_dev` |
-| Login fails / no accounts | Run `php artisan migrate:fresh --seed` |
-| Uploaded images show broken | Run `php artisan storage:link` |
-| "php"/"composer" not recognized (Windows) | Add PHP folder (e.g. `C:\xampp\php`) to your system PATH, reopen terminal |
-| Port already in use | See "If it won't start" above |
+| "Root composer.json requires php ^8.3" | Your XAMPP / PHP version is outdated (8.1 or 8.2). Install XAMPP with PHP 8.3+ or download PHP 8.3 directly. |
+| "Specified key was too long; max key length is 1000 bytes" | Already resolved by `Schema::defaultStringLength(191)` in `AppServiceProvider.php`. |
+| "could not find driver (Connection: mysql)" | Open `C:\xampp\php\php.ini`, uncomment `extension=pdo_mysql`, save and restart terminal. |
+| "Access denied for user 'root'@'localhost'" | Ensure `DB_PASSWORD=` is blank in `.env` if using default XAMPP. |
+| "Port 8000 or 3000 already in use" | Kill the stuck process:<br>• Windows: `netstat -ano \| findstr :8000` then `taskkill /PID <PID> /F`<br>• Mac: `lsof -i :8000` then `kill -9 <PID>` |
+| Images not loading | Run `php artisan storage:link` (with Developer Mode ON in Windows). |
