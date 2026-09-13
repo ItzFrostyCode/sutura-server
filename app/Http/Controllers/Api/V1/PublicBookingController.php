@@ -183,6 +183,15 @@ class PublicBookingController extends Controller
             }
         }
 
+        // ── Associate customer with this shop ─────────────────────────────────
+        // Ensures public-booked customers appear in the shop's customer
+        // list / CRM (CustomerController::index reads shop_customers).
+        // Using attach() with skipIfAttached avoids duplicating the pivot
+        // row if this customer already booked or was added manually.
+        if (!$shop->customers()->where('user_id', $customer->id)->exists()) {
+            $shop->customers()->attach($customer->id);
+        }
+
         // ── Create appointment ─────────────────────────────────────────────────
         $appointment = $shop->appointments()->create([
             'customer_id'      => $customer->id,

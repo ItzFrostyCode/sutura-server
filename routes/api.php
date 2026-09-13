@@ -63,7 +63,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/catalog/{shop:slug}', [CatalogController::class, 'index']);
     Route::get('/catalog/{shop:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
     Route::get('/catalog/{shop:slug}/appointments', [PublicBookingController::class, 'getAppointments']);
-    Route::post('/catalog/{shop:slug}/book', [PublicBookingController::class, 'submit']);
+    // Rate limit: 10 bookings per minute per IP — high enough for a real
+    // customer retrying after a validation error, low enough to slow a
+    // spam bot hitting every shop's /book endpoint.
+    Route::post('/catalog/{shop:slug}/book', [PublicBookingController::class, 'submit'])->middleware('throttle:10,1,book');
     Route::get('/catalog/{shop:slug}/{catalog}', [CatalogController::class, 'show']);
     Route::post('/catalog/{shop:slug}/{catalogItem}/view', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'incrementViews']);
 
@@ -77,7 +80,13 @@ Route::prefix('v1')->group(function () {
 
         // Notifications
         Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::get('/notifications/preferences', [NotificationController::class, 'getPreferences']);
+        Route::post('/notifications/preferences', [NotificationController::class, 'updatePreferences']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::post('/notifications/bulk-read', [NotificationController::class, 'bulkRead']);
+        Route::post('/notifications/bulk-delete', [NotificationController::class, 'bulkDelete']);
+        Route::delete('/notifications/clear-all', [NotificationController::class, 'clearAll']);
+        Route::get('/notifications/{id}', [NotificationController::class, 'show']);
         Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
         Route::post('/notifications/{id}/unread', [NotificationController::class, 'markAsUnread']);
         Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
@@ -132,7 +141,8 @@ Route::prefix('v1')->group(function () {
                 // verify payment receipts day to day; this shouldn't require the owner.
                 Route::get('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'index']);
                 Route::post('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'store']);
-                Route::put('/catalog-orders/{order}', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
+                Route::match(['put', 'patch'], '/catalog-orders/{order}', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
+                Route::match(['put', 'patch'], '/catalog-orders/{order}/status', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
                 Route::put('/catalog-orders/{order}/verify-payment', [\App\Http\Controllers\CatalogOrderController::class, 'verifyPayment']);
 
                 // Customers CRM — front-of-house staff look up/add customers day to
@@ -148,6 +158,15 @@ Route::prefix('v1')->group(function () {
                 // appointment or job order needs to populate a service picker;
                 // managing services (create/update/delete) stays owner-only below.
                 Route::get('/services', [ServiceController::class, 'index']);
+
+                // Staff & Branch directory (read-only) — staff, managers, and owners
+                // need to see the artisan roster, availability, and branch assignments.
+                Route::get('/staff', [StaffController::class, 'index']);
+                Route::get(STAFF_DETAIL_ROUTE, [StaffController::class, 'show']);
+                Route::get('/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'index']);
+
+                // Shop active subscription tier (read-only for feature gating)
+                Route::get('/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'current']);
             });
 
             // Owner & Branch Manager Access
@@ -177,19 +196,11 @@ Route::prefix('v1')->group(function () {
 
                 // File Uploads
                 Route::post('/upload', [FileUploadController::class, 'store']);
-
-                // Staff/branch lists (read-only) — a branch manager assigning
-                // an appointment needs to know who's on staff and which branch
-                // it's for; managing staff/branches stays owner-only below.
-                Route::get('/staff', [StaffController::class, 'index']);
-                Route::get('/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'index']);
-
             });
 
             // Owner Only Access
             Route::middleware('role:shop_owner')->group(function () {
-                // Staff Management (list/read is granted to shop_owner+branch_manager above)
-                Route::get(STAFF_DETAIL_ROUTE, [StaffController::class, 'show']);
+                // Staff Management (list/read is granted to all shop members above)
                 Route::post('/staff', [StaffController::class, 'store']);
                 Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
                 Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
@@ -263,11 +274,11 @@ Route::prefix('v1')->group(function () {
             // Branch Management (list/read is granted to shop_owner+branch_manager above)
             Route::post('/shops/{shop}/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'store']);
             Route::put('/shops/{shop}/branches/{branch}', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'update']);
+            Route::put('/shops/{shop}/branches/{branch}/set-main', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'setMain']);
             Route::delete('/shops/{shop}/branches/{branch}', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'destroy']);
 
             // Subscription Plan Billing
             Route::get('/subscriptions/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'index']);
-            Route::get('/shops/{shop}/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'current']);
             Route::post('/shops/{shop}/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'subscribe']);
             Route::put('/shops/{shop}', [ShopController::class, 'update']);
         });

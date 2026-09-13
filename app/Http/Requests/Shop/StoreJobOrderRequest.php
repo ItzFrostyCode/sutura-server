@@ -69,7 +69,7 @@ class StoreJobOrderRequest extends FormRequest
             ],
             'total_amount' => ['required', 'numeric', 'min:0'],
             'balance' => ['required', 'numeric', 'min:0', 'lte:total_amount'],
-            'payment_method' => ['nullable', 'string', 'in:cash,gcash,bank_transfer'],
+            'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya,bank_transfer'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
             'custom_order_data' => ['nullable', 'array'],

@@ -91,12 +91,14 @@ class AuthController extends Controller
             }
         }
 
+        $shop = $user->shops->first() ?? $staffProfile?->shop;
+
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user,
                 'staff_profile' => $staffProfile,
-                'shop' => $user->shops->first(),
+                'shop' => $shop,
                 'token' => $token,
             ]
         ]);
@@ -161,12 +163,14 @@ class AuthController extends Controller
             }
         }
 
+        $shop = $user->shops->first() ?? $staffProfile?->shop;
+
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user,
                 'staff_profile' => $staffProfile,
-                'shop' => $user->shops->first() // For shop owners
+                'shop' => $shop,
             ]
         ]);
     }

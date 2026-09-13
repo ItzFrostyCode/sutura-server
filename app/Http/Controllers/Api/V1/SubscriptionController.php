@@ -26,14 +26,19 @@ class SubscriptionController extends Controller
      */
     public function current(Request $request, $shopId)
     {
-        // Allow if the user owns the shop or is an admin
+        $id = $shopId instanceof \App\Models\Shop ? $shopId->id : $shopId;
+        // Allow if the user owns the shop, is a staff member of the shop, or is an admin
         $user = $request->user();
-        if (!$user->shops()->where('id', $shopId)->exists() && !$user->hasRole('admin')) {
+        $isOwner = $user->shops()->where('id', $id)->exists();
+        $isStaff = $user->staffProfile && (int) $user->staffProfile->shop_id === (int) $id;
+        $isAdmin = $user->hasRole('admin');
+
+        if (!$isOwner && !$isStaff && !$isAdmin) {
             return response()->json(['success' => false, 'message' => 'Unauthorized access to shop subscriptions.'], 403);
         }
 
         $subscription = ShopSubscription::with('plan')
-            ->where('shop_id', $shopId)
+            ->where('shop_id', $id)
             ->latest()
             ->first();
 
