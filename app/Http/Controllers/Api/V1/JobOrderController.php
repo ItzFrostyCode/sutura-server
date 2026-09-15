@@ -730,7 +730,7 @@ class JobOrderController extends Controller
 
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
-            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya,bank_transfer',
+            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'receipt_path' => 'nullable|string|max:2048',
@@ -899,7 +899,7 @@ class JobOrderController extends Controller
         }
 
         $validated = $request->validate([
-            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya,bank_transfer',
+            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'receipt_path' => 'nullable|string|max:2048',

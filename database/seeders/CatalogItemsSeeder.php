@@ -27,7 +27,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_0->id, 'image_url' => '/catalog/Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown.webp'],
+            ['catalog_item_id' => $item_0->id, 'image_url' => '/catalog/gown-off-shoulder-tulle-floral.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_1 = \App\Models\CatalogItem::firstOrCreate(
@@ -43,7 +43,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_1->id, 'image_url' => '/catalog/Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor.jpg'],
+            ['catalog_item_id' => $item_1->id, 'image_url' => '/catalog/maid-of-honor-dress-chiffon.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_2 = \App\Models\CatalogItem::firstOrCreate(
@@ -91,7 +91,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_4->id, 'image_url' => '/catalog/Mga Pretty Bridesmaid Dresses, Perfect Maid of Honor Gowns - Lunss.webp'],
+            ['catalog_item_id' => $item_4->id, 'image_url' => '/catalog/bridesmaid-dresses-maid-of-honor.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_5 = \App\Models\CatalogItem::firstOrCreate(
@@ -155,7 +155,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_8->id, 'image_url' => '/catalog/Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns.jpg'],
+            ['catalog_item_id' => $item_8->id, 'image_url' => '/catalog/mother-of-bride-dress-chiffon-pink.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_9 = \App\Models\CatalogItem::firstOrCreate(
@@ -203,7 +203,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_11->id, 'image_url' => '/catalog/Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora.webp'],
+            ['catalog_item_id' => $item_11->id, 'image_url' => '/catalog/mother-of-bride-dress-green.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_12 = \App\Models\CatalogItem::firstOrCreate(
@@ -219,7 +219,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_12->id, 'image_url' => '/catalog/Best Custom Tuxedos in NYC - Bespoke Groom Tuxedos.jpeg'],
+            ['catalog_item_id' => $item_12->id, 'image_url' => '/catalog/bespoke-groom-tuxedo.jpeg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_13 = \App\Models\CatalogItem::firstOrCreate(
@@ -251,7 +251,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_14->id, 'image_url' => '/catalog/Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery - Elegant Bridal Dress with Corset Back - Floor-Length Wedding Dress for Women.jpg'],
+            ['catalog_item_id' => $item_14->id, 'image_url' => '/catalog/wedding-gown-champagne-embroidery.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_15 = \App\Models\CatalogItem::firstOrCreate(
@@ -267,7 +267,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_15->id, 'image_url' => '/catalog/Traditional Ivory Color Barong Tagalog - Formal Fit.jpg'],
+            ['catalog_item_id' => $item_15->id, 'image_url' => '/catalog/barong-tagalog-ivory-formal.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_16 = \App\Models\CatalogItem::firstOrCreate(
@@ -379,7 +379,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_22->id, 'image_url' => '/catalog/Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI.jpeg'],
+            ['catalog_item_id' => $item_22->id, 'image_url' => '/catalog/mother-of-groom-dress-teal-lace.jpeg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_23 = \App\Models\CatalogItem::firstOrCreate(
@@ -427,7 +427,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_25->id, 'image_url' => '/catalog/Tailor Made Suits London - The Bespoke Tailor UK.jpg'],
+            ['catalog_item_id' => $item_25->id, 'image_url' => '/catalog/tailor-made-suit-bespoke.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_26 = \App\Models\CatalogItem::firstOrCreate(
@@ -523,7 +523,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_31->id, 'image_url' => "/catalog/Men's - Traditional Barong Tagalog - Page 1 - Barong At Bestida Australia.jpg"],
+            ['catalog_item_id' => $item_31->id, 'image_url' => "/catalog/mens-traditional-barong-tagalog.jpg"],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_32 = \App\Models\CatalogItem::firstOrCreate(
@@ -635,7 +635,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_38->id, 'image_url' => '/catalog/Blue Tuxedo Belt Tuxedo Blue Suit Brown Belt Core Navy.webp'],
+            ['catalog_item_id' => $item_38->id, 'image_url' => '/catalog/navy-blue-tuxedo-suit.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_39 = \App\Models\CatalogItem::firstOrCreate(
@@ -651,7 +651,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_39->id, 'image_url' => '/catalog/Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining.webp'],
+            ['catalog_item_id' => $item_39->id, 'image_url' => '/catalog/barong-tagalog-lined.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_40 = \App\Models\CatalogItem::firstOrCreate(
@@ -667,7 +667,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_40->id, 'image_url' => '/catalog/9 Luxury Designer Bridesmaid Dresses for the Bridal Crew.jpg'],
+            ['catalog_item_id' => $item_40->id, 'image_url' => '/catalog/bridesmaid-dresses-bridal-crew.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_41 = \App\Models\CatalogItem::firstOrCreate(
@@ -683,7 +683,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_41->id, 'image_url' => '/catalog/Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora.webp'],
+            ['catalog_item_id' => $item_41->id, 'image_url' => '/catalog/mother-of-bride-dress-red.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_42 = \App\Models\CatalogItem::firstOrCreate(
@@ -715,7 +715,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_43->id, 'image_url' => '/catalog/Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora.webp'],
+            ['catalog_item_id' => $item_43->id, 'image_url' => '/catalog/mother-of-bride-dress-pink.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_44 = \App\Models\CatalogItem::firstOrCreate(
@@ -731,7 +731,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_44->id, 'image_url' => '/catalog/Barong Tagalog Cloth- Traditional and Elegant Fabrics.jpg'],
+            ['catalog_item_id' => $item_44->id, 'image_url' => '/catalog/barong-tagalog-cloth-fabric.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_45 = \App\Models\CatalogItem::firstOrCreate(
@@ -763,7 +763,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_46->id, 'image_url' => '/catalog/Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown.jpg'],
+            ['catalog_item_id' => $item_46->id, 'image_url' => '/catalog/wedding-gown-sequined-puff-sleeve.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_47 = \App\Models\CatalogItem::firstOrCreate(

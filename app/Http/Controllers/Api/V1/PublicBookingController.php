@@ -92,7 +92,7 @@ class PublicBookingController extends Controller
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link'   => ['nullable', 'url', 'max:500'],
             'answers'          => ['nullable', 'array'],
-            'payment_method'   => ['nullable', 'string', 'in:cash,gcash,paymaya,bank_transfer'],
+            'payment_method'   => ['nullable', 'string', 'in:cash,gcash,paymaya'],
             'payment_reference'=> ['nullable', 'string', 'max:255'],
             'payment_receipt_path' => ['nullable', 'string', 'max:1000'],
         ]);
@@ -118,7 +118,7 @@ class PublicBookingController extends Controller
         // with an empty receipt path if the upload was still in flight, failed,
         // or was simply skipped for a non-cash method.
         if (
-            in_array($validated['payment_method'] ?? 'cash', ['gcash', 'paymaya', 'bank_transfer'], true)
+            in_array($validated['payment_method'] ?? 'cash', ['gcash', 'paymaya'], true)
             && empty($validated['payment_receipt_path'])
         ) {
             return response()->json([
