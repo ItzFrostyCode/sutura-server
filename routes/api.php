@@ -292,6 +292,8 @@ Route::prefix('v1')->group(function () {
     // Public Catalog & Shop Profile
     // Shop Discovery — search/filter/map feed (Objectives 3 & 4)
     Route::get('/public/shops', [ShopController::class, 'publicIndex']);
+    // Cross-shop catalog showroom feed for the landing page's catalog grid
+    Route::get('/public/catalog-items', [CatalogController::class, 'publicShowroom']);
     Route::get('/public/shops/{shop:slug}', [ShopController::class, 'publicProfile']);
     Route::get('/public/shops/{shop:slug}/services', [ServiceController::class, 'publicIndex']);
     Route::get('/public/shops/{shop:slug}/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'publicIndex']);

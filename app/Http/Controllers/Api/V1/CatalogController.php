@@ -121,6 +121,59 @@ class CatalogController extends Controller
     }
 
     /**
+     * Cross-shop catalog showroom feed for the public landing page — index()
+     * above is always scoped to one shop; this pulls active items across
+     * every approved, non-hidden shop for the homepage's catalog grid.
+     */
+    public function publicShowroom(Request $request): JsonResponse
+    {
+        $query = CatalogItem::query()
+            ->where('is_active', true)
+            ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
+            ->with([
+                'shop:id,name,slug',
+                'images' => fn ($q) => $q->where('is_primary', true)->limit(1),
+            ])
+            ->withCount('reviews')
+            ->withAvg('reviews', 'rating');
+
+        if ($request->filled('garment_type')) {
+            $query->where('garment_type', $request->string('garment_type'));
+        }
+
+        if ($request->filled('q')) {
+            $search = strtolower((string) $request->string('q'));
+            $query->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
+        }
+
+        $items = $query->latest()->paginate($request->input('per_page', 48));
+
+        // Same reviews_avg_rating string-from-AVG() issue as index() above and
+        // the public shop feed — round it per-item into a real float. `price`
+        // isn't cast on the model either (decimal columns come back as
+        // strings from PDO) — cast it here too rather than let a fresh
+        // .toFixed()-style crash happen on the frontend again.
+        $items->getCollection()->transform(function (CatalogItem $item) {
+            $item->reviews_avg_rating = $item->reviews_avg_rating !== null
+                ? round((float) $item->reviews_avg_rating, 1)
+                : null;
+            $item->price = $item->price !== null ? (float) $item->price : null;
+            return $item;
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $items->items(),
+            'meta' => [
+                'current_page' => $items->currentPage(),
+                'last_page' => $items->lastPage(),
+                'per_page' => $items->perPage(),
+                'total' => $items->total(),
+            ],
+        ]);
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request, Shop $shop): JsonResponse
