@@ -26,6 +26,55 @@ class ServiceController extends Controller
     }
 
     /**
+     * Cross-shop services showroom feed for the public landing page —
+     * publicIndex() below is always scoped to one shop; this pulls active
+     * services (Alterations, Bespoke Tailoring, Sublimation, etc.) across
+     * every approved, non-hidden shop, the same way CatalogController::
+     * publicShowroom() does for catalog items. Services are a distinct
+     * concept from catalog items here — a service like "Alterations" isn't
+     * a garment_type value, it belongs in this feed, not the catalog grid.
+     */
+    public function publicShowroom(Request $request): JsonResponse
+    {
+        $query = Service::query()
+            ->where('is_active', true)
+            ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
+            ->with('shop:id,name,slug');
+
+        if ($request->filled('q')) {
+            $search = strtolower((string) $request->string('q'));
+            $query->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
+        }
+
+        $services = $query->latest()->paginate($request->input('per_page', 12));
+
+        // base_price/sale_price are declared 'decimal:2' on the model, which
+        // Laravel always re-stringifies on assignment (by design, to protect
+        // money precision) -- setting $service->base_price = (float) ... gets
+        // silently cast right back to a string, unlike CatalogItem::price
+        // (no cast at all, so a plain float assignment sticks there).
+        // Converting to a plain array first sidesteps the model's own cast
+        // for just this response.
+        $items = $services->getCollection()->map(function (Service $service) {
+            $arr = $service->toArray();
+            $arr['base_price'] = $service->base_price !== null ? (float) $service->base_price : null;
+            $arr['sale_price'] = $service->sale_price !== null ? (float) $service->sale_price : null;
+            return $arr;
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $items,
+            'meta' => [
+                'current_page' => $services->currentPage(),
+                'last_page' => $services->lastPage(),
+                'per_page' => $services->perPage(),
+                'total' => $services->total(),
+            ],
+        ]);
+    }
+
+    /**
      * Publicly accessible list of a shop's active services for its storefront page.
      */
     public function publicIndex(Shop $shop): JsonResponse
