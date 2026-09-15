@@ -132,10 +132,18 @@ class CatalogController extends Controller
             ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
             ->with([
                 'shop:id,name,slug',
-                'images' => fn ($q) => $q->where('is_primary', true)->limit(1),
+                // Not every seeded item has an image flagged is_primary (a
+                // data-entry gap, not a rule) -- CatalogController::index()'s
+                // own frontend consumer (shop/[shop_id]/page.tsx) already
+                // falls back to the first image when none is primary; do the
+                // same here instead of silently showing no image at all.
+                'images',
             ])
             ->withCount('reviews')
-            ->withAvg('reviews', 'rating');
+            ->withAvg('reviews', 'rating')
+            // Order count only -- exact revenue stays owner-only, same
+            // privacy line index() already draws for storefront visitors.
+            ->withCount(['catalogOrders', 'jobOrders']);
 
         if ($request->filled('garment_type')) {
             $query->where('garment_type', $request->string('garment_type'));
@@ -146,7 +154,27 @@ class CatalogController extends Controller
             $query->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
         }
 
-        $items = $query->latest()->paginate($request->input('per_page', 48));
+        if ($request->filled('min_price')) {
+            $query->where('price', '>=', $request->float('min_price'));
+        }
+        if ($request->filled('max_price')) {
+            $query->where('price', '<=', $request->float('max_price'));
+        }
+        if ($request->filled('min_rating')) {
+            $query->havingRaw('reviews_avg_rating >= ?', [$request->float('min_rating')]);
+        }
+
+        match ($request->string('sort_by')->toString()) {
+            'price_asc' => $query->orderBy('price'),
+            'price_desc' => $query->orderByDesc('price'),
+            // No real relevance-scoring infra exists (no search-rank column,
+            // no full-text index) -- "Top Sales" is the one sort here with
+            // an honest signal to order by.
+            'top_sales' => $query->orderByRaw('(catalog_orders_count + job_orders_count) desc'),
+            default => $query->latest(),
+        };
+
+        $items = $query->paginate($request->input('per_page', 48));
 
         // Same reviews_avg_rating string-from-AVG() issue as index() above and
         // the public shop feed — round it per-item into a real float. `price`
@@ -158,6 +186,8 @@ class CatalogController extends Controller
                 ? round((float) $item->reviews_avg_rating, 1)
                 : null;
             $item->price = $item->price !== null ? (float) $item->price : null;
+            $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
+            $item->makeHidden(['catalog_orders_count', 'job_orders_count']);
             return $item;
         });
 
