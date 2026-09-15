@@ -54,7 +54,7 @@ class CustomerController extends Controller
                 $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
                 $user->completed_jobs = $user->jobOrders->where('status', 'completed')->count();
                 $user->shop_notes = $notesByCustomerId[$user->id] ?? null;
-                $user->is_walk_in = $isSyntheticWalkIn || $hasWalkInJobs || $hasWalkInAppts || $user->suki_tag === 'walk_in_retail';
+                $user->is_walk_in = $isSyntheticWalkIn || ($hasWalkInJobs && $user->jobOrders->where('intake_channel', 'online')->isEmpty());
                 $user->intake_channel = $user->is_walk_in ? 'walk_in' : 'online';
                 return $user;
             });
@@ -106,7 +106,7 @@ class CustomerController extends Controller
 
         $customerData = $customer->toArray();
         $customerData['shop_notes'] = $shopNotes;
-        $customerData['is_walk_in'] = $isSyntheticWalkIn || $hasWalkInJobs || $hasWalkInAppts || $customer->suki_tag === 'walk_in_retail';
+        $customerData['is_walk_in'] = $isSyntheticWalkIn || ($hasWalkInJobs && $jobs->where('intake_channel', 'online')->isEmpty());
         $customerData['intake_channel'] = $customerData['is_walk_in'] ? 'walk_in' : 'online';
         $customerData['total_spend'] = (float) $jobs->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
         $customerData['active_jobs'] = $jobs->whereNotIn('status', ['completed', 'cancelled'])->count();

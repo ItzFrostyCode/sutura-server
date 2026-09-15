@@ -102,7 +102,10 @@ class AppointmentController extends Controller
         }
 
         if ($branchId) {
-            $query->where('shop_branch_id', $branchId);
+            $query->where(function ($q) use ($branchId) {
+                $q->where('shop_branch_id', $branchId)
+                  ->orWhereNull('shop_branch_id');
+            });
         }
 
         if ($request->filled('customer_id')) {
@@ -140,10 +143,9 @@ class AppointmentController extends Controller
         $data['duration_minutes'] = $data['duration_minutes']
             ?? Appointment::TYPE_DEFAULT_DURATIONS[$data['appointment_type']]
             ?? 60;
-        $data['status']           = 'pending';
-        // Owner-created entries are walk-ins (online ones come via the public booking form).
-        // Matches JobOrder/CatalogOrder's own 'walk_in' convention — this used to be the
-        // inconsistent 'walkin' (no underscore), which drifted from the seeder and other models.
+        // In-store entries created by owner/manager/staff are walk-ins and auto-confirmed
+        // so the slot is reserved and locked immediately (online bookings arrive as 'pending').
+        $data['status']           = 'confirmed';
         $data['intake_channel']   = 'walk_in';
 
         $scheduledAt = \Carbon\Carbon::parse($data['scheduled_at']);
@@ -155,23 +157,39 @@ class AppointmentController extends Controller
             ], 409);
         }
 
-        // Same conflict guard the public booking form already enforces —
-        // an owner/staff manually logging a walk-in shouldn't be able to
-        // double-book a slot a customer already has confirmed.
+        // Walk-in priority: Walk-ins are checked against confirmed/in_progress appointments only.
+        // A physical walk-in customer is the source of truth ("kung sino ang makauna").
         if (Appointment::hasSchedulingConflict(
             $shop,
             $data['shop_branch_id'] ?? null,
             $scheduledAt,
-            $data['duration_minutes']
+            $data['duration_minutes'],
+            null,
+            false // only confirmed/in_progress block a walk-in
         )) {
             return response()->json([
                 'success' => false,
-                'message' => 'This time slot is already booked. Please choose a different time.',
+                'message' => 'This time slot is already booked by another confirmed appointment. Please choose a different time.',
             ], 409);
         }
 
+        // Query any overlapping pending online bookings before creating the walk-in
+        $overlappingPending = Appointment::getOverlappingPendingAppointments(
+            $shop,
+            $data['shop_branch_id'] ?? null,
+            $scheduledAt,
+            $data['duration_minutes']
+        );
+
         $appointment = $shop->appointments()->create($data);
         $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+
+        // Walk-in claims the slot: preempt all overlapping pending online bookings
+        $preemptedCount = 0;
+        foreach ($overlappingPending as $pendingAppt) {
+            $pendingAppt->preemptByWalkIn($appointment, $request->user());
+            $preemptedCount++;
+        }
 
         // Fitting session limit — same enforcement as the auto-generated
         // "Ready for Fitting" appointment in JobOrderController@update. A
@@ -201,8 +219,12 @@ class AppointmentController extends Controller
         }
 
         return response()->json([
-            'success' => true,
-            'data'    => $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
+            'success'         => true,
+            'message'         => $preemptedCount > 0
+                ? "Walk-in appointment confirmed. {$preemptedCount} pending online booking(s) for this slot were notified to reschedule."
+                : 'Appointment created successfully.',
+            'preempted_count' => $preemptedCount,
+            'data'            => $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
         ], 201);
     }
 
@@ -279,6 +301,14 @@ class AppointmentController extends Controller
                             ],
                             'ip_address' => $request->ip(),
                         ]);
+
+                        // Visible reschedule note so UI/UX and owner always have concrete proof
+                        $rescheduleTag = '[Rescheduled from ' . date('M j, Y g:i A', strtotime($oldAt)) . ']';
+                        if (empty($data['notes'])) {
+                            $data['notes'] = $rescheduleTag . ($appointment->notes ? "\n" . $appointment->notes : '');
+                        } elseif (!str_contains($data['notes'], $rescheduleTag)) {
+                            $data['notes'] = $rescheduleTag . "\n" . $data['notes'];
+                        }
                     }
                 }
             }
@@ -294,8 +324,8 @@ class AppointmentController extends Controller
                 $checkAt = $isRescheduled ? \Carbon\Carbon::parse($data['scheduled_at']) : $appointment->scheduled_at;
                 $checkDuration = $data['duration_minutes'] ?? $appointment->duration_minutes ?? 60;
 
-                if (Appointment::hasSchedulingConflict($shop, $appointment->shop_branch_id, $checkAt, $checkDuration, $appointment->id)) {
-                    $error = 'This time slot is already booked by another confirmed appointment.';
+                if (Appointment::hasSchedulingConflict($shop, $appointment->shop_branch_id, $checkAt, $checkDuration, $appointment->id, false)) {
+                    $error = 'This time slot is already booked by another confirmed appointment. Please reschedule before confirming.';
                     $status = 409;
                 }
             }
@@ -303,6 +333,20 @@ class AppointmentController extends Controller
             if (!$error) {
                 // Perform update
                 $appointment->update($data);
+
+                // If confirmed, preempt any other overlapping pending requests on this slot
+                if ($newStatus === 'confirmed') {
+                    $otherPending = Appointment::getOverlappingPendingAppointments(
+                        $shop,
+                        $appointment->shop_branch_id,
+                        $appointment->scheduled_at,
+                        $appointment->duration_minutes ?? 60,
+                        $appointment->id
+                    );
+                    foreach ($otherPending as $other) {
+                        $other->preemptByWalkIn($appointment, $user);
+                    }
+                }
 
                 // reminder_sent_at (server-derived, not fillable — see
                 // RemindUpcomingAppointments) tracks whether the ~24h-ahead
