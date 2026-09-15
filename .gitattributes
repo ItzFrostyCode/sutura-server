@@ -1,5 +1,10 @@
 * text=auto eol=lf
 
+# Windows batch scripts need CRLF regardless of the blanket LF rule above --
+# setup-windows.bat is the literal entry point for Windows users.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 *.blade.php diff=html
 *.css diff=css
 *.html diff=html
