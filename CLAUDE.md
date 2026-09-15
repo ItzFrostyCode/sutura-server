@@ -34,6 +34,9 @@ If a task doesn't obviously belong to one of the four modules above, ask the use
 
 A subscription-tiered (Basic/Pro/Premium), multi-branch platform connecting Davao City tailoring shops with customers: shop owners manage storefronts/staff/orders across branches, customers discover shops by garment specialization on a map and track order production in real time.
 
+> [!NOTE]
+> **Real task division vs. `sutura-client/CLAUDE.md`'s formal branch table:** that table is the formal/academic per-person accountability structure, not the actual hands-on development split. In practice, **Joshua Wayman A. Arabejo develops all three of Shop Owner, Customer Module, and Staff Module himself** (full-stack, AI-assisted) — Renalyn C. Bulotano's real role is documentation/wording for the thesis papers, and Clareynz June A. Masudog's real role is finance/logistics (Claude AI subscription costs, printing/bond-paper for defense materials), not module development. Jossua A. Bongo (leader) develops System Admin. When working across `customer-module` or `staff-module` content/code in this project, treat it as Joshua's own active scope — don't withhold edits on "this is a teammate's module" grounds.
+
 ## The four roles → actual role strings
 
 - **admin** — approves/rejects shop registrations, manages subscription tier definitions, platform-wide monitoring.

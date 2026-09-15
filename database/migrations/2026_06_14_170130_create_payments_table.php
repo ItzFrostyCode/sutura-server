@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('job_order_id')->constrained()->cascadeOnDelete();
             $table->decimal('amount', 10, 2);
-            $table->string('payment_method')->default('cash'); // cash, gcash, bank_transfer
+            $table->string('payment_method')->default('cash'); // cash, gcash, paymaya
             $table->foreignId('recorded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->text('notes')->nullable();
             $table->timestamps();

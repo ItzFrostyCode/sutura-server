@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Attributes\Description;
-use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use App\Models\Shop;
 use App\Notifications\OverdueJobsNotification;
 
-#[Signature('app:notify-overdue-jobs')]
-#[Description('Notify each shop owner once daily if they have job orders past their due_date — turns the passive overdue_jobs KPI into a proactive alert.')]
 class NotifyOverdueJobs extends Command
 {
+    protected $signature = 'app:notify-overdue-jobs';
+
+    protected $description = 'Notify each shop owner once daily if they have job orders past their due_date — turns the passive overdue_jobs KPI into a proactive alert.';
+
     public function handle(): int
     {
         $today = now()->toDateString();

@@ -11,13 +11,15 @@ SUTURA consists of two separate projects running **at the same time**:
 
 # 🪟 WINDOWS SETUP (Using XAMPP)
 
+> [!IMPORTANT]
+> **Correction, and a project-wide fix:** an earlier version of this doc said to "download XAMPP with PHP 8.3" — **that build never existed.** XAMPP for Windows only ever shipped PHP 8.0.30, 8.1.25, or 8.2.12 (checked directly against [apachefriends.org](https://www.apachefriends.org)'s download page). Rather than force every Windows teammate to install a standalone PHP outside XAMPP, this project **downgraded from Laravel 13 to Laravel 12** (which only requires PHP ^8.2, not ^8.3 — [confirmed against Laravel's own release notes](https://laravel.com/docs/12.x/releases)) specifically so XAMPP's stock **PHP 8.2.12** build works out of the box. If you already have XAMPP with PHP 8.2.12 installed, you're done — no separate PHP install needed.
+
 ### Requirements
-- **PHP 8.3+** (`php -v` to check)
-  - *Notice*: Laravel 13 strictly requires PHP 8.3 or higher. If your XAMPP has PHP 8.1 or 8.2, download XAMPP with PHP 8.3 from [apachefriends.org](https://www.apachefriends.org) or install PHP 8.3 from [windows.php.net](https://windows.php.net/download/).
+- **XAMPP with PHP 8.2.12** — [download it here](https://www.apachefriends.org/download.html) if you don't have it (used for PHP **and** MySQL/phpMyAdmin). `php -v` should print `PHP 8.2.12`.
+  - If your XAMPP has PHP 8.0 or 8.1 instead, reinstall XAMPP choosing the **8.2.12** build specifically — 8.0/8.1 are still too old for Laravel 12.
   - Ensure PHP is added to your Windows Environment System PATH (e.g. `C:\xampp\php`).
 - **Composer** (`composer -V` to check)
 - **Node.js 20+** (`node -v` to check)
-- **XAMPP** (used for MySQL & phpMyAdmin)
 
 ### Important: Enable Required PHP Extensions
 In `C:\xampp\php\php.ini`, make sure the following lines do **NOT** have a semicolon `;` in front:
@@ -31,6 +33,9 @@ extension=openssl
 extension=zip
 extension=gd
 ```
+
+> [!NOTE]
+> **Don't run `composer update`** on this project — only `composer install`. `composer.lock` is pinned (`config.platform.php` = `8.2.0` in `composer.json`) so dependency versions stay PHP-8.2-compatible. Running `composer update` on a machine with a PHP newer than 8.2 can silently re-resolve packages to versions that require that newer PHP — the exact class of bug this pin exists to prevent (it happened once already, at the 8.3→8.4 boundary, before this project moved to Laravel 12).
 
 ### 1. Clone the Repositories
 Run in your desired folder (e.g. `C:\Projects`):
@@ -85,7 +90,7 @@ Leave this terminal running. Open **http://localhost:3000** in your browser.
 # 🍎 macOS SETUP
 
 ### Requirements
-- **PHP 8.3+**, **Composer**, **Node.js 20+**
+- **PHP 8.2+**, **Composer**, **Node.js 20+**
 - **MySQL 8.4** via Homebrew:
 ```bash
 brew install mysql@8.4
@@ -139,7 +144,7 @@ Open **http://localhost:3000** in your browser.
 
 | Issue | Solution |
 |---|---|
-| "Root composer.json requires php ^8.3" | Your XAMPP / PHP version is outdated (8.1 or 8.2). Install XAMPP with PHP 8.3+ or download PHP 8.3 directly. |
+| "Root composer.json requires php ^8.2" | Your XAMPP has PHP 8.0 or 8.1. Reinstall XAMPP choosing the **8.2.12** build from [apachefriends.org](https://www.apachefriends.org/download.html). |
 | "Specified key was too long; max key length is 1000 bytes" | Already resolved by `Schema::defaultStringLength(191)` in `AppServiceProvider.php`. |
 | "could not find driver (Connection: mysql)" | Open `C:\xampp\php\php.ini`, uncomment `extension=pdo_mysql`, save and restart terminal. |
 | "Access denied for user 'root'@'localhost'" | Ensure `DB_PASSWORD=` is blank in `.env` if using default XAMPP. |

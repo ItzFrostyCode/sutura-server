@@ -85,7 +85,7 @@ class CatalogOrderController extends Controller
             // endpoint never accepted them, so a real GCash/bank walk-in
             // sale had no way to actually record its reference/receipt,
             // and could never appear in that verification queue at all.
-            'payment_method'       => 'nullable|string|in:cash,gcash,paymaya,bank_transfer',
+            'payment_method'       => 'nullable|string|in:cash,gcash,paymaya',
             'payment_reference'    => 'nullable|string|max:255',
             'payment_receipt_path' => 'nullable|string|max:2048',
         ]);

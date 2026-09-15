@@ -15,11 +15,11 @@ if %errorlevel% neq 0 (
 )
 
 :: 2. Check the ACTUAL PHP version, not just that "php" runs.
-:: This project requires PHP 8.3+ ^(Laravel 13^). XAMPP for Windows often
-:: still bundles 8.1/8.2 by default -- if that's all that's checked, "php -v"
-:: succeeds here but `composer install` fails later with a much more
-:: confusing platform-requirement error, well after the user thinks setup
-:: is already working.
+:: This project requires PHP 8.2+ ^(Laravel 12^). XAMPP for Windows' stock
+:: PHP 8.2.12 build satisfies this out of the box -- if your XAMPP is on
+:: 8.0/8.1 instead, "php -v" succeeds here but `composer install` fails
+:: later with a much more confusing platform-requirement error, well after
+:: the user thinks setup is already working.
 for /f "tokens=1,2 delims=." %%a in ('php -r "echo PHP_VERSION;"') do (
     set PHP_MAJOR=%%a
     set PHP_MINOR=%%b
@@ -28,21 +28,19 @@ for /f "delims=" %%v in ('php -r "echo PHP_VERSION;"') do set PHP_FULL_VERSION=%
 
 set PHP_OK=1
 if %PHP_MAJOR% LSS 8 set PHP_OK=0
-if %PHP_MAJOR% EQU 8 if %PHP_MINOR% LSS 3 set PHP_OK=0
+if %PHP_MAJOR% EQU 8 if %PHP_MINOR% LSS 2 set PHP_OK=0
 
 if !PHP_OK! EQU 0 (
-    echo [ERROR] Detected PHP !PHP_FULL_VERSION! -- this project requires PHP 8.3 or higher ^(Laravel 13^).
+    echo [ERROR] Detected PHP !PHP_FULL_VERSION! -- this project requires PHP 8.2 or higher ^(Laravel 12^).
     echo.
-    echo Your XAMPP is likely on an older bundled PHP. Fix options:
-    echo   1. Download a XAMPP installer that ships PHP 8.3+ from https://www.apachefriends.org
-    echo   2. OR install standalone PHP 8.3+ from https://windows.php.net and point your
-    echo      terminal's PATH at it instead of the XAMPP one.
+    echo Your XAMPP is likely on an older bundled PHP ^(8.0 or 8.1^). Fix:
+    echo   Reinstall XAMPP choosing the 8.2.12 build from https://www.apachefriends.org/download.html
     echo After fixing, close and reopen this terminal, then re-run this script.
     pause
     exit /b 1
 )
 
-echo [OK] PHP !PHP_FULL_VERSION! detected ^(matches this project's ^php: ^8.3^ requirement^).
+echo [OK] PHP !PHP_FULL_VERSION! detected ^(matches this project's ^php: ^8.2^ requirement^).
 echo.
 
 :: 3. Check Composer

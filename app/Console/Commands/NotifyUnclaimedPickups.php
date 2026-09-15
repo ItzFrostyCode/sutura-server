@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Attributes\Description;
-use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use App\Models\Shop;
 use App\Notifications\UnclaimedPickupsNotification;
 
-#[Signature('app:notify-unclaimed-pickups')]
-#[Description('Notify each shop owner once daily if they have job orders sitting ready_for_pickup 14+ days — turns the passive unclaimed_pickups Reports list into a proactive alert.')]
 class NotifyUnclaimedPickups extends Command
 {
+    protected $signature = 'app:notify-unclaimed-pickups';
+
+    protected $description = 'Notify each shop owner once daily if they have job orders sitting ready_for_pickup 14+ days — turns the passive unclaimed_pickups Reports list into a proactive alert.';
+
     public function handle(): int
     {
         $notified = 0;
