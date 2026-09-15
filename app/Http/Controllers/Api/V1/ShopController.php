@@ -77,6 +77,113 @@ class ShopController extends Controller
         ]);
     }
 
+    /**
+     * Public shop discovery/search/map feed — the endpoint Objectives 3/4
+     * (Shop Discovery + Map-Based Navigation) needed but never had. Unlike
+     * publicProfile() below, this one also checks `status = 'approved'` —
+     * publicProfile() only ever checked is_hidden, which technically leaves
+     * a pending/unapproved shop publicly reachable by direct slug lookup.
+     * A listing surface shouldn't repeat that gap.
+     */
+    public function publicIndex(Request $request): JsonResponse
+    {
+        $query = Shop::query()
+            ->where('is_hidden', false)
+            ->where('status', 'approved');
+
+        if ($request->filled('q')) {
+            $search = strtolower((string) $request->string('q'));
+            $query->where(function ($q) use ($search) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(specializations) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereHas('services', function ($sq) use ($search) {
+                        $sq->whereRaw('LOWER(category) LIKE ?', ['%' . $search . '%']);
+                    });
+            });
+        }
+
+        if ($request->filled('specialization')) {
+            $query->whereJsonContains('specializations', $request->string('specialization')->toString());
+        }
+
+        if ($request->filled('district')) {
+            $district = $request->string('district')->toString();
+            $query->whereHas('branches', function ($bq) use ($district) {
+                $bq->where('district', $district)->where('status', 'active');
+            });
+        }
+
+        if ($request->filled('min_price') || $request->filled('max_price')) {
+            $query->whereHas('services', function ($sq) use ($request) {
+                $sq->where('is_active', true);
+                if ($request->filled('min_price')) {
+                    $sq->where('base_price', '>=', $request->float('min_price'));
+                }
+                if ($request->filled('max_price')) {
+                    $sq->where('base_price', '<=', $request->float('max_price'));
+                }
+            });
+        }
+
+        $query->withCount('reviews')->withAvg('reviews', 'rating');
+
+        if ($request->filled('min_rating')) {
+            $query->havingRaw('reviews_avg_rating >= ?', [$request->float('min_rating')]);
+        }
+
+        if ($request->filled('lat') && $request->filled('lng')) {
+            $lat = $request->float('lat');
+            $lng = $request->float('lng');
+
+            // No geospatial package exists anywhere in this codebase — plain
+            // Haversine formula against each shop's nearest active branch.
+            // No "shops.*," prefix here — withCount()/withAvg() above already
+            // add it implicitly; repeating it caused a "duplicate column
+            // 'id'" error once paginate() wrapped this into a COUNT subquery.
+            $query->selectRaw('(
+                SELECT MIN(6371 * ACOS(
+                    COS(RADIANS(?)) * COS(RADIANS(shop_branches.latitude)) *
+                    COS(RADIANS(shop_branches.longitude) - RADIANS(?)) +
+                    SIN(RADIANS(?)) * SIN(RADIANS(shop_branches.latitude))
+                ))
+                FROM shop_branches
+                WHERE shop_branches.shop_id = shops.id AND shop_branches.status = \'active\'
+            ) as distance_km', [$lat, $lng, $lat]);
+
+            if ($request->filled('radius_km')) {
+                $query->having('distance_km', '<=', $request->float('radius_km'));
+            }
+        }
+
+        match ($request->string('sort_by')->toString()) {
+            'rating' => $query->orderByDesc('reviews_avg_rating'),
+            'distance' => $query->orderBy('distance_km'),
+            'price_asc' => $query->orderBy(
+                \App\Models\Service::selectRaw('MIN(base_price)')
+                    ->whereColumn('shop_id', 'shops.id')
+                    ->where('is_active', true)
+            ),
+            'newest' => $query->orderByDesc('created_at'),
+            default => $query->orderByDesc('is_featured')->orderByDesc('created_at'),
+        };
+
+        $shops = $query->with([
+            'branches' => fn ($q) => $q->where('status', 'active'),
+            'services' => fn ($q) => $q->where('is_active', true),
+        ])->paginate($request->input('per_page', 20));
+
+        return response()->json([
+            'success' => true,
+            'data' => $shops->items(),
+            'meta' => [
+                'current_page' => $shops->currentPage(),
+                'last_page' => $shops->lastPage(),
+                'per_page' => $shops->perPage(),
+                'total' => $shops->total(),
+            ],
+        ]);
+    }
+
     public function publicProfile(Shop $shop): JsonResponse
     {
         // This route intentionally carries no `auth:sanctum` middleware (it's
