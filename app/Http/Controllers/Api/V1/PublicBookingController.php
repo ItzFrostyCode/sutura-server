@@ -37,6 +37,13 @@ class PublicBookingController extends Controller
                     ->where('is_active', true)
                     ->get(['id', 'name', 'base_price', 'estimated_days']),
                 'appointment_types' => Appointment::TYPES,
+                'gcash_number'        => $shop->gcash_number,
+                'gcash_account_name'  => $shop->gcash_account_name,
+                'gcash_qr_path'       => $shop->gcash_qr_path,
+                'bank_name'           => $shop->bank_name,
+                'bank_account_number' => $shop->bank_account_number,
+                'bank_account_name'   => $shop->bank_account_name,
+                'bank_qr_path'        => $shop->bank_qr_path,
             ],
         ]);
     }
@@ -49,7 +56,7 @@ class PublicBookingController extends Controller
         // Only return confirmed appointments (or pending if you want to block pending too)
         // Returning only scheduled_at and duration_minutes to keep customer details anonymous
         $appointments = $shop->appointments()
-            ->whereIn('status', ['pending', 'confirmed'])
+            ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
             ->where('scheduled_at', '>=', now()->subDay())
             ->get(['scheduled_at', 'duration_minutes', 'shop_branch_id']);
 
@@ -85,7 +92,7 @@ class PublicBookingController extends Controller
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link'   => ['nullable', 'url', 'max:500'],
             'answers'          => ['nullable', 'array'],
-            'payment_method'   => ['nullable', 'string', 'in:cash,gcash,bank_transfer'],
+            'payment_method'   => ['nullable', 'string', 'in:cash,gcash,paymaya,bank_transfer'],
             'payment_reference'=> ['nullable', 'string', 'max:255'],
             'payment_receipt_path' => ['nullable', 'string', 'max:1000'],
         ]);
@@ -111,12 +118,12 @@ class PublicBookingController extends Controller
         // with an empty receipt path if the upload was still in flight, failed,
         // or was simply skipped for a non-cash method.
         if (
-            in_array($validated['payment_method'] ?? 'cash', ['gcash', 'bank_transfer'], true)
+            in_array($validated['payment_method'] ?? 'cash', ['gcash', 'paymaya', 'bank_transfer'], true)
             && empty($validated['payment_receipt_path'])
         ) {
             return response()->json([
                 'success' => false,
-                'message' => 'A payment receipt is required for GCash/Bank Transfer bookings.',
+                'message' => 'A payment receipt is required for GCash/PayMaya/Bank Transfer bookings.',
                 'errors'  => ['payment_receipt_path' => ['Please upload your payment receipt before confirming.']],
             ], 422);
         }
@@ -127,14 +134,12 @@ class PublicBookingController extends Controller
             $branchId = $shop->branches()->first()->id;
         }
 
-        // ── Double-booking check (only against confirmed appointments) ─────────
+        // ── Double-booking check: checks both pending and confirmed appointments ───
         $scheduledAt     = Carbon::parse($validated['scheduled_at']);
         $durationMinutes = $validated['duration_minutes'] ?? 60;
 
         // Same "we are not open" backstop AppointmentController enforces for
-        // owner-created bookings/reschedules — this public form is actually
-        // the highest-volume path a booking ever comes through, so it was
-        // the biggest hole left before this closure check existed anywhere.
+        // owner-created bookings/reschedules
         if ($closureTitle = $shop->closureTitleOn($scheduledAt, $branchId)) {
             return response()->json([
                 'success' => false,
@@ -142,10 +147,12 @@ class PublicBookingController extends Controller
             ], 409);
         }
 
-        if (Appointment::hasSchedulingConflict($shop, $branchId, $scheduledAt, $durationMinutes)) {
+        // For public storefront bookings, any slot held by a confirmed or pending
+        // appointment is locked to eliminate online-vs-online collisions.
+        if (Appointment::hasSchedulingConflict($shop, $branchId, $scheduledAt, $durationMinutes, null, true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'This time slot is already booked. Please choose a different time.',
+                'message' => 'This time slot is already reserved or currently requested. Please choose a different time.',
             ], 409);
         }
 
@@ -192,25 +199,38 @@ class PublicBookingController extends Controller
             $shop->customers()->attach($customer->id);
         }
 
-        // ── Create appointment ─────────────────────────────────────────────────
-        $appointment = $shop->appointments()->create([
-            'customer_id'      => $customer->id,
-            'shop_branch_id'   => $branchId,
-            'service_id'       => $validated['service_id'] ?? null,
-            'appointment_type' => $type,
-            'intake_channel'   => 'online',
-            'scheduled_at'     => $validated['scheduled_at'],
-            'duration_minutes' => $durationMinutes,
-            'notes'            => $validated['notes'] ?? null,
-            'reference_images' => $validated['reference_images'] ?? null,
-            'reference_link'   => $validated['reference_link'] ?? null,
-            'answers'          => $validated['answers'] ?? null,
-            'status'           => 'pending',
-            'payment_method'   => $validated['payment_method'] ?? 'cash',
-            'payment_reference'=> $validated['payment_reference'] ?? null,
-            'payment_receipt_path' => $validated['payment_receipt_path'] ?? null,
-            'payment_status'   => 'pending',
-        ]);
+        // ── Create appointment (with transactional concurrency guard) ──────────
+        $appointment = \Illuminate\Support\Facades\DB::transaction(function () use ($shop, $customer, $branchId, $type, $validated, $scheduledAt, $durationMinutes) {
+            if (Appointment::hasSchedulingConflict($shop, $branchId, $scheduledAt, $durationMinutes, null, true)) {
+                return null;
+            }
+
+            return $shop->appointments()->create([
+                'customer_id'      => $customer->id,
+                'shop_branch_id'   => $branchId,
+                'service_id'       => $validated['service_id'] ?? null,
+                'appointment_type' => $type,
+                'intake_channel'   => 'online',
+                'scheduled_at'     => $validated['scheduled_at'],
+                'duration_minutes' => $durationMinutes,
+                'notes'            => $validated['notes'] ?? null,
+                'reference_images' => $validated['reference_images'] ?? null,
+                'reference_link'   => $validated['reference_link'] ?? null,
+                'answers'          => $validated['answers'] ?? null,
+                'status'           => 'pending',
+                'payment_method'   => $validated['payment_method'] ?? 'cash',
+                'payment_reference'=> $validated['payment_reference'] ?? null,
+                'payment_receipt_path' => $validated['payment_receipt_path'] ?? null,
+                'payment_status'   => 'pending',
+            ]);
+        });
+
+        if (!$appointment) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This time slot is already reserved or currently requested. Please choose a different time.',
+            ], 409);
+        }
 
         // Notify shop owner
         $shopOwner = $shop->owner;

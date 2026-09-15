@@ -18,11 +18,34 @@ class UpdateAppointmentRequest extends FormRequest
         $shop = $this->route('shop');
 
         return [
+            // Customer and appointment details updatable by owner/manager
+            'customer_id'      => ['sometimes', 'required', 'integer', 'exists:users,id'],
+            'appointment_type' => ['sometimes', 'required', 'in:' . implode(',', Appointment::TYPES)],
+            'service_id'       => [
+                'sometimes', 'nullable', 'integer',
+                Rule::exists('services', 'id')->where('shop_id', $shop?->id),
+            ],
+            'shop_branch_id'   => [
+                'sometimes', 'nullable', 'integer',
+                Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id),
+            ],
+
             // Status transitions — state machine enforced in controller
             'status'           => ['sometimes', 'required', 'in:' . implode(',', Appointment::STATUSES)],
 
             // Reschedule — updates scheduled_at in-place (no new row)
-            'scheduled_at'     => ['sometimes', 'required', 'date', 'after:now'],
+            'scheduled_at'     => [
+                'sometimes', 'required', 'date',
+                function ($attribute, $value, $fail) {
+                    $appointment = $this->route('appointment');
+                    // Only enforce future/today check if the scheduled_at is being changed
+                    if ($appointment && $appointment->scheduled_at && strtotime($value) !== strtotime($appointment->scheduled_at)) {
+                        if (strtotime($value) < strtotime('today')) {
+                            $fail('Rescheduled appointment must not be in the past.');
+                        }
+                    }
+                },
+            ],
 
             // Duration can be updated if the schedule changes
             'duration_minutes' => ['sometimes', 'required', 'integer', 'min:15', 'max:480'],
@@ -33,7 +56,7 @@ class UpdateAppointmentRequest extends FormRequest
                 Rule::exists('staff_profiles', 'user_id')->where('shop_id', $shop?->id),
                 function ($attribute, $value, $fail) use ($shop) {
                     $appointment = $this->route('appointment');
-                    $targetBranchId = $appointment?->shop_branch_id;
+                    $targetBranchId = $this->input('shop_branch_id') ?: $appointment?->shop_branch_id;
                     if (!$value || !$targetBranchId) {
                         return;
                     }
@@ -56,9 +79,6 @@ class UpdateAppointmentRequest extends FormRequest
             'priority'         => ['nullable', 'string', 'in:normal,urgent,rush'],
             'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
             'fitting_notes'    => ['nullable', 'string', 'max:2000'],
-
-            // NOTE: shop_branch_id is intentionally NOT updatable.
-            // Branch is chosen by the customer at booking time and is immutable.
         ];
     }
 
