@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Attributes\Description;
-use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use App\Models\Appointment;
 use App\Notifications\AppointmentReminderNotification;
 
-#[Signature('app:remind-upcoming-appointments')]
-#[Description('Email/notify customers ~24h ahead of a still-pending/confirmed appointment — the "customer forgot their fitting" pain point named in tailoring-shop interview research.')]
 class RemindUpcomingAppointments extends Command
 {
+    protected $signature = 'app:remind-upcoming-appointments';
+
+    protected $description = 'Email/notify customers ~24h ahead of a still-pending/confirmed appointment — the "customer forgot their fitting" pain point named in tailoring-shop interview research.';
+
     public function handle(): int
     {
         // A 2-hour window, not an exact "= tomorrow same minute" match —

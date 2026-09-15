@@ -2,14 +2,14 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Attributes\Description;
-use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
-#[Signature('app:backup-database')]
-#[Description('Back up the application database (sqlite/mysql/pgsql) and prune backups older than 30 days.')]
 class BackupDatabase extends Command
 {
+    protected $signature = 'app:backup-database';
+
+    protected $description = 'Back up the application database (sqlite/mysql/pgsql) and prune backups older than 30 days.';
+
     private const RETENTION_DAYS = 30;
 
     /**

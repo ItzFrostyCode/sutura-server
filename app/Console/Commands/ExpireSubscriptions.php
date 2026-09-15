@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Attributes\Description;
-use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use App\Models\ShopSubscription;
 use App\Notifications\SubscriptionExpiredNotification;
 
-#[Signature('app:expire-subscriptions')]
-#[Description('Marks past-due subscriptions as expired and hides the shop from customers until renewed — matches REQUIREMENTS.md Phase 5: "Expired subscriptions automatically downgrade shop visibility to Hidden until renewed."')]
 class ExpireSubscriptions extends Command
 {
+    protected $signature = 'app:expire-subscriptions';
+
+    protected $description = 'Marks past-due subscriptions as expired and hides the shop from customers until renewed — matches REQUIREMENTS.md Phase 5: "Expired subscriptions automatically downgrade shop visibility to Hidden until renewed."';
+
     public function handle(): int
     {
         $expired = 0;
