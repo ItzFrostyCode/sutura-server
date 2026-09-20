@@ -1105,7 +1105,7 @@ class LocalTestSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $gown2->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown .jpg'],
+            ['catalog_item_id' => $gown2->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
 
