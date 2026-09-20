@@ -20,6 +20,11 @@ class ShopBranch extends Model
         return $this->hasMany(StaffProfile::class);
     }
 
+    public function manager()
+    {
+        return $this->hasOne(StaffProfile::class, 'shop_branch_id')->where('is_branch_manager', true);
+    }
+
     public function appointments()
     {
         return $this->hasMany(Appointment::class);

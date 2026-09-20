@@ -33,10 +33,21 @@ class AuthController extends Controller
             ], 422);
         }
 
+        // If no account exists with this email, check if an unclaimed walk-in
+        // shadow account was created at the shop counter matching this phone
+        // number with a synthetic email (walkin_%@sutura.com):
+        if (!$existing && $request->filled('phone')) {
+            $existing = User::where('phone', $request->phone)
+                ->where('email', 'like', 'walkin_%@sutura.com')
+                ->whereNull('password_set_at')
+                ->first();
+        }
+
         if ($existing) {
             $user = $existing;
             $user->update([
                 'name'            => $request->name,
+                'email'           => $request->email,
                 'password'        => Hash::make($request->password),
                 'password_set_at' => now(),
                 'phone'           => $request->phone ?? $user->phone,
@@ -91,12 +102,14 @@ class AuthController extends Controller
             }
         }
 
+        $shop = $user->shops->first() ?? $staffProfile?->shop;
+
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user,
                 'staff_profile' => $staffProfile,
-                'shop' => $user->shops->first(),
+                'shop' => $shop,
                 'token' => $token,
             ]
         ]);
@@ -161,12 +174,14 @@ class AuthController extends Controller
             }
         }
 
+        $shop = $user->shops->first() ?? $staffProfile?->shop;
+
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user,
                 'staff_profile' => $staffProfile,
-                'shop' => $user->shops->first() // For shop owners
+                'shop' => $shop,
             ]
         ]);
     }

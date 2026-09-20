@@ -144,25 +144,48 @@ class Appointment extends Model
     }
 
     /**
+     * Prepare a date for array / JSON serialization without forced UTC 'Z' drift,
+     * ensuring frontend date string parsing and JavaScript Date() match local atelier time.
+     */
+    protected function serializeDate(\DateTimeInterface $date): string
+    {
+        return $date->format('Y-m-d\TH:i:s');
+    }
+
+    /**
      * Whether a new [scheduledAt, scheduledAt + duration] window would
-     * overlap an existing confirmed appointment on the same branch. Shared
-     * by the public booking form and the owner's manual create/reschedule
-     * flow so double-booking is blocked consistently everywhere, not just
-     * for customers booking online.
+     * overlap an existing appointment on the same branch.
+     * When $includePending is true (e.g. public storefront customer booking),
+     * slots held by pending online requests are also considered conflicting to prevent
+     * two online users from requesting the exact same slot simultaneously.
+     * When $includePending is false (e.g. in-store walk-in counter intake),
+     * only confirmed/in-progress appointments block the slot, because physical
+     * walk-in clients are the source of truth ("kung sino ang makauna").
      */
     public static function hasSchedulingConflict(
         Shop $shop,
         ?int $branchId,
         \Carbon\Carbon $scheduledAt,
         int $durationMinutes,
-        ?int $excludeId = null
+        ?int $excludeId = null,
+        bool $includePending = false
     ): bool {
         $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes);
 
+        $statuses = $includePending
+            ? ['pending', 'confirmed', 'in_progress']
+            : ['confirmed', 'in_progress'];
+
         $query = $shop->appointments()
-            ->where('shop_branch_id', $branchId)
-            ->where('status', 'confirmed')
+            ->whereIn('status', $statuses)
             ->where('scheduled_at', '<', $newEnd);
+
+        if ($branchId !== null) {
+            $query->where(function ($q) use ($branchId) {
+                $q->where('shop_branch_id', $branchId)
+                  ->orWhereNull('shop_branch_id');
+            });
+        }
 
         if ($excludeId) {
             $query->where('id', '!=', $excludeId);
@@ -207,6 +230,84 @@ class Appointment extends Model
             ->first(['rebooking_blocked']);
 
         return (bool) ($latestCancelled?->rebooking_blocked ?? false);
+    }
+
+    /**
+     * Retrieve all pending appointments that overlap with a given time slot.
+     * Used when a walk-in is confirmed to preempt/reschedule conflicting pending online requests.
+     */
+    public static function getOverlappingPendingAppointments(
+        Shop $shop,
+        ?int $branchId,
+        \Carbon\Carbon $scheduledAt,
+        int $durationMinutes,
+        ?int $excludeId = null
+    ): \Illuminate\Database\Eloquent\Collection {
+        $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes);
+
+        $query = $shop->appointments()
+            ->where('status', 'pending')
+            ->where('scheduled_at', '<', $newEnd);
+
+        if ($branchId !== null) {
+            $query->where(function ($q) use ($branchId) {
+                $q->where('shop_branch_id', $branchId)
+                  ->orWhereNull('shop_branch_id');
+            });
+        }
+
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        return $query->get()
+            ->filter(function (self $appointment) use ($scheduledAt): bool {
+                return $appointment->scheduled_at->copy()
+                    ->addMinutes($appointment->duration_minutes ?? 60)
+                    ->gt($scheduledAt);
+            })
+            ->values();
+    }
+
+    /**
+     * Preempt this pending appointment when an in-store walk-in claims the time slot.
+     * Physical walk-in customers arriving at the atelier are the source of truth ("kung sino ang makauna").
+     */
+    public function preemptByWalkIn(self $walkInAppointment, ?User $actor = null): void
+    {
+        $oldScheduledAt = $this->scheduled_at ? $this->scheduled_at->format('M d, Y h:i A') : 'N/A';
+        $stamp = "[Walk-in Priority] Time slot claimed by in-person client on " . now()->format('M d, Y h:i A') . ". Reschedule required.";
+
+        $newNotes = $this->notes ? ($stamp . "\n" . $this->notes) : $stamp;
+
+        $this->update([
+            'notes'   => $newNotes,
+            'outcome' => 'rescheduled',
+        ]);
+
+        // Notify the online customer about the walk-in preemption & reschedule prompt
+        if ($this->customer) {
+            $this->customer->notify(new \App\Notifications\AppointmentStatusNotification(
+                $this,
+                'walk_in_preempted',
+                "Your requested appointment slot for {$oldScheduledAt} was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot."
+            ));
+        }
+
+        // Audit log
+        $this->shop?->auditLogs()->create([
+            'user_id'    => $actor?->id ?? $this->shop->owner_id,
+            'action'     => 'appointment_preempted_by_walk_in',
+            'model_type' => self::class,
+            'model_id'   => $this->id,
+            'payload'    => [
+                'preempted_appointment_id' => $this->id,
+                'walk_in_appointment_id'   => $walkInAppointment->id,
+                'original_slot'            => $oldScheduledAt,
+                'reason'                   => 'Preempted by physical counter walk-in (source of truth)',
+            ],
+            'ip_address' => request()->ip() ?? '127.0.0.1',
+        ]);
     }
 
     /**

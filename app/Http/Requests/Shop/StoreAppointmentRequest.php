@@ -34,7 +34,7 @@ class StoreAppointmentRequest extends FormRequest
             'shop_branch_id'   => $branchCount > 1
                 ? ['required', 'integer', Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id)]
                 : ['nullable', 'integer', Rule::exists('shop_branches', 'id')->where('shop_id', $shop?->id)],
-            'scheduled_at'     => ['required', 'date', 'after:now'],
+            'scheduled_at'     => ['required', 'date', 'after_or_equal:today'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
             'assigned_staff_id'=> [
                 'nullable', 'integer',

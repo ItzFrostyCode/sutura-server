@@ -12,6 +12,27 @@ class ShopReviewController extends Controller
 {
     public function store(Request $request, Shop $shop): JsonResponse
     {
+        $user = $request->user();
+
+        // Shop owners cannot review their own shop
+        if ($shop->owner_id === $user->id || $shop->user_id === $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shop owners cannot review their own shop.',
+            ], 403);
+        }
+
+        // Staff members of this shop cannot review their employer
+        if ($user->hasRole('staff') || $user->hasRole('branch_manager')) {
+            $staffShopId = $user->staffProfile?->shop_id;
+            if ($staffShopId === $shop->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Staff members cannot review their own shop.',
+                ], 403);
+            }
+        }
+
         $validated = $request->validate([
             'rating' => 'required|integer|min:0|max:5',
             'comment' => 'nullable|string|max:1000',

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -21,6 +22,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Enforce 191-character default string length so MariaDB / MySQL on XAMPP
+        // does not exceed the 1000-byte index limit on utf8mb4 unique/primary keys.
+        Schema::defaultStringLength(191);
+
         // Point password-reset emails at the Next.js reset page instead of
         // Laravel's default backend-only URL — there is no server-rendered
         // reset view in this API-only app.

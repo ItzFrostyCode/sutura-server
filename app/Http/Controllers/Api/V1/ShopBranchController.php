@@ -12,7 +12,18 @@ class ShopBranchController extends Controller
 
     public function index($shopId)
     {
-        $branches = ShopBranch::where('shop_id', $shopId)->withCount(['staffProfiles', 'jobOrders'])->get();
+        $branches = ShopBranch::where('shop_id', $shopId)
+            ->withCount(['staffProfiles', 'jobOrders'])
+            ->with([
+                'manager.user:id,name,email,phone,profile_picture',
+                'staffProfiles' => function ($q) {
+                    $q->where('is_branch_manager', true)->with('user:id,name,email,phone,profile_picture');
+                },
+            ])
+            ->orderByDesc('is_main')
+            ->orderBy('id')
+            ->get();
+
         return response()->json(['success' => true, 'data' => $branches]);
     }
 
@@ -33,6 +44,7 @@ class ShopBranchController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'operating_hours' => 'nullable|string|max:255',
             'guide_image_url' => 'nullable|string|max:500',
+            'manager_id' => 'nullable|integer',
         ]);
 
         $shop = Shop::findOrFail($shopId);
@@ -65,8 +77,27 @@ class ShopBranchController extends Controller
             'guide_image_url'  => $request->guide_image_url,
         ]);
 
-        // Load counts so the frontend card renders correct values immediately
+        if ($request->filled('manager_id')) {
+            $staff = \App\Models\StaffProfile::where('shop_id', $shopId)->find($request->manager_id);
+            if ($staff) {
+                $staff->update([
+                    'shop_branch_id' => $branch->id,
+                    'is_branch_manager' => true,
+                ]);
+                $bmRole = \App\Models\Role::where('name', 'branch_manager')->first();
+                if ($bmRole && $staff->user) {
+                    $staff->user->roles()->syncWithoutDetaching([$bmRole->id]);
+                }
+            }
+        }
+
         $branch->loadCount(['staffProfiles', 'jobOrders']);
+        $branch->load([
+            'manager.user:id,name,email,phone,profile_picture',
+            'staffProfiles' => function ($q) {
+                $q->where('is_branch_manager', true)->with('user:id,name,email,phone,profile_picture');
+            },
+        ]);
 
         return response()->json(['success' => true, 'message' => 'Branch added successfully.', 'data' => $branch]);
     }
@@ -89,6 +120,7 @@ class ShopBranchController extends Controller
             'operating_hours' => 'nullable|string|max:255',
             'status' => 'nullable|in:active,inactive',
             'guide_image_url' => 'nullable|string|max:500',
+            'manager_id' => 'nullable',
         ]);
 
         $branch->update([
@@ -98,16 +130,83 @@ class ShopBranchController extends Controller
             'city' => $request->city,
             'district' => $request->district,
             'contact_number' => $request->contact_number,
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
+            'latitude' => $request->filled('latitude') ? $request->latitude : ($request->latitude === '' ? null : $branch->latitude),
+            'longitude' => $request->filled('longitude') ? $request->longitude : ($request->longitude === '' ? null : $branch->longitude),
             'operating_hours' => $request->operating_hours,
             'status' => $request->status ?? $branch->status,
-            'guide_image_url' => $request->guide_image_url,
+            'guide_image_url' => $request->filled('guide_image_url') ? $request->guide_image_url : ($request->guide_image_url === '' ? null : $branch->guide_image_url),
         ]);
 
+        if ($request->has('manager_id')) {
+            $managerId = $request->input('manager_id');
+            // Clear current manager flag for this branch
+            \App\Models\StaffProfile::where('shop_branch_id', $branch->id)
+                ->where('is_branch_manager', true)
+                ->update(['is_branch_manager' => false]);
+
+            if ($managerId) {
+                $staff = \App\Models\StaffProfile::where('shop_id', $shopId)->find($managerId);
+                if ($staff) {
+                    $staff->update([
+                        'shop_branch_id' => $branch->id,
+                        'is_branch_manager' => true,
+                    ]);
+                    $bmRole = \App\Models\Role::where('name', 'branch_manager')->first();
+                    if ($bmRole && $staff->user) {
+                        $staff->user->roles()->syncWithoutDetaching([$bmRole->id]);
+                    }
+                }
+            }
+        }
+
         $branch->loadCount(['staffProfiles', 'jobOrders']);
+        $branch->load([
+            'manager.user:id,name,email,phone,profile_picture',
+            'staffProfiles' => function ($q) {
+                $q->where('is_branch_manager', true)->with('user:id,name,email,phone,profile_picture');
+            },
+        ]);
 
         return response()->json(['success' => true, 'message' => 'Branch updated successfully.', 'data' => $branch]);
+    }
+
+    public function setMain(Request $request, $shopId, ShopBranch $branch)
+    {
+        if ($branch->shop_id != $shopId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        // Reset all branches of this shop to is_main = false
+        ShopBranch::where('shop_id', $shopId)->update(['is_main' => false]);
+        // Set this branch to is_main = true
+        $branch->update(['is_main' => true]);
+
+        $branch->loadCount(['staffProfiles', 'jobOrders']);
+        $branch->load([
+            'manager.user:id,name,email,phone,profile_picture',
+            'staffProfiles' => function ($q) {
+                $q->where('is_branch_manager', true)->with('user:id,name,email,phone,profile_picture');
+            },
+        ]);
+
+        // Audit log for accountability
+        $branch->shop->auditLogs()->create([
+            'user_id'    => $request->user()->id,
+            'action'     => 'branch_set_main',
+            'model_type' => \App\Models\ShopBranch::class,
+            'model_id'   => $branch->id,
+            'payload'    => [
+                'name'        => $branch->name,
+                'description' => "Designated \"{$branch->name}\" as Primary Headquarters",
+            ],
+            'ip_address' => $request->ip(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$branch->name} is now designated as the Main Branch.",
+            'data'    => $branch,
+        ]);
     }
 
     public function destroy(Request $request, $shopId, ShopBranch $branch)

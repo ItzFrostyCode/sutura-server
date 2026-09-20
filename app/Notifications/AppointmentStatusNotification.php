@@ -13,12 +13,14 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
     use Queueable;
 
     public Appointment $appointment;
-    public string $statusType; // 'confirmed', 'rescheduled', 'cancelled', 'completed'
+    public string $statusType; // 'confirmed', 'rescheduled', 'cancelled', 'completed', 'walk_in_preempted'
+    public ?string $customMessage;
 
-    public function __construct(Appointment $appointment, string $statusType)
+    public function __construct(Appointment $appointment, string $statusType, ?string $customMessage = null)
     {
         $this->appointment = $appointment;
         $this->statusType = $statusType;
+        $this->customMessage = $customMessage;
     }
 
     /**
@@ -37,28 +39,36 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
     private function titles(): array
     {
         return [
-            'confirmed' => 'Appointment Confirmed',
-            'rescheduled' => 'Appointment Rescheduled',
-            'cancelled' => 'Appointment Cancelled',
-            'completed' => 'Appointment Completed',
-            'in_progress' => 'Appointment In Progress',
-            'no_show' => 'No-Show Recorded',
+            'confirmed'          => 'Appointment Confirmed',
+            'rescheduled'        => 'Appointment Rescheduled',
+            'cancelled'          => 'Appointment Cancelled',
+            'completed'          => 'Appointment Completed',
+            'in_progress'        => 'Appointment In Progress',
+            'no_show'            => 'No-Show Recorded',
+            'walk_in_preempted'  => 'Appointment Slot Claimed by Walk-in Client',
         ];
     }
 
     private function messages(): array
     {
+        if ($this->customMessage) {
+            return [
+                $this->statusType => $this->customMessage,
+            ];
+        }
+
         $scheduledAt = $this->appointment->scheduled_at
             ? \Carbon\Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
             : 'N/A';
 
         return [
-            'confirmed' => 'Your appointment for ' . $scheduledAt . ' has been confirmed by the shop.',
-            'rescheduled' => 'Your appointment has been rescheduled to ' . $scheduledAt . '.',
-            'cancelled' => 'Your appointment for ' . $scheduledAt . ' has been cancelled.',
-            'completed' => 'Your fitting/consultation appointment on ' . $scheduledAt . ' is now marked as completed.',
-            'in_progress' => 'Your appointment is now in progress.',
-            'no_show' => 'You were marked as a no-show for your appointment at ' . $scheduledAt . '.',
+            'confirmed'          => 'Your appointment for ' . $scheduledAt . ' has been confirmed by the shop.',
+            'rescheduled'        => 'Your appointment has been rescheduled to ' . $scheduledAt . '.',
+            'cancelled'          => 'Your appointment for ' . $scheduledAt . ' has been cancelled.',
+            'completed'          => 'Your fitting/consultation appointment on ' . $scheduledAt . ' is now marked as completed.',
+            'in_progress'        => 'Your appointment is now in progress.',
+            'no_show'            => 'You were marked as a no-show for your appointment at ' . $scheduledAt . '.',
+            'walk_in_preempted'  => 'Your requested appointment slot for ' . $scheduledAt . ' was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot.',
         ];
     }
 

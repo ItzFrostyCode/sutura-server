@@ -43,7 +43,13 @@ class CatalogOrderController extends Controller
             $branchId = $user->staffProfile->shop_branch_id;
             $query->where(fn ($q) => $q->where('shop_branch_id', $branchId)->orWhereNull('shop_branch_id'));
         } elseif ($request->filled('branch_id')) {
-            $query->where('shop_branch_id', $request->branch_id);
+            $branchId = (int) $request->branch_id;
+            $mainBranchId = (int) \App\Models\ShopBranch::where('shop_id', $shopId)->where('is_main', true)->value('id');
+            if ($branchId === $mainBranchId) {
+                $query->where(fn ($q) => $q->where('shop_branch_id', $branchId)->orWhereNull('shop_branch_id'));
+            } else {
+                $query->where('shop_branch_id', $branchId);
+            }
         }
 
         $orders = $query->latest()->get();

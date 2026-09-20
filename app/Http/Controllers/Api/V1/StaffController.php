@@ -37,6 +37,14 @@ class StaffController extends Controller
 
     public function index(Shop $shop): JsonResponse
     {
+        $cacheKey = "shop_staff_{$shop->id}";
+        if (!app()->environment('testing')) {
+            $cached = \Illuminate\Support\Facades\Cache::driver('file')->get($cacheKey);
+            if (is_array($cached) && isset($cached['data']) && is_array($cached['data'])) {
+                return response()->json($cached);
+            }
+        }
+
         $staff = $shop->staff()->with(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])->get();
 
         // One grouped query for all staff instead of 2 queries per staff
@@ -69,10 +77,16 @@ class StaffController extends Controller
             return $s;
         });
 
-        return response()->json([
+        $payload = [
             'success' => true,
-            'data' => $staff
-        ]);
+            'data' => $staff->values()->toArray()
+        ];
+
+        if (!app()->environment('testing')) {
+            \Illuminate\Support\Facades\Cache::driver('file')->put($cacheKey, $payload, 30);
+        }
+
+        return response()->json($payload);
     }
 
     public function show(Shop $shop, StaffProfile $staff): JsonResponse
@@ -206,6 +220,8 @@ class StaffController extends Controller
             'bio' => $request->bio,
         ]);
 
+        \Illuminate\Support\Facades\Cache::driver('file')->forget("shop_staff_{$shop->id}");
+
         return response()->json([
             'success' => true,
             'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])
@@ -234,6 +250,8 @@ class StaffController extends Controller
         if ($user && $request->has('is_branch_manager')) {
             $this->syncPlatformRole($user, $staff->is_branch_manager);
         }
+
+        \Illuminate\Support\Facades\Cache::driver('file')->forget("shop_staff_{$shop->id}");
 
         return response()->json([
             'success' => true,
@@ -273,6 +291,8 @@ class StaffController extends Controller
         ]);
 
         $staff->delete();
+
+        \Illuminate\Support\Facades\Cache::driver('file')->forget("shop_staff_{$shop->id}");
 
         return response()->json([
             'success' => true,

@@ -74,14 +74,15 @@ class JobOrderController extends Controller
         $year = now()->year;
         $prefix = "JO-{$year}-";
 
+        // Use a single SQL query instead of loading all job orders into memory.
+        // SUBSTRING extracts the numeric part after the prefix, CAST to integer,
+        // and MAX() finds the highest number — all in one database round-trip
+        // regardless of how many orders exist.
         $lastNumber = $shop->jobOrders()
             ->withTrashed()
             ->where('order_number', 'like', $prefix . '%')
-            ->get()
-            ->map(function ($job) use ($prefix) {
-                return (int) str_replace($prefix, '', $job->order_number);
-            })
-            ->max() ?? 0;
+            ->selectRaw("MAX(CAST(SUBSTR(order_number, ?) AS INTEGER)) as max_num", [strlen($prefix) + 1])
+            ->value('max_num') ?? 0;
 
         return $prefix . str_pad((string) ($lastNumber + 1), 4, '0', STR_PAD_LEFT);
     }
@@ -380,7 +381,14 @@ class JobOrderController extends Controller
 
     public function index(Shop $shop, Request $request): JsonResponse
     {
-        $query = $shop->jobOrders()->with(['customer:id,name,suki_tag', 'service', 'assignedStaff:id,name', 'branch:id,name']);
+        $query = $shop->jobOrders()->with([
+            'customer:id,name,suki_tag',
+            'service',
+            'assignedStaff:id,name',
+            'branch:id,name',
+            'catalogItem:id,name,garment_type,price,fabric_image_url',
+            'catalogItem.images',
+        ]);
 
         $branchId = null;
         if (!$request->user()->hasRole('shop_owner') && $request->user()->staffProfile?->shop_branch_id) {
@@ -639,14 +647,19 @@ class JobOrderController extends Controller
         // jobs are fully custom and have no catalog_item_id at all. Falls back to
         // the item's primary gallery photo, then its fabric swatch, so staff still
         // see a reference even for catalog items with no gallery images uploaded.
-        if (!empty($validated['catalog_item_id']) && empty($validated['reference_images'])) {
+        if (!empty($validated['catalog_item_id'])) {
             $catalogItem = \App\Models\CatalogItem::with('images')->find($validated['catalog_item_id']);
             if ($catalogItem && $catalogItem->shop_id === $shop->id) {
-                $catalogImage = $catalogItem->images->firstWhere('is_primary', true)?->image_url
-                    ?? $catalogItem->images->first()?->image_url
-                    ?? $catalogItem->fabric_image_url;
-                if ($catalogImage) {
-                    $validated['reference_images'] = [$catalogImage];
+                if (empty($validated['reference_images'])) {
+                    $catalogImage = $catalogItem->images->firstWhere('is_primary', true)?->image_url
+                        ?? $catalogItem->images->first()?->image_url
+                        ?? $catalogItem->fabric_image_url;
+                    if ($catalogImage) {
+                        $validated['reference_images'] = [$catalogImage];
+                    }
+                }
+                if (empty($validated['garment_category']) && !empty($catalogItem->category)) {
+                    $validated['garment_category'] = $catalogItem->category;
                 }
             }
         }

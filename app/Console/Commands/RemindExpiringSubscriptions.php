@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Attributes\Description;
-use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use App\Models\ShopSubscription;
 use App\Notifications\SubscriptionExpiringNotification;
 
-#[Signature('app:remind-expiring-subscriptions')]
-#[Description('Warns shop owners ~3 days before their subscription expires — app:expire-subscriptions only ever notifies after the shop is already hidden, which is too late to act on.')]
 class RemindExpiringSubscriptions extends Command
 {
+    protected $signature = 'app:remind-expiring-subscriptions';
+
+    protected $description = 'Warns shop owners ~3 days before their subscription expires — app:expire-subscriptions only ever notifies after the shop is already hidden, which is too late to act on.';
+
     private const WARNING_DAYS = 3;
 
     public function handle(): int

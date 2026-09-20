@@ -286,7 +286,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 20,
-                'image_url' => '/catalog/Women\'s Esports Jersey with Customized Design.jpg',
+                'image_url' => '/catalog/school-uniforms.jpg',
                 'tiers' => [
                     ['label' => 'Elementary Uniform Set', 'amount' => 450],
                     ['label' => 'High School Uniform Set', 'amount' => 650],
@@ -315,7 +315,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 12,
-                'image_url' => '/catalog/Healong-Customized-Design-Sportswear-Sublimation-Volleyball-Jersey.avif',
+                'image_url' => '/catalog/volleyball-jersey-sublimation.avif',
                 'tiers' => [
                     ['label' => 'Basic Jersey Set (Top + Shorts)', 'amount' => 850],
                     ['label' => 'Full Sublimation Premium Set', 'amount' => 1200],
@@ -582,7 +582,7 @@ class LocalTestSeeder extends Seeder
                 'scheduled_at' => now()->addDays(4),
                 'duration_minutes' => 60,
                 'status' => 'pending',
-                'payment_method' => 'paymaya',
+                'payment_method' => 'gcash',
                 'payment_status' => 'pending',
             ]
         );
@@ -991,7 +991,7 @@ class LocalTestSeeder extends Seeder
         \App\Models\Payment::firstOrCreate(
             ['job_order_id' => $jo1->id, 'amount' => 7500.00],
             [
-                'payment_method' => 'paymaya',
+                'payment_method' => 'gcash',
                 'recorded_by' => $owner->id,
                 'notes' => 'Downpayment for custom suit.'
             ]
@@ -1085,7 +1085,7 @@ class LocalTestSeeder extends Seeder
             ]
         );
         \App\Models\CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $gown1->id, 'image_url' => '/catalog/Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown.webp'],
+            ['catalog_item_id' => $gown1->id, 'image_url' => '/catalog/gown-off-shoulder-tulle-floral.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $gown2 = \App\Models\CatalogItem::updateOrCreate(
@@ -1137,7 +1137,7 @@ class LocalTestSeeder extends Seeder
                 'status' => 'pending',
                 'total_amount' => $gown2->price,
                 'payment_status' => 'pending',
-                'payment_method' => 'paymaya',
+                'payment_method' => 'gcash',
                 'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
             ]
