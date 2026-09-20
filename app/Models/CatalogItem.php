@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class CatalogItem extends Model
 {
     protected $fillable = [
-        'shop_id', 'name', 'price', 'estimated_days',
+        'shop_id', 'service_id', 'name', 'price', 'estimated_days',
         'material', 'color', 'fabric_image_url', 'sizes', 'description',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
         'features', 'care_instructions', 'garment_type', 'listing_type', 'external_gallery_url',
@@ -28,6 +28,11 @@ class CatalogItem extends Model
     public function shop()
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    public function service()
+    {
+        return $this->belongsTo(Service::class);
     }
 
     public function images()

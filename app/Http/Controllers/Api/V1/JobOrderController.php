@@ -92,13 +92,290 @@ class JobOrderController extends Controller
      * search. Lets a customer check their order status without an account,
      * the real "sa na po ba?" pain point named in interview research.
      */
-    private function generateTrackingCode(): string
+    public static function generateShopPrefix($shop): string
     {
+        if (is_numeric($shop)) {
+            $shop = Shop::find($shop);
+        }
+        if (!$shop) {
+            return 'SUTR';
+        }
+        if (!empty($shop->shop_code)) {
+            return strtoupper($shop->shop_code);
+        }
+        $known = [
+            'thread-needle'      => 'TNED',
+            'bautista-tailors'   => 'BAUT',
+            'villanueva-atelier' => 'VILL',
+        ];
+        if (isset($known[$shop->slug])) {
+            return $known[$shop->slug];
+        }
+
+        $letters = preg_replace('/[^A-Za-z]/', '', $shop->name);
+        if (strlen($letters) >= 4) {
+            return strtoupper(substr($letters, 0, 4));
+        }
+        return strtoupper(str_pad($letters, 4, 'X'));
+    }
+
+    private function generateTrackingCode(?Shop $shop = null, ?string $orderNumber = null): string
+    {
+        $prefix = self::generateShopPrefix($shop);
+        $charset = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
         do {
-            $code = strtoupper(\Illuminate\Support\Str::random(8));
+            $suffix = '';
+            for ($i = 0; $i < 4; $i++) {
+                $suffix .= $charset[random_int(0, strlen($charset) - 1)];
+            }
+            // Ensure combination of letters and numbers
+            if (!preg_match('/[0-9]/', $suffix) || !preg_match('/[A-Z]/', $suffix)) {
+                continue;
+            }
+            $code = "{$prefix}{$suffix}";
         } while (JobOrder::withTrashed()->where('tracking_code', $code)->exists());
 
         return $code;
+    }
+
+    /**
+     * Customer-facing "Request a Repair" — the first-ever customer-initiated
+     * job order creation path (every other job order is still created by
+     * the shop owner/staff dashboard). Deliberately narrow: only fires for
+     * a Service actually tagged alteration_repair, and pricing comes only
+     * from that service's own real ServicePricing rows (never a guessed
+     * flat amount) — a repair with no matching pricing line can't be priced
+     * honestly here, so it's rejected rather than defaulting to 0.
+     */
+    public function customerRepairRequest(Request $request, Shop $shop): JsonResponse
+    {
+        $validated = $request->validate([
+            'service_id' => 'required|integer',
+            'garment_description' => 'required|string|max:500',
+            'pre_existing_damage_notes' => 'required|string|max:2000',
+            'pricing_ids' => 'required|array|min:1',
+            'pricing_ids.*' => 'integer',
+            'reference_images' => 'nullable|array|max:10',
+            'reference_images.*' => 'string|max:1000',
+        ]);
+
+        $service = \App\Models\Service::where('id', $validated['service_id'])
+            ->where('shop_id', $shop->id)
+            ->first();
+
+        if (!$service || !$service->hasType(\App\Models\Service::TYPE_ALTERATION_REPAIR)) {
+            return response()->json(['success' => false, 'message' => 'This shop has no matching repair/alteration service.'], 404);
+        }
+
+        $pricingRows = \App\Models\ServicePricing::where('service_id', $service->id)
+            ->whereIn('id', $validated['pricing_ids'])
+            ->get();
+
+        if ($pricingRows->count() !== count($validated['pricing_ids'])) {
+            return response()->json(['success' => false, 'message' => 'One or more selected repair items are no longer available.'], 422);
+        }
+
+        $totalAmount = (float) $pricingRows->sum('amount');
+
+        $mainBranch = $shop->branches()->where('is_main', true)->first();
+
+        $orderNumber = $this->generateOrderNumber($shop);
+        $jobOrder = $shop->jobOrders()->create([
+            'order_number' => $orderNumber,
+            'tracking_code' => $this->generateTrackingCode($shop, $orderNumber),
+            'intake_channel' => 'online',
+            'shop_branch_id' => $mainBranch?->id,
+            'customer_id' => $request->user()->id,
+            'service_id' => $service->id,
+            'garment_category' => 'alteration_repair',
+            'total_amount' => $totalAmount,
+            'balance' => $totalAmount,
+            'payment_status' => 'unpaid',
+            'status' => 'pending',
+            'notes' => $validated['garment_description'],
+            'reference_images' => $validated['reference_images'] ?? [],
+            'custom_order_data' => [
+                'pre_existing_damage_notes' => $validated['pre_existing_damage_notes'],
+                'repair_items' => $pricingRows->map(fn ($p) => ['label' => $p->label, 'amount' => (float) $p->amount])->values()->all(),
+            ],
+        ]);
+
+        $jobOrder->load(['customer:id,name', 'service']);
+
+        $shopOwner = $shop->owner;
+        if ($shopOwner) {
+            $shopOwner->notify(new \App\Notifications\NewJobOrderNotification($jobOrder));
+        }
+
+        return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    }
+
+    /**
+     * Customer-facing "Bulk Order" off a Showroom catalog item — Size +
+     * Quantity only for now (Color deferred). Requires the item to have a
+     * linked, bulk_sublimation-typed Service (CatalogItem.service_id) —
+     * there's no fallback/auto-detected service, so an unlinked item simply
+     * has no Bulk Order entry point. Pricing is the item's own real price
+     * × total quantity (never guessed), and each unit becomes its own
+     * team_roster row (name left blank — a browsing customer has no real
+     * per-recipient names, unlike a staff-entered team roster) so the shop's
+     * existing Team Roster & Size Sheet UI can track/complete each piece
+     * individually, exactly as it already does for staff-created bulk jobs.
+     */
+    public function customerBulkOrder(Request $request, Shop $shop): JsonResponse
+    {
+        $validated = $request->validate([
+            'catalog_item_id' => 'required|integer',
+            'organization_name' => 'nullable|string|max:255',
+            'shop_branch_id' => 'nullable|integer',
+            'roster' => 'required|array|min:1|max:500',
+            'roster.*.name' => 'nullable|string|max:100',
+            'roster.*.size' => 'required|string|max:50',
+        ]);
+
+        $item = \App\Models\CatalogItem::where('id', $validated['catalog_item_id'])
+            ->where('shop_id', $shop->id)
+            ->first();
+
+        if (!$item || !$item->service_id) {
+            return response()->json(['success' => false, 'message' => 'This item is not available for bulk ordering.'], 404);
+        }
+
+        $service = \App\Models\Service::find($item->service_id);
+        if (!$service || !$service->hasType(\App\Models\Service::TYPE_BULK_SUBLIMATION)) {
+            return response()->json(['success' => false, 'message' => 'This item is not available for bulk ordering.'], 404);
+        }
+
+        $totalQty = count($validated['roster']);
+
+        if ($service->min_order_qty > 1 && $totalQty < $service->min_order_qty) {
+            return response()->json([
+                'success' => false,
+                'message' => "This service requires a minimum of {$service->min_order_qty} pieces.",
+            ], 422);
+        }
+
+        // Keep whatever extra columns the customer added on the roster
+        // table (e.g. "Jersey Number") — $request->validate() above only
+        // proves name/size are present, it doesn't strip the rest, so the
+        // raw rows (not $validated) carry those extra keys through into
+        // custom_order_data.team_roster for the shop owner to see.
+        $roster = collect($request->input('roster'))->map(function ($row) {
+            return array_merge($row, ['name' => $row['name'] ?? null]);
+        })->all();
+
+        $sizeCounts = collect($validated['roster'])->countBy('size');
+        $totalAmount = (float) $item->price * $totalQty;
+
+        // Customer-picked branch (via the catalog page's Find sheet) wins
+        // when it actually belongs to this shop; otherwise fall back to the
+        // shop's main branch same as before the picker existed.
+        $pickedBranch = !empty($validated['shop_branch_id'])
+            ? $shop->branches()->where('id', $validated['shop_branch_id'])->first()
+            : null;
+        $mainBranch = $pickedBranch ?? $shop->branches()->where('is_main', true)->first();
+
+        $orderNumber = $this->generateOrderNumber($shop);
+        $jobOrder = $shop->jobOrders()->create([
+            'order_number' => $orderNumber,
+            'tracking_code' => $this->generateTrackingCode($shop, $orderNumber),
+            'intake_channel' => 'online',
+            'shop_branch_id' => $mainBranch?->id,
+            'customer_id' => $request->user()->id,
+            'service_id' => $service->id,
+            'catalog_item_id' => $item->id,
+            'garment_category' => $item->garment_type,
+            'material_source' => 'shop_supplied',
+            'total_amount' => $totalAmount,
+            'balance' => $totalAmount,
+            'payment_status' => 'unpaid',
+            'status' => 'pending',
+            'notes' => "Bulk order: {$item->name} — " . $sizeCounts->map(fn ($qty, $size) => "{$qty}x {$size}")->implode(', '),
+            'reference_images' => $item->images()->where('is_primary', true)->value('image_url') ? [$item->images()->where('is_primary', true)->value('image_url')] : [],
+            'custom_order_data' => [
+                'team_name' => $validated['organization_name'] ?? $item->name,
+                'team_roster' => $roster,
+            ],
+        ]);
+
+        $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
+
+        $shopOwner = $shop->owner;
+        if ($shopOwner) {
+            $shopOwner->notify(new \App\Notifications\NewJobOrderNotification($jobOrder));
+        }
+
+        return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    }
+
+    /**
+     * Customer-facing "Made to Order" — a single piece of a specific
+     * Showroom item, no team roster (that's Bulk Order's shape, not this
+     * one). Requires the item to have a linked Service same as Bulk Order,
+     * but explicitly rejects a bulk_sublimation-typed one — that service's
+     * min_order_qty is a real business rule (e.g. "10 pieces minimum") a
+     * single-piece order would otherwise silently bypass.
+     */
+    public function customerMadeToOrder(Request $request, Shop $shop): JsonResponse
+    {
+        $validated = $request->validate([
+            'catalog_item_id' => 'required|integer',
+            'size' => 'nullable|string|max:50',
+        ]);
+
+        $item = \App\Models\CatalogItem::where('id', $validated['catalog_item_id'])
+            ->where('shop_id', $shop->id)
+            ->first();
+
+        if (!$item || !$item->service_id) {
+            return response()->json(['success' => false, 'message' => 'This item is not available to order directly yet.'], 404);
+        }
+
+        $service = \App\Models\Service::find($item->service_id);
+        if (!$service) {
+            return response()->json(['success' => false, 'message' => 'This item is not available to order directly yet.'], 404);
+        }
+        if ($service->hasType(\App\Models\Service::TYPE_BULK_SUBLIMATION)) {
+            return response()->json(['success' => false, 'message' => 'This item requires a Bulk Order — please use the bulk order flow instead.'], 422);
+        }
+
+        if (!empty($validated['size']) && !empty($item->sizes) && !in_array($validated['size'], $item->sizes, true)) {
+            return response()->json(['success' => false, 'message' => 'That size is not offered for this item.'], 422);
+        }
+
+        $totalAmount = (float) $item->price;
+        $mainBranch = $shop->branches()->where('is_main', true)->first();
+        $primaryImage = $item->images()->where('is_primary', true)->value('image_url');
+
+        $orderNumber = $this->generateOrderNumber($shop);
+        $jobOrder = $shop->jobOrders()->create([
+            'order_number' => $orderNumber,
+            'tracking_code' => $this->generateTrackingCode($shop, $orderNumber),
+            'intake_channel' => 'online',
+            'shop_branch_id' => $mainBranch?->id,
+            'customer_id' => $request->user()->id,
+            'service_id' => $service->id,
+            'catalog_item_id' => $item->id,
+            'garment_category' => $item->garment_type,
+            'material_source' => 'shop_supplied',
+            'total_amount' => $totalAmount,
+            'balance' => $totalAmount,
+            'payment_status' => 'unpaid',
+            'status' => 'pending',
+            'notes' => 'Made to Order: ' . $item->name . (!empty($validated['size']) ? ' (Reference size: ' . $validated['size'] . ')' : ''),
+            'reference_images' => $primaryImage ? [$primaryImage] : [],
+            'custom_order_data' => !empty($validated['size']) ? ['reference_size' => $validated['size']] : null,
+        ]);
+
+        $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
+
+        $shopOwner = $shop->owner;
+        if ($shopOwner) {
+            $shopOwner->notify(new \App\Notifications\NewJobOrderNotification($jobOrder));
+        }
+
+        return response()->json(['success' => true, 'data' => $jobOrder], 201);
     }
 
     public function index(Shop $shop, Request $request): JsonResponse
@@ -202,11 +479,21 @@ class JobOrderController extends Controller
         // rules like minimum order quantity or damage-waiver logging.
         $service = \App\Models\Service::find($validated['service_id']);
         if ($service) {
+            // A bulk order's quantity comes from whichever shape it took —
+            // a personalized team_roster (one row per piece), OR a plain
+            // size_breakdown/total_quantity tally with no names at all
+            // (e.g. "30 pcs department shirts"). Only checking team_roster
+            // here would wrongly reject a perfectly valid size-breakdown
+            // order against this service's minimum.
             $roster = $validated['custom_order_data']['team_roster'] ?? null;
+            $bulkQty = is_array($roster) ? count($roster) : 0;
+            if ($bulkQty === 0) {
+                $bulkQty = (int) ($validated['custom_order_data']['total_quantity'] ?? 0);
+            }
             if (
                 $service->hasType(\App\Models\Service::TYPE_BULK_SUBLIMATION)
                 && $service->min_order_qty > 1
-                && (!$roster || count($roster) < $service->min_order_qty)
+                && $bulkQty < $service->min_order_qty
             ) {
                 return response()->json([
                     'success' => false,
@@ -226,7 +513,7 @@ class JobOrderController extends Controller
         }
 
         $validated['order_number'] = $this->generateOrderNumber($shop);
-        $validated['tracking_code'] = $this->generateTrackingCode();
+        $validated['tracking_code'] = $this->generateTrackingCode($shop, $validated['order_number']);
         $validated['order_type'] = $validated['order_type'] ?? 'walk_in';
 
         // staff_stages isn't a job_orders column — pull it out before create(),
@@ -433,7 +720,7 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name']);
+        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name', 'materials.loggedBy:id,name']);
 
         // Repeat-customer context surfaced right on the job so the owner can
         // decide on a manual discount ("this is their 5th order") without
@@ -717,7 +1004,7 @@ class JobOrderController extends Controller
 
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
-            'payment_method' => 'sometimes|string|in:cash,gcash,bank_transfer',
+            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'receipt_path' => 'nullable|string|max:2048',
@@ -886,7 +1173,7 @@ class JobOrderController extends Controller
         }
 
         $validated = $request->validate([
-            'payment_method' => 'sometimes|string|in:cash,gcash,bank_transfer',
+            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'receipt_path' => 'nullable|string|max:2048',
@@ -1137,6 +1424,61 @@ class JobOrderController extends Controller
             'message' => 'Progress photo removed.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])
         ]);
+    }
+
+    /**
+     * Per-order fabric/trim consumption attribution — what was used on THIS
+     * job, not a shop-wide stock ledger (staff-module/workroom/09, thesis
+     * Scope & Limitations Line 203 excludes inventory entirely). Typically
+     * logged by the cutter during the cutting stage.
+     */
+    public function addMaterial(Request $request, Shop $shop, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'material_name' => 'required|string|max:255',
+            'quantity_used' => 'required|numeric|min:0.01',
+            'unit' => 'nullable|string|max:20',
+            'unit_cost' => 'nullable|numeric|min:0',
+        ]);
+
+        $unitCost = $validated['unit_cost'] ?? null;
+        $material = $jobOrder->materials()->create([
+            'material_name' => $validated['material_name'],
+            'quantity_used' => $validated['quantity_used'],
+            'unit' => $validated['unit'] ?? 'yard',
+            'unit_cost' => $unitCost,
+            'subtotal_cost' => $unitCost !== null ? round($validated['quantity_used'] * $unitCost, 2) : null,
+            'logged_by_staff_id' => $request->user()->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Material logged.',
+            'data' => $material->load('loggedBy:id,name'),
+        ], 201);
+    }
+
+    public function deleteMaterial(Request $request, Shop $shop, JobOrder $jobOrder, \App\Models\OrderMaterial $material): JsonResponse
+    {
+        if ($jobOrder->shop_id !== $shop->id || $material->job_order_id !== $jobOrder->id) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $material->delete();
+
+        return response()->json(['success' => true, 'message' => 'Material entry removed.']);
     }
 
     /**

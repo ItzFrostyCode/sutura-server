@@ -90,14 +90,21 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
     {
         $titles = $this->titles();
         $messages = $this->messages();
+        $shop = $this->appointment->shop;
 
         return [
             'type' => 'appointment_' . $this->statusType,
             'title' => $titles[$this->statusType] ?? 'Appointment Update',
             'message' => $messages[$this->statusType] ?? 'Your appointment status has been updated.',
-            'action_url' => '/dashboard/appointments',
+            // Was '/dashboard/appointments' — the shop owner's own dashboard
+            // route, unreachable (and meaningless) for the customer this
+            // notification actually goes to.
+            'action_url' => '/account/appointments/' . $this->appointment->id,
             'appointment_id' => $this->appointment->id,
             'scheduled_at' => $this->appointment->scheduled_at,
+            'shop' => $shop ? [
+                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            ] : null,
         ];
     }
 }

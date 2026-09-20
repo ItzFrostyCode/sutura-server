@@ -155,6 +155,11 @@ class JobOrder extends Model
         return $this->hasMany(Payment::class);
     }
 
+    public function materials(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(OrderMaterial::class);
+    }
+
     public function staffStages(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(User::class, 'job_order_staff', 'job_order_id', 'user_id')
@@ -172,6 +177,10 @@ class JobOrder extends Model
     public function isBulkOrder(): bool
     {
         if (!empty($this->custom_order_data['team_roster'] ?? null)) {
+            return true;
+        }
+
+        if (!empty($this->custom_order_data['size_breakdown'] ?? null)) {
             return true;
         }
 

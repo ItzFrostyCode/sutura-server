@@ -13,20 +13,85 @@ class ShopReviewController extends Controller
     public function store(Request $request, Shop $shop): JsonResponse
     {
         $validated = $request->validate([
-            'rating' => 'required|integer|min:1|max:5',
+            'rating' => 'required|integer|min:0|max:5',
             'comment' => 'nullable|string|max:1000',
         ]);
 
+        $userId = $request->user()->id;
+
+        // If rating is 0, unrate / remove existing rating
+        if (empty($validated['rating']) || (int) $validated['rating'] === 0) {
+            ShopReview::where('shop_id', $shop->id)
+                ->where('user_id', $userId)
+                ->delete();
+
+            $shop->loadCount('reviews');
+            $shop->loadAvg('reviews', 'rating');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Shop rating removed.',
+                'data' => null,
+                'reviews_count' => $shop->reviews_count,
+                'reviews_avg_rating' => $shop->reviews_avg_rating !== null ? round((float) $shop->reviews_avg_rating, 1) : null,
+            ]);
+        }
+
         $review = ShopReview::updateOrCreate(
-            ['shop_id' => $shop->id, 'user_id' => $request->user()->id],
-            ['rating' => $validated['rating'], 'comment' => $validated['comment']]
+            ['shop_id' => $shop->id, 'user_id' => $userId],
+            ['rating' => (int) $validated['rating'], 'comment' => $validated['comment'] ?? null]
         );
+
+        $shop->loadCount('reviews');
+        $shop->loadAvg('reviews', 'rating');
 
         return response()->json([
             'success' => true,
-            'message' => 'Shop rating submitted successfully.',
-            'data' => $review
+            'message' => 'Shop rating saved successfully.',
+            'data' => $review,
+            'reviews_count' => $shop->reviews_count,
+            'reviews_avg_rating' => $shop->reviews_avg_rating !== null ? round((float) $shop->reviews_avg_rating, 1) : null,
         ]);
+    }
+
+    /**
+     * Get the authenticated user's current rating/review for this shop
+     */
+    public function myRating(Request $request, Shop $shop): JsonResponse
+    {
+        $review = ShopReview::where('shop_id', $shop->id)
+            ->where('user_id', $request->user()->id)
+            ->first(['id', 'shop_id', 'user_id', 'rating', 'comment', 'created_at', 'updated_at']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $review,
+        ]);
+    }
+
+    /**
+     * Cross-shop "my ratings" for the Shops tab of the customer's Star
+     * Ratings page — same pattern as CatalogInteractionController::myReviews.
+     */
+    public function myReviews(Request $request): JsonResponse
+    {
+        $reviews = ShopReview::where('user_id', $request->user()->id)
+            ->with('shop:id,name,slug,logo_path,city')
+            ->latest()
+            ->get()
+            ->filter(fn (ShopReview $r) => $r->shop !== null)
+            ->map(fn (ShopReview $r) => [
+                'rating' => $r->rating,
+                'rated_at' => $r->updated_at,
+                'id' => $r->shop->id,
+                'name' => $r->shop->name,
+                'slug' => $r->shop->slug,
+                'logo_path' => $r->shop->logo_path,
+                'city' => $r->shop->city,
+            ])
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $reviews]);
     }
 
     public function index(Shop $shop, Request $request): JsonResponse

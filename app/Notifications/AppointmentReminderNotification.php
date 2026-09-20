@@ -66,13 +66,17 @@ class AppointmentReminderNotification extends Notification implements ShouldQueu
 
     public function toArray(object $notifiable): array
     {
+        $shop = $this->appointment->shop;
         return [
             'type' => 'appointment_reminder',
             'title' => 'Appointment Reminder',
             'message' => 'Reminder: your appointment is scheduled for ' . $this->scheduledLabel() . '.',
-            'action_url' => '/dashboard/appointments',
+            'action_url' => '/account/appointments/' . $this->appointment->id,
             'appointment_id' => $this->appointment->id,
             'scheduled_at' => $this->appointment->scheduled_at,
+            'shop' => $shop ? [
+                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            ] : null,
         ];
     }
 }

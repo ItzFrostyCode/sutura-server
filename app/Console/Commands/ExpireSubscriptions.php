@@ -6,6 +6,7 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use App\Models\ShopSubscription;
+use App\Models\SubscriptionEvent;
 use App\Notifications\SubscriptionExpiredNotification;
 
 #[Signature('app:expire-subscriptions')]
@@ -22,6 +23,17 @@ class ExpireSubscriptions extends Command
             ->with('shop')
             ->each(function (ShopSubscription $subscription) use (&$expired) {
                 $subscription->update(['status' => 'expired']);
+
+                SubscriptionEvent::create([
+                    'shop_id' => $subscription->shop_id,
+                    'shop_subscription_id' => $subscription->id,
+                    'event_type' => 'expired',
+                    'plan_id' => $subscription->plan_id,
+                    'previous_plan_id' => null,
+                    'billing_cycle' => null,
+                    'triggered_by' => null, // system-triggered, not an owner action
+                    'occurred_at' => now(),
+                ]);
 
                 $shop = $subscription->shop;
                 if ($shop && !$shop->is_hidden) {

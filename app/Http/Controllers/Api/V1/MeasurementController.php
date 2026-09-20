@@ -11,6 +11,30 @@ use Illuminate\Http\Request;
 
 class MeasurementController extends Controller
 {
+    /**
+     * Cross-shop "My Measurements" for whoever is logged in — the customer
+     * counterpart to index() above, which is shop-scoped and staff/owner
+     * only. Same "Measurement Obfuscation" privacy rule the doc corpus
+     * describes (customer-module/customer/01_account_and_auth/26 §1) is
+     * satisfied by construction here: this only ever returns rows where
+     * customer_id is the caller's own id, so no other customer's body
+     * measurements are ever reachable through this endpoint. Read-only —
+     * a customer can view what a shop's staff recorded, not edit it.
+     */
+    public function myMeasurements(Request $request): JsonResponse
+    {
+        $measurements = Measurement::where('customer_id', $request->user()->id)
+            ->with('shop:id,name,slug,logo_path')
+            ->orderBy('profile_name')
+            ->orderBy('version')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $measurements,
+        ]);
+    }
+
     public function index(Shop $shop, Request $request): JsonResponse
     {
         // Returns every version of every profile — the frontend groups these

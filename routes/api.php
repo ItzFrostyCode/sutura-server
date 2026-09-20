@@ -82,13 +82,57 @@ Route::prefix('v1')->group(function () {
         Route::post('/notifications/{id}/unread', [NotificationController::class, 'markAsUnread']);
         Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
-        // Catalog Interactions (Any authenticated user)
-        Route::post('/shops/{shop}/catalog/{catalogItem}/save', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'toggleSave']);
-        Route::post('/shops/{shop}/catalog/{catalogItem}/reviews', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'rate']);
-        
+        // Catalog Interactions (Any authenticated user) — {shop:slug}, not a
+        // bare {shop}: every customer-facing page only ever has the shop's
+        // SLUG in its URL/state (see shop/[shop_id]/page.tsx — that param is
+        // actually the slug), never its numeric id. A bare {shop} binds by
+        // primary key, so calling any of these with a slug 404'd outright —
+        // confirmed live (curl) before this fix. toggleSave/rate/report all
+        // shared this bug; fixed together since they're the same call shape.
+        Route::post('/shops/{shop:slug}/catalog/{catalogItem}/save', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'toggleSave']);
+        Route::post('/shops/{shop:slug}/catalog/{catalogItem}/reviews', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'rate']);
+        Route::post('/shops/{shop:slug}/catalog/{catalogItem}/report', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'report']);
+
         // Shop Interactions (Any authenticated user)
+        Route::get('/shops/{shop:slug}/my-review', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'myRating']);
+        Route::get('/shops/{shop}/my-review', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'myRating']);
+        Route::post('/shops/{shop:slug}/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'store']);
         Route::post('/shops/{shop}/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'store']);
+        Route::delete('/shops/{shop:slug}/reviews/mine', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'unrate']);
+        Route::delete('/shops/{shop}/reviews/mine', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'unrate']);
+        Route::post('/shops/{shop:slug}/repair-requests', [\App\Http\Controllers\Api\V1\JobOrderController::class, 'customerRepairRequest']);
+        Route::post('/shops/{shop:slug}/bulk-orders', [\App\Http\Controllers\Api\V1\JobOrderController::class, 'customerBulkOrder']);
+        Route::post('/shops/{shop:slug}/made-to-order', [\App\Http\Controllers\Api\V1\JobOrderController::class, 'customerMadeToOrder']);
         
+        // My Orders / My Appointments — cross-shop, for whoever is logged
+        // in (Objective 5: "customers monitor their order progress from
+        // placement to pickup"). No role gate: filters by the authenticated
+        // user's own id as customer_id, same as /auth/me isn't role-gated.
+        Route::get('/my-orders', [\App\Http\Controllers\Api\V1\JobOrderTrackingController::class, 'myOrders']);
+        Route::get('/my-orders/{jobOrder}', [\App\Http\Controllers\Api\V1\JobOrderTrackingController::class, 'myOrderDetail']);
+        Route::get('/my-appointments', [AppointmentController::class, 'myAppointments']);
+        Route::get('/my-appointments/{appointment}', [AppointmentController::class, 'myAppointmentDetail']);
+        // Self-service cancel — distinct from the owner/manager destroy()
+        // below (no reason required, never sets rebooking_blocked). Lets a
+        // customer free up their one-active-appointment-per-shop slot
+        // (PublicBookingController::submit()'s guard) to book a different
+        // date themselves instead of asking the shop to do it.
+        Route::delete('/my-appointments/{appointment}', [AppointmentController::class, 'cancelMine']);
+        Route::get('/my-measurements', [\App\Http\Controllers\Api\V1\MeasurementController::class, 'myMeasurements']);
+        // Standing body-measurement profile (height/weight + optional body
+        // metrics, all cm/kg) — cross-shop, unlike /my-measurements above
+        // which is per-shop fitting history. Backs the catalog item Size
+        // Guide's "Input size" flow.
+        Route::get('/my-size-profile', [\App\Http\Controllers\Api\V1\SizeProfileController::class, 'show']);
+        Route::put('/my-size-profile', [\App\Http\Controllers\Api\V1\SizeProfileController::class, 'update']);
+        Route::get('/my-catalog-reviews', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'myReviews']);
+        Route::get('/my-shop-reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'myReviews']);
+        Route::get('/my-recently-viewed', [\App\Http\Controllers\Api\V1\RecentlyViewedController::class, 'index']);
+        Route::post('/recently-viewed', [\App\Http\Controllers\Api\V1\RecentlyViewedController::class, 'store']);
+        Route::get('/my-tickets', [SupportTicketController::class, 'myTickets']);
+        Route::get('/my-tickets/{ticket}', [SupportTicketController::class, 'myTicketShow']);
+        Route::post('/my-tickets/{ticket}/reply', [SupportTicketController::class, 'myTicketReply']);
+
         // Profile Settings (Any authenticated user)
         Route::put('/profile/personal', [\App\Http\Controllers\Api\V1\ProfileController::class, 'updatePersonal']);
         Route::put('/profile/password', [\App\Http\Controllers\Api\V1\ProfileController::class, 'updatePassword']);
@@ -121,6 +165,11 @@ Route::prefix('v1')->group(function () {
                 // Per-piece completion on a bulk/team order's roster — same
                 // "staff at the workbench" reasoning as progress photos above.
                 Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
+
+                // Per-order material attribution (typically the cutter, during
+                // cutting) — same "staff at the workbench" reasoning as above.
+                Route::post('/jobs/{jobOrder}/materials', [JobOrderController::class, 'addMaterial']);
+                Route::delete('/jobs/{jobOrder}/materials/{material}', [JobOrderController::class, 'deleteMaterial']);
 
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
@@ -221,6 +270,11 @@ Route::prefix('v1')->group(function () {
 
                 // Individual staff productivity (owner-level strategic view)
                 Route::get('/analytics/staff', [AnalyticsController::class, 'staffProductivity']);
+
+                // Subscription activity — Objective 7 ("subscription activity"
+                // reporting). Owner-only, matching subscribe()'s own gate —
+                // billing isn't a branch-manager action anywhere else either.
+                Route::get('/analytics/subscription', [AnalyticsController::class, 'subscriptionActivity']);
 
                 // Reviews Management
                 Route::get('/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'index']);

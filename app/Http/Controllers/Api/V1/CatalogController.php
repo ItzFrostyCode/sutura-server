@@ -131,7 +131,9 @@ class CatalogController extends Controller
             ->where('is_active', true)
             ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
             ->with([
-                'shop:id,name,slug',
+                'shop' => fn ($q) => $q->select('id', 'name', 'slug')->with([
+                    'branches' => fn ($bq) => $bq->select('id', 'shop_id', 'name', 'is_main', 'district', 'city', 'latitude', 'longitude')->where('status', 'active'),
+                ]),
                 // Not every seeded item has an image flagged is_primary (a
                 // data-entry gap, not a rule) -- CatalogController::index()'s
                 // own frontend consumer (shop/[shop_id]/page.tsx) already
@@ -151,7 +153,28 @@ class CatalogController extends Controller
 
         if ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
-            $query->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
+            $query->where(function ($q) use ($search) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(material) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(description) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereHas('service', function ($sq) use ($search) {
+                        $sq->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
+                            ->orWhereRaw('LOWER(category) LIKE ?', ['%' . $search . '%'])
+                            ->orWhereRaw('LOWER(service_type) LIKE ?', ['%' . $search . '%'])
+                            ->orWhereRaw('LOWER(description) LIKE ?', ['%' . $search . '%']);
+                    });
+            });
+        }
+
+        // Real column (catalog_items.color), free-text on the owner's side
+        // (e.g. "Sky Blue"), so this matches by substring like `q` does
+        // rather than requiring an exact string — a "Blue" filter should
+        // still catch "Sky Blue". Sparse today (one seeded value exists),
+        // but a real, functional filter, not decorative.
+        if ($request->filled('color')) {
+            $color = strtolower((string) $request->string('color'));
+            $query->whereRaw('LOWER(color) LIKE ?', ['%' . $color . '%']);
         }
 
         if ($request->filled('min_price')) {
@@ -164,6 +187,37 @@ class CatalogController extends Controller
             $query->havingRaw('reviews_avg_rating >= ?', [$request->float('min_rating')]);
         }
 
+        // Haversine distance from customer coords to shop's nearest active branch
+        if ($request->filled('lat') && $request->filled('lng')) {
+            $lat = $request->float('lat');
+            $lng = $request->float('lng');
+
+            $query->selectRaw('catalog_items.*, (
+                SELECT MIN(6371 * ACOS(
+                    LEAST(1.0, GREATEST(-1.0,
+                        COS(RADIANS(?)) * COS(RADIANS(shop_branches.latitude)) *
+                        COS(RADIANS(shop_branches.longitude) - RADIANS(?)) +
+                        SIN(RADIANS(?)) * SIN(RADIANS(shop_branches.latitude))
+                    ))
+                ))
+                FROM shop_branches
+                WHERE shop_branches.shop_id = catalog_items.shop_id AND shop_branches.status = \'active\'
+            ) as distance_km', [$lat, $lng, $lat]);
+
+            if ($request->filled('radius_km')) {
+                $query->having('distance_km', '<=', $request->float('radius_km'));
+            }
+        }
+
+        // Mobile search's location bar (see PublicNav's search redesign) --
+        // filters to shops with at least one branch in the selected Davao
+        // City district. Nested dot-relation whereHas, same pattern used
+        // elsewhere in this controller for shop-scoped visibility checks.
+        if ($request->filled('district')) {
+            $district = $request->string('district');
+            $query->whereHas('shop.branches', fn ($q) => $q->where('district', $district));
+        }
+
         match ($request->string('sort_by')->toString()) {
             'price_asc' => $query->orderBy('price'),
             'price_desc' => $query->orderByDesc('price'),
@@ -171,6 +225,7 @@ class CatalogController extends Controller
             // no full-text index) -- "Top Sales" is the one sort here with
             // an honest signal to order by.
             'top_sales' => $query->orderByRaw('(catalog_orders_count + job_orders_count) desc'),
+            'distance' => $query->orderByRaw('distance_km IS NULL, distance_km ASC'),
             default => $query->latest(),
         };
 
@@ -187,6 +242,9 @@ class CatalogController extends Controller
                 : null;
             $item->price = $item->price !== null ? (float) $item->price : null;
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
+            $item->distance_km = isset($item->distance_km) && $item->distance_km !== null
+                ? round((float) $item->distance_km, 1)
+                : null;
             $item->makeHidden(['catalog_orders_count', 'job_orders_count']);
             return $item;
         });
@@ -226,7 +284,11 @@ class CatalogController extends Controller
             'care_instructions' => 'nullable|string',
             'external_gallery_url' => 'nullable|url|max:500',
             'is_active' => 'nullable|boolean',
-            'images' => 'nullable|array',
+            'service_id' => [
+                'nullable', 'integer',
+                \Illuminate\Validation\Rule::exists('services', 'id')->where('shop_id', $shop->id),
+            ],
+            'images' => 'nullable|array|max:10',
             'images.*.url' => 'required|string',
             'images.*.angle' => 'required|string',
             'images.*.is_primary' => 'required|boolean',
@@ -242,6 +304,7 @@ class CatalogController extends Controller
             'name' => $validated['name'],
             'price' => $validated['price'] ?? 0,
             'estimated_days' => $validated['estimated_days'] ?? 7,
+            'service_id' => $validated['service_id'] ?? null,
             'material' => $validated['material'] ?? null,
             'color' => $validated['color'] ?? null,
             'fabric_image_url' => $validated['fabric_image_url'] ?? null,
@@ -310,6 +373,18 @@ class CatalogController extends Controller
             'images',
             'recommendations.recommendedItem.images',
             'reviews' => fn ($q) => $q->with('user:id,name')->latest()->limit(50),
+            // The item detail page's own "visit this shop" card — same
+            // rating shape ShopController computes (loadCount/loadAvg on
+            // reviews), so it reads identically to the shop's own profile.
+            'shop:id,name,slug,logo_path',
+            // The "Find" location sheet needs somewhere to pin on the map —
+            // same branch fields PublicBookingController::getSettings()
+            // already exposes for the /book page's own map.
+            'shop.branches:id,shop_id,slug,name,address,city,latitude,longitude',
+            // Whether this item can be Bulk Ordered depends entirely on
+            // whether its linked service is bulk_sublimation-typed — the
+            // frontend needs service_types to decide, not just the id.
+            'service:id,name,service_types,min_order_qty',
         ];
 
         if ($this->belongsToShop($request, $shop)) {
@@ -321,6 +396,21 @@ class CatalogController extends Controller
         $catalog->loadCount(['saves', 'reviews', 'catalogOrders', 'jobOrders']);
         $catalog->loadAvg('reviews', 'rating');
         $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);
+
+        if ($catalog->shop) {
+            $catalog->shop->loadCount('reviews');
+            $catalog->shop->loadAvg('reviews', 'rating');
+            $catalog->shop->reviews_avg_rating = $catalog->shop->reviews_avg_rating !== null
+                ? round((float) $catalog->shop->reviews_avg_rating, 1)
+                : null;
+            // Active items/services only — matches what a customer actually
+            // finds browsing this shop's storefront, not a raw row count
+            // that'd include paused/hidden ones nobody can see.
+            $catalog->shop->loadCount([
+                'catalogItems as catalog_items_count' => fn ($q) => $q->where('is_active', true),
+                'services as services_count' => fn ($q) => $q->where('is_active', true),
+            ]);
+        }
 
         // Sum up total amounts from both walk-in catalog orders and Job Orders.
         // CatalogOrder discounts reduce total_amount directly, so catalogRev
@@ -379,7 +469,11 @@ class CatalogController extends Controller
             'care_instructions' => 'nullable|string',
             'external_gallery_url' => 'nullable|url|max:500',
             'is_active' => 'sometimes|boolean',
-            'images' => 'nullable|array',
+            'service_id' => [
+                'nullable', 'integer',
+                \Illuminate\Validation\Rule::exists('services', 'id')->where('shop_id', $shop->id),
+            ],
+            'images' => 'nullable|array|max:10',
             'images.*.url' => 'required|string',
             'images.*.angle' => 'required|string',
             'images.*.is_primary' => 'required|boolean',
@@ -396,6 +490,7 @@ class CatalogController extends Controller
             'price' => $validated['price'] ?? $catalog->price,
             'estimated_days' => array_key_exists('estimated_days', $validated) ? $validated['estimated_days'] : $catalog->estimated_days,
             'is_active' => array_key_exists('is_active', $validated) ? $validated['is_active'] : $catalog->is_active,
+            'service_id' => array_key_exists('service_id', $validated) ? $validated['service_id'] : $catalog->service_id,
             'color' => array_key_exists('color', $validated) ? $validated['color'] : $catalog->color,
             'fabric_image_url' => array_key_exists('fabric_image_url', $validated) ? $validated['fabric_image_url'] : $catalog->fabric_image_url,
             'sizes' => array_key_exists('sizes', $validated) ? $validated['sizes'] : $catalog->sizes,

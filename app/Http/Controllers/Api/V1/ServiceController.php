@@ -39,14 +39,38 @@ class ServiceController extends Controller
         $query = Service::query()
             ->where('is_active', true)
             ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
-            ->with('shop:id,name,slug');
+            ->with([
+                'shop' => fn ($q) => $q->with([
+                    'owner:id,name',
+                    'branches' => fn ($bq) => $bq->where('status', 'active'),
+                ]),
+            ]);
 
         if ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
-            $query->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
+            $query->where(function ($q) use ($search) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(category) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(service_type) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(description) LIKE ?', ['%' . $search . '%']);
+            });
         }
 
-        $services = $query->latest()->paginate($request->input('per_page', 12));
+        if ($request->filled('district')) {
+            $district = $request->string('district')->toString();
+            $query->whereHas('shop.branches', function ($bq) use ($district) {
+                $bq->where('district', $district)->where('status', 'active');
+            });
+        }
+
+        match ($request->string('sort_by')->toString()) {
+            'name_asc' => $query->orderBy('name'),
+            'price_asc' => $query->orderBy('base_price'),
+            'price_desc' => $query->orderByDesc('base_price'),
+            default => $query->latest(),
+        };
+
+        $services = $query->paginate($request->input('per_page', 12));
 
         // base_price/sale_price are declared 'decimal:2' on the model, which
         // Laravel always re-stringifies on assignment (by design, to protect
@@ -79,9 +103,14 @@ class ServiceController extends Controller
      */
     public function publicIndex(Shop $shop): JsonResponse
     {
+        // service_types + pricing added for the customer-facing "Request a
+        // Repair" flow — it needs to know which services are actually
+        // alteration/repair-typed, and their real per-item pricing (never a
+        // guessed flat amount) to build the request form.
         $services = $shop->services()
             ->where('is_active', true)
-            ->get(['id', 'name', 'description', 'categories', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows']);
+            ->with('pricing:id,service_id,label,amount')
+            ->get(['id', 'name', 'description', 'categories', 'service_types', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows']);
 
         return response()->json([
             'success' => true,

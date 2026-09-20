@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CatalogItem;
 use App\Models\CatalogItemReview;
 use App\Models\Shop;
+use App\Models\SupportTicket;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -49,6 +50,98 @@ class CatalogInteractionController extends Controller
         ]);
     }
 
+    // Single source of truth for valid report-reason values — referenced by
+    // report()'s validation and the frontend's reason list.
+    public const REPORT_REASONS = ['copyright', 'offensive', 'illegal', 'other'];
+
+    /**
+     * Report a catalog item for review — Copyright/Offensive/Illegal/Other,
+     * with an optional free-text description. Lands as a real SupportTicket
+     * (type=product_report) rather than a bespoke reports table, so it
+     * reaches System Admin the same way a shop owner's ticket does, and
+     * shows up in the reporting customer's own My Support Tickets list
+     * (SupportTicketController::myTickets/myTicketShow/myTicketReply).
+     */
+    public function report(Request $request, Shop $shop, CatalogItem $catalogItem): JsonResponse
+    {
+        if ($catalogItem->shop_id !== $shop->id) {
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
+        }
+
+        $validated = $request->validate([
+            'reason' => 'required|string|in:' . implode(',', self::REPORT_REASONS),
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $reasonLabels = [
+            'copyright' => 'Copyright',
+            'offensive' => 'Offensive',
+            'illegal'   => 'Illegal',
+            'other'     => 'Other',
+        ];
+
+        $message = 'Reason: ' . $reasonLabels[$validated['reason']];
+        if (!empty($validated['description'])) {
+            $message .= "\n\n" . $validated['description'];
+        }
+
+        $ticket = SupportTicket::create([
+            'shop_id'  => $shop->id,
+            'user_id'  => $request->user()->id,
+            'subject'  => 'Product Report: ' . $catalogItem->name,
+            'message'  => $message,
+            'type'     => 'product_report',
+            'priority' => 'medium',
+            'status'   => 'open',
+        ]);
+
+        return response()->json([
+            'success'   => true,
+            'message'   => "Thanks — we've received your report and will look into it.",
+            'ticket_id' => $ticket->id,
+        ], 201);
+    }
+
+    /**
+     * Cross-shop "my ratings" for the Showroom tab of the customer's Star
+     * Ratings page — same customer-scoped, no-role-gate pattern as
+     * /my-orders, /my-appointments, /my-measurements. No comment field in
+     * the response shape the frontend cares about; comments still exist on
+     * the row (and on the owner's own review list) but this app's rating
+     * UI is star-only now.
+     */
+    public function myReviews(Request $request): JsonResponse
+    {
+        $reviews = CatalogItemReview::where('user_id', $request->user()->id)
+            ->with(['catalogItem.images', 'catalogItem.shop:id,name,slug'])
+            ->latest()
+            ->get()
+            ->filter(fn (CatalogItemReview $r) => $r->catalogItem !== null)
+            ->map(function (CatalogItemReview $r) {
+                $item = $r->catalogItem;
+                $item->loadCount(['reviews', 'catalogOrders', 'jobOrders']);
+                $item->loadAvg('reviews', 'rating');
+
+                return [
+                    'rating' => $r->rating,
+                    'rated_at' => $r->updated_at,
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'price' => $item->price,
+                    'material' => $item->material,
+                    'estimated_days' => $item->estimated_days,
+                    'reviews_count' => $item->reviews_count,
+                    'reviews_avg_rating' => $item->reviews_avg_rating !== null ? round((float) $item->reviews_avg_rating, 1) : null,
+                    'order_count' => $item->catalog_orders_count + $item->job_orders_count,
+                    'images' => $item->images->map(fn ($img) => ['image_url' => $img->image_url, 'is_primary' => $img->is_primary])->values(),
+                    'shop' => $item->shop ? ['name' => $item->shop->name, 'slug' => $item->shop->slug] : null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $reviews]);
+    }
+
     public function rate(Request $request, Shop $shop, CatalogItem $catalogItem): JsonResponse
     {
         if ($catalogItem->shop_id !== $shop->id) {
@@ -64,7 +157,7 @@ class CatalogInteractionController extends Controller
 
         $review = $catalogItem->reviews()->updateOrCreate(
             ['user_id' => $user->id],
-            ['rating' => $validated['rating'], 'comment' => $validated['comment']]
+            ['rating' => $validated['rating'], 'comment' => $validated['comment'] ?? null]
         );
 
         $averageRating = $catalogItem->reviews()->avg('rating');

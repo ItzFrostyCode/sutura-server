@@ -692,4 +692,60 @@ class AnalyticsController extends Controller
             ]
         ]);
     }
+
+    /**
+     * Objective 7's "subscription activity" reporting for shop owners — the
+     * current plan + real usage vs. its limits, plus the actual event
+     * history (created/renewed/upgraded/downgraded/expired), not just the
+     * single latest ShopSubscription row the Billing page already shows.
+     */
+    public function subscriptionActivity(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
+    {
+        $current = \App\Models\ShopSubscription::with('plan')
+            ->where('shop_id', $shop->id)
+            ->latest()
+            ->first();
+
+        $plan = $current?->plan;
+
+        $usage = [
+            'staff' => [
+                'used' => $shop->staff()->count(),
+                'max' => $plan?->max_staff ?? 0,
+            ],
+            'services' => [
+                'used' => $shop->services()->count(),
+                'max' => $plan?->max_services ?? 0,
+            ],
+            'branches' => [
+                'used' => $shop->branches()->count(),
+                // No max_branches column on subscription_plans — Premium is
+                // the only tier that supports multiple branches at all,
+                // matching SubscriptionController::subscribe()'s own
+                // `$plan->slug !== 'premium' && $currentBranchCount > 1` gate.
+                'max' => $plan?->slug === 'premium' ? -1 : 1,
+            ],
+        ];
+
+        $events = \App\Models\SubscriptionEvent::where('shop_id', $shop->id)
+            ->with(['plan:id,name,slug,price_monthly', 'previousPlan:id,name,slug,price_monthly'])
+            ->latest('occurred_at')
+            ->paginate($request->input('per_page', 20));
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'current' => $current,
+                'usage' => $usage,
+                'events' => [
+                    'data' => $events->items(),
+                    'meta' => [
+                        'current_page' => $events->currentPage(),
+                        'last_page' => $events->lastPage(),
+                        'total' => $events->total(),
+                    ],
+                ],
+            ],
+        ]);
+    }
 }

@@ -71,6 +71,8 @@ class Appointment extends Model
         'priority',
         'garment_category',
         'fitting_notes',
+        'cancellation_reason',
+        'rebooking_blocked',
     ];
 
     protected $casts = [
@@ -79,6 +81,7 @@ class Appointment extends Model
         'answers'         => 'array',
         'reference_images' => 'array',
         'reminder_sent_at' => 'datetime',
+        'rebooking_blocked' => 'boolean',
     ];
 
     // ─── Relationships ────────────────────────────────────────────────────────
@@ -171,6 +174,39 @@ class Appointment extends Model
                     ->addMinutes($appointment->duration_minutes ?? 60)
                     ->gt($scheduledAt);
             });
+    }
+
+    /**
+     * Anti-spam guard for the public booking form: a customer may only hold
+     * one active (pending/confirmed) appointment at a given shop at a time.
+     * Scoped per-shop, not platform-wide — a customer legitimately booking
+     * two different shops for two different garments isn't spam. To book a
+     * different slot at the *same* shop, they cancel the existing one first
+     * (PublicBookingController::submit() surfaces this as a 409).
+     */
+    public static function hasActiveAppointment(Shop $shop, int $customerId): bool
+    {
+        return $shop->appointments()
+            ->where('customer_id', $customerId)
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->exists();
+    }
+
+    /**
+     * True when this customer's most recent cancelled appointment at this
+     * shop was cancelled with rebooking explicitly blocked by the shop.
+     * Only the latest cancellation counts — an older block doesn't linger
+     * past a cancellation that didn't renew it.
+     */
+    public static function isBlockedFromRebooking(Shop $shop, int $customerId): bool
+    {
+        $latestCancelled = $shop->appointments()
+            ->where('customer_id', $customerId)
+            ->where('status', 'cancelled')
+            ->latest('updated_at')
+            ->first(['rebooking_blocked']);
+
+        return (bool) ($latestCancelled?->rebooking_blocked ?? false);
     }
 
     /**

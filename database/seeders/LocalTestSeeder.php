@@ -51,11 +51,17 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Thread & Needle Tailoring',
                 'slug' => 'thread-needle',
+                'shop_code' => 'TNED',
                 'description' => 'Premium tailoring and bespoke design services.',
+                'specializations' => ['barong', 'suit', 'gown'],
                 'address' => '123 Rizal Avenue',
                 'city' => 'Davao City',
                 'province' => 'Davao del Sur',
                 'email' => 'hello@threadneedle.com',
+                // Real values so the public booking page's payment step has
+                // something real to show instead of a hardcoded placeholder.
+                'gcash_number' => '0917 123 4567',
+                'gcash_account_name' => 'Thread & Needle Tailoring',
                 'phone' => '+639000000000',
                 'status' => 'approved', // Bypasses Admin Approval!
                 'approved_at' => now(),
@@ -91,6 +97,10 @@ class LocalTestSeeder extends Seeder
                 'slug' => \Illuminate\Support\Str::slug('Main Branch') . '-' . uniqid(),
                 'address' => '123 Rizal Avenue',
                 'city' => 'Davao City',
+                // Real Davao City administrative district for this real
+                // street/coordinate pair -- not a fabricated value. Rizal
+                // Avenue sits in the Poblacion district (downtown Davao).
+                'district' => 'Poblacion',
                 'latitude' => 7.0702,
                 'longitude' => 125.6077,
                 'contact_number' => '+63 900 000 0000',
@@ -132,7 +142,8 @@ class LocalTestSeeder extends Seeder
         // actually runs (local, Postgres test, or real production), same
         // fix as FileUploadController's UPLOAD_DISK bug.
         $shop->update([
-            'logo_path' => Storage::url('logos/sutura_logo.png'),
+            'logo_path' => Storage::url('logos/thread_needle_logo.jpg'),
+            'banner_path' => Storage::url('banners/thread_needle_banner.jpg'),
             'description' => "Davao City's premier provider of full sublimation jerseys, corporate uniforms, and custom tailoring.",
         ]);
 
@@ -275,7 +286,7 @@ class LocalTestSeeder extends Seeder
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 20,
-                'image_url' => '/catalog/Women\'s Esports Jersey with Customized Design .jpg',
+                'image_url' => '/catalog/Women\'s Esports Jersey with Customized Design.jpg',
                 'tiers' => [
                     ['label' => 'Elementary Uniform Set', 'amount' => 450],
                     ['label' => 'High School Uniform Set', 'amount' => 650],
@@ -352,6 +363,8 @@ class LocalTestSeeder extends Seeder
                 'slug' => \Illuminate\Support\Str::slug('SUTURA (Lanang Branch)') . '-' . uniqid(),
                 'address' => 'Lanang Business Park',
                 'city' => 'Davao City',
+                // Lanang is a real barangay under Buhangin district.
+                'district' => 'Buhangin',
                 'latitude' => 7.0988,
                 'longitude' => 125.6312,
                 'contact_number' => '+63 900 111 2222',
@@ -365,6 +378,8 @@ class LocalTestSeeder extends Seeder
                 'slug' => \Illuminate\Support\Str::slug('SUTURA (Matina Branch)') . '-' . uniqid(),
                 'address' => 'Matina Crossing Road',
                 'city' => 'Davao City',
+                // Matina is a real barangay under Talomo district.
+                'district' => 'Talomo',
                 'latitude' => 7.0543,
                 'longitude' => 125.5891,
                 'contact_number' => '+63 900 333 4444',
@@ -566,7 +581,7 @@ class LocalTestSeeder extends Seeder
                 'scheduled_at' => now()->addDays(4),
                 'duration_minutes' => 60,
                 'status' => 'pending',
-                'payment_method' => 'bank_transfer',
+                'payment_method' => 'paymaya',
                 'payment_status' => 'pending',
             ]
         );
@@ -593,6 +608,7 @@ class LocalTestSeeder extends Seeder
         $jo1 = \App\Models\JobOrder::firstOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1001'],
             [
+                'tracking_code' => 'TNED8K2P',
                 'shop_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[0]->id,
                 'service_id' => $service2->id,
@@ -611,6 +627,7 @@ class LocalTestSeeder extends Seeder
         $jo2 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1002'],
             [
+                'tracking_code' => 'TNED4M7B',
                 'shop_branch_id' => $branch2->id,
                 'customer_id' => $customers[1]->id,
                 'service_id' => $service1->id,
@@ -644,6 +661,7 @@ class LocalTestSeeder extends Seeder
         $jo3 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1003'],
             [
+                'tracking_code' => 'TNED9X3A',
                 'shop_branch_id' => $branch3->id,
                 'customer_id' => $customers[2]->id,
                 'service_id' => $service2->id,
@@ -667,6 +685,7 @@ class LocalTestSeeder extends Seeder
         $jo4 = \App\Models\JobOrder::firstOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1004'],
             [
+                'tracking_code' => 'TNED2V5H',
                 'shop_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[0]->id,
                 'service_id' => $service1->id,
@@ -699,6 +718,7 @@ class LocalTestSeeder extends Seeder
         $jo5 = \App\Models\JobOrder::firstOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1005'],
             [
+                'tracking_code' => 'TNED7N4K',
                 'shop_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[1]->id,
                 'service_id' => $service2->id,
@@ -731,6 +751,7 @@ class LocalTestSeeder extends Seeder
         $jo6 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1006'],
             [
+                'tracking_code' => 'TNED6W9E',
                 'shop_branch_id' => $branch2->id,
                 'customer_id' => $customers[2]->id,
                 'service_id' => $service1->id,
@@ -770,6 +791,7 @@ class LocalTestSeeder extends Seeder
         $jo7 = \App\Models\JobOrder::firstOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1007'],
             [
+                'tracking_code' => 'TNED3P8T',
                 'shop_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[0]->id,
                 'service_id' => $service2->id,
@@ -788,6 +810,7 @@ class LocalTestSeeder extends Seeder
         $jo8 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1008'],
             [
+                'tracking_code' => 'TNED5R2Y',
                 'shop_branch_id' => $branch3->id,
                 'customer_id' => $customers[1]->id,
                 'service_id' => $service2->id,
@@ -812,6 +835,7 @@ class LocalTestSeeder extends Seeder
         $jo9 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1009'],
             [
+                'tracking_code' => 'TNED8L3X',
                 'shop_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[2]->id,
                 'service_id' => $service1->id,
@@ -830,6 +854,7 @@ class LocalTestSeeder extends Seeder
         $jo10 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1010'],
             [
+                'tracking_code' => 'TNED2J7M',
                 'shop_branch_id' => $branch2->id,
                 'customer_id' => $customers[0]->id,
                 'service_id' => $service2->id,
@@ -853,6 +878,7 @@ class LocalTestSeeder extends Seeder
         $jo11 = \App\Models\JobOrder::updateOrCreate(
             ['shop_id' => $shop->id, 'order_number' => 'JO-1011'],
             [
+                'tracking_code' => 'TNED9B6S',
                 'shop_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[1]->id,
                 'service_id' => $service1->id,
@@ -964,7 +990,7 @@ class LocalTestSeeder extends Seeder
         \App\Models\Payment::firstOrCreate(
             ['job_order_id' => $jo1->id, 'amount' => 7500.00],
             [
-                'payment_method' => 'bank_transfer',
+                'payment_method' => 'paymaya',
                 'recorded_by' => $owner->id,
                 'notes' => 'Downpayment for custom suit.'
             ]
@@ -1110,7 +1136,7 @@ class LocalTestSeeder extends Seeder
                 'status' => 'pending',
                 'total_amount' => $gown2->price,
                 'payment_status' => 'pending',
-                'payment_method' => 'bank_transfer',
+                'payment_method' => 'paymaya',
                 'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
             ]
@@ -1294,32 +1320,31 @@ class LocalTestSeeder extends Seeder
         // Specs" tab is always empty, even though the whole point of the
         // measurement repository is to show it's populated and reusable.
         //
-        // Jose Rizal's "Default" profile gets 2 versions, demonstrating the
-        // version-history feature with real data: an older superseded
-        // snapshot (matched on version explicitly, since version is now
-        // part of the row's identity, not just shop+customer+profile_name)
-        // and the current one.
+        // Jose Rizal's "Bespoke Suit Tailoring" profile — one combined
+        // record (the jacket/trouser Top/Bottom split this used to be seeded
+        // with was removed), 2 versions demonstrating the version-history
+        // feature: an older superseded snapshot and the current one.
         \App\Models\Measurement::updateOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'profile_name' => 'Default', 'version' => 1],
+            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'profile_name' => 'Bespoke Suit Tailoring', 'version' => 1],
             [
                 'source' => 'shop_owner',
                 'metrics' => [
-                    'Chest' => '39', 'Waist' => '33', 'Hip' => '39', 'Shoulder' => '18',
-                    'Sleeve' => '25', 'Neck' => '16', 'Inseam' => '32',
+                    'Chest' => '99', 'Shoulder' => '46', 'Sleeve' => '63.5', 'Neck' => '40.5',
+                    'Waist' => '84', 'Hip' => '99', 'Inseam' => '81',
                 ],
                 'notes' => 'Initial fitting — prefers a slightly looser fit around the shoulders.',
                 'superseded_at' => now()->subDays(30),
             ]
         );
         \App\Models\Measurement::updateOrCreate(
-            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'profile_name' => 'Default', 'version' => 2],
+            ['shop_id' => $shop->id, 'customer_id' => $customers[0]->id, 'profile_name' => 'Bespoke Suit Tailoring', 'version' => 2],
             [
                 'source' => 'shop_owner',
                 'metrics' => [
-                    'Chest' => '40', 'Waist' => '34', 'Hip' => '40', 'Shoulder' => '18',
-                    'Sleeve' => '25', 'Neck' => '16', 'Inseam' => '32',
+                    'Chest' => '101.5', 'Shoulder' => '46', 'Sleeve' => '63.5', 'Neck' => '40.5',
+                    'Waist' => '86', 'Hip' => '101.5', 'Inseam' => '81',
                 ],
-                'notes' => 'Re-measured after a follow-up fitting — chest and waist both grew half an inch.',
+                'notes' => 'Re-measured after a follow-up fitting — chest and waist grew slightly.',
                 'superseded_at' => null,
             ]
         );
@@ -1429,6 +1454,41 @@ class LocalTestSeeder extends Seeder
             $n->save();
         }
 
+        // Customer-facing notifications — same gap as the owner block above
+        // (seeded straight to Eloquent, bypassing AppointmentController/
+        // JobOrderController, where customer notification firing already
+        // lives for real — verified: every real status change there already
+        // calls $customer->notify(...), this is purely backfilling demo
+        // data to match, not a production bug). Jose Rizal ends up with
+        // zero notifications otherwise, despite having a confirmed
+        // appointment, a cancelled one, and an active job order — which is
+        // exactly the gap that looked like a bug but was missing seed
+        // coverage, same as the owner's case above.
+        $customers[0]->notifications()->delete();
+
+        $confirmedAppt = \App\Models\Appointment::where('customer_id', $customers[0]->id)->where('status', 'confirmed')->first();
+        if ($confirmedAppt) {
+            $customers[0]->notify(new \App\Notifications\AppointmentStatusNotification($confirmedAppt, 'confirmed'));
+        }
+        $cancelledAppt = \App\Models\Appointment::where('customer_id', $customers[0]->id)->where('status', 'cancelled')->first();
+        if ($cancelledAppt) {
+            $customers[0]->notify(new \App\Notifications\AppointmentStatusNotification($cancelledAppt, 'cancelled'));
+        }
+        $customers[0]->notify(new \App\Notifications\JobStatusUpdatedNotification($jo10, 'sewing'));
+
+        $customerNotifications = $customers[0]->notifications()->orderBy('id')->get();
+        $cTotal = $customerNotifications->count();
+        $cReadCutoff = (int) ceil($cTotal / 2);
+        foreach ($customerNotifications as $i => $n) {
+            $daysAgo = $cTotal - $i;
+            $n->created_at = now()->subDays($daysAgo);
+            $n->updated_at = $n->created_at;
+            if ($i < $cReadCutoff) {
+                $n->read_at = $n->created_at->copy()->addHours(2);
+            }
+            $n->save();
+        }
+
         // 21. Second Shop Owner account — a separate login for testing
         // multi-tenant isolation (does this shop ever leak Thread & Needle's
         // data or vice versa?) and lower-tier plan behavior (Basic here vs.
@@ -1452,7 +1512,9 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Bautista Custom Tailors',
                 'slug' => 'bautista-tailors',
+                'shop_code' => 'BAUT',
                 'description' => 'Everyday tailoring and school uniform specialists.',
+                'specializations' => ['uniform', 'alteration_repair'],
                 'address' => '45 Bonifacio Street',
                 'city' => 'Davao City',
                 'province' => 'Davao del Sur',
@@ -1469,6 +1531,8 @@ class LocalTestSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '08:00', 'close' => '12:00'],
                     'sunday' => ['is_open' => false, 'open' => '08:00', 'close' => '17:00'],
                 ],
+                'logo_path' => Storage::url('logos/bautista_tailors_logo.jpg'),
+                'banner_path' => Storage::url('banners/bautista_tailors_banner.jpg'),
             ]
         );
 
@@ -1490,6 +1554,8 @@ class LocalTestSeeder extends Seeder
                 'slug' => \Illuminate\Support\Str::slug('Main Branch') . '-' . uniqid(),
                 'address' => '45 Bonifacio Street',
                 'city' => 'Davao City',
+                // Bonifacio Street is in the Poblacion district (downtown).
+                'district' => 'Poblacion',
                 'latitude' => 7.0644,
                 'longitude' => 125.6108,
                 'contact_number' => '+63 911 111 1111',
@@ -1519,6 +1585,7 @@ class LocalTestSeeder extends Seeder
                 'name' => 'Villanueva Bespoke Atelier',
                 'slug' => 'villanueva-atelier',
                 'description' => 'Formal wear and bridal atelier serving multiple branches.',
+                'specializations' => ['gown', 'suit', 'filipiniana'],
                 'address' => '78 J.P. Laurel Avenue',
                 'city' => 'Davao City',
                 'province' => 'Davao del Sur',
@@ -1535,6 +1602,8 @@ class LocalTestSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
                     'sunday' => ['is_open' => false, 'open' => '10:00', 'close' => '19:00'],
                 ],
+                'logo_path' => Storage::url('logos/villanueva_atelier_logo.jpg'),
+                'banner_path' => Storage::url('banners/villanueva_atelier_banner.jpg'),
             ]
         );
 
@@ -1556,8 +1625,16 @@ class LocalTestSeeder extends Seeder
                 'slug' => \Illuminate\Support\Str::slug('Main Branch') . '-' . uniqid(),
                 'address' => '78 J.P. Laurel Avenue',
                 'city' => 'Davao City',
-                'latitude' => 7.0731,
-                'longitude' => 125.6128,
+                // J.P. Laurel Avenue runs through the Bajada corridor, part
+                // of Buhangin district. This used to be stuck on 7.0731,
+                // 125.6128 — the exact hardcoded "Davao City" map fallback
+                // constant in DiscoveryMap.tsx, not this street's real
+                // location — which put this shop's pin stacked on top of
+                // Bautista Custom Tailors' unrelated Poblacion/downtown
+                // branch on the discovery map. Real Bajada-corridor coords.
+                'district' => 'Buhangin',
+                'latitude' => 7.0951,
+                'longitude' => 125.6127,
                 'contact_number' => '+63 922 222 2222',
                 'is_main' => true,
             ]

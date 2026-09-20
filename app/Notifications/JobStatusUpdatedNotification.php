@@ -105,13 +105,17 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
         $titles = $this->titles();
         $messages = $this->messages();
 
+        $shop = $this->jobOrder->shop;
         return [
             'type'          => 'job_' . $this->status,
             'title'         => $titles[$this->status] ?? 'Order Update',
             'message'       => $messages[$this->status] ?? 'Your order status has been updated.',
-            'action_url'    => '/dashboard/jobs/' . $this->jobOrder->id,
+            'action_url'    => '/account/orders/' . $this->jobOrder->id,
             'job_order_id'  => $this->jobOrder->id,
             'order_number'  => $this->jobOrder->order_number,
+            'shop' => $shop ? [
+                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            ] : null,
         ];
     }
 }

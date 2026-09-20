@@ -79,6 +79,139 @@ class AppointmentController extends Controller
         ));
     }
 
+    /**
+     * Cross-shop "My Appointments" for whoever is logged in — the customer
+     * counterpart to index() above, which is shop-scoped and staff/owner
+     * only. Mirrors JobOrderTrackingController::myOrders()'s same pattern
+     * and safe field subset (no internal notes, no staff assignment). No
+     * role gate: filters by the caller's own id as customer_id.
+     */
+    public function myAppointments(Request $request): JsonResponse
+    {
+        $appointments = Appointment::where('customer_id', $request->user()->id)
+            ->with(['shop:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name'])
+            ->orderByDesc('scheduled_at')
+            ->paginate($request->input('per_page', 20));
+
+        $appointments->getCollection()->transform(fn (Appointment $appointment) => [
+            'id'                => $appointment->id,
+            'appointment_type'  => $appointment->appointment_type,
+            'intake_channel'    => $appointment->intake_channel,
+            'status'            => $appointment->status,
+            'scheduled_at'      => $appointment->scheduled_at,
+            'duration_minutes'  => $appointment->duration_minutes,
+            'service_name'      => $appointment->service?->name,
+            'payment_status'    => $appointment->payment_status,
+            'cancellation_reason' => $appointment->cancellation_reason,
+            'rebooking_blocked' => (bool) $appointment->rebooking_blocked,
+            'shop'              => $appointment->shop ? [
+                'name'      => $appointment->shop->name,
+                'slug'      => $appointment->shop->slug,
+                'logo_path' => $appointment->shop->logo_path,
+            ] : null,
+            'branch' => $appointment->branch ? [
+                'name'    => $appointment->branch->name,
+                'address' => $appointment->branch->address,
+                'city'    => $appointment->branch->city,
+            ] : null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $appointments->items(),
+            'meta'    => [
+                'current_page' => $appointments->currentPage(),
+                'last_page'    => $appointments->lastPage(),
+                'total'        => $appointments->total(),
+            ],
+        ]);
+    }
+
+    /**
+     * Customer cancels their own appointment — distinct from destroy() below
+     * (owner/manager only). No reason required (that's only meaningful when
+     * the *shop* cancels on a customer), and never touches
+     * rebooking_blocked — cancelling your own booking never blocks you from
+     * booking again.
+     */
+    public function cancelMine(Request $request, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->customer_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        if (!$appointment->canTransitionTo('cancelled')) {
+            return response()->json([
+                'success' => false,
+                'message' => "A {$appointment->status} appointment cannot be cancelled.",
+            ], 422);
+        }
+
+        $appointment->update(['status' => 'cancelled']);
+
+        $shop = $appointment->shop;
+        if ($shop) {
+            $this->notifyOwnerOfActivity($request, $shop, [
+                'type'    => 'appointment_cancelled',
+                'title'   => 'Appointment Cancelled',
+                'message' => "{$request->user()->name} cancelled their own appointment.",
+                'url'     => '/dashboard/appointments',
+                'extra'   => ['appointment_id' => $appointment->id],
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Appointment cancelled.',
+            'data'    => $appointment,
+        ]);
+    }
+
+    /**
+     * Single-appointment detail for the customer's own "view full detail"
+     * screen — same customer-scoped ownership check and safe field subset
+     * as myAppointments(), just one row with a bit more (duration, payment
+     * status, full branch address, and the customer's own notes/reference
+     * images from booking — their own submitted data, safe to show back).
+     */
+    public function myAppointmentDetail(Request $request, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->customer_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
+        }
+
+        $appointment->load(['shop:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id'                  => $appointment->id,
+                'appointment_type'    => $appointment->appointment_type,
+                'intake_channel'      => $appointment->intake_channel,
+                'status'              => $appointment->status,
+                'scheduled_at'        => $appointment->scheduled_at,
+                'duration_minutes'    => $appointment->duration_minutes,
+                'service_name'        => $appointment->service?->name,
+                'payment_status'      => $appointment->payment_status,
+                'payment_method'      => $appointment->payment_method,
+                'notes'               => $appointment->notes,
+                'reference_link'      => $appointment->reference_link,
+                'cancellation_reason' => $appointment->cancellation_reason,
+                'rebooking_blocked'   => (bool) $appointment->rebooking_blocked,
+                'shop'                => $appointment->shop ? [
+                    'name'      => $appointment->shop->name,
+                    'slug'      => $appointment->shop->slug,
+                    'logo_path' => $appointment->shop->logo_path,
+                ] : null,
+                'branch' => $appointment->branch ? [
+                    'name'    => $appointment->branch->name,
+                    'address' => $appointment->branch->address,
+                    'city'    => $appointment->branch->city,
+                ] : null,
+            ],
+        ]);
+    }
+
     // ─── Index ────────────────────────────────────────────────────────────────
 
     public function index(Request $request, Shop $shop): JsonResponse
@@ -505,7 +638,20 @@ class AppointmentController extends Controller
             $error = "Cannot cancel an appointment with status '{$appointment->status}'.";
             $status = 422;
         } else {
-            $appointment->update(['status' => 'cancelled']);
+            // The shop is cancelling on the customer — unlike cancelMine()
+            // above, the customer deserves to know why, so a reason is
+            // required here. block_rebooking defaults to false (the
+            // customer may still book again); the shop opts in to blocking.
+            $validated = $request->validate([
+                'reason'          => ['required', 'string', 'max:2000'],
+                'block_rebooking' => ['nullable', 'boolean'],
+            ]);
+
+            $appointment->update([
+                'status'              => 'cancelled',
+                'cancellation_reason' => $validated['reason'],
+                'rebooking_blocked'   => $validated['block_rebooking'] ?? false,
+            ]);
             $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
             $customer = $appointment->customer;

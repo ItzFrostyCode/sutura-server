@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\SubscriptionPlan;
 use App\Models\ShopSubscription;
+use App\Models\SubscriptionEvent;
 
 class SubscriptionController extends Controller
 {
@@ -93,6 +94,16 @@ class SubscriptionController extends Controller
         // Simulated billing: Instantly create or update subscription
         // In a real app, this is where PayMongo/Stripe checkout session would be created
 
+        // Read the previous subscription BEFORE cancelling it — needed to
+        // classify the event below (created/renewed/upgraded/downgraded),
+        // and the update() call two lines down overwrites its status to
+        // 'cancelled' with no way to read the "was this the same plan or a
+        // different one" fact afterward.
+        $previousSubscription = ShopSubscription::where('shop_id', $shopId)
+            ->whereIn('status', ['active', 'trial'])
+            ->latest()
+            ->first();
+
         // Cancel previous active subscription if it exists
         ShopSubscription::where('shop_id', $shopId)
             ->whereIn('status', ['active', 'trial'])
@@ -117,6 +128,30 @@ class SubscriptionController extends Controller
         // the owner renews, not stay hidden until they separately notice and
         // flip the visibility toggle themselves.
         \App\Models\Shop::where('id', $shopId)->update(['is_hidden' => false]);
+
+        // Objective 7's "subscription activity" reporting needs a real
+        // event log, not just the latest ShopSubscription row (which only
+        // ever shows the current state, never the history of how a shop
+        // got there).
+        if (!$previousSubscription) {
+            $eventType = 'created';
+        } elseif ($previousSubscription->plan_id === $plan->id) {
+            $eventType = 'renewed';
+        } else {
+            $previousPlan = SubscriptionPlan::find($previousSubscription->plan_id);
+            $eventType = ($previousPlan && $previousPlan->price_monthly < $plan->price_monthly) ? 'upgraded' : 'downgraded';
+        }
+
+        SubscriptionEvent::create([
+            'shop_id' => $shopId,
+            'shop_subscription_id' => $newSubscription->id,
+            'event_type' => $eventType,
+            'plan_id' => $plan->id,
+            'previous_plan_id' => $previousSubscription?->plan_id,
+            'billing_cycle' => $request->billing_cycle,
+            'triggered_by' => $user->id,
+            'occurred_at' => now(),
+        ]);
 
         return response()->json([
             'success' => true,

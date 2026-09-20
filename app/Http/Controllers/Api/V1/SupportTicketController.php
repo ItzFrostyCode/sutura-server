@@ -115,4 +115,62 @@ class SupportTicketController extends Controller
             'message' => 'Ticket closed.',
         ]);
     }
+
+    /**
+     * Cross-shop "My Support Tickets" for whoever is logged in — the
+     * customer-facing counterpart to index() above, which is shop-scoped
+     * and shop-owner only. Same no-role-gate, filter-by-own-id pattern as
+     * /my-orders/my-appointments. Currently the only way a customer gets a
+     * row here is via CatalogInteractionController::report() ("Report This
+     * Product") — there's no general "file a ticket" form yet, so this is
+     * a view(+reply) list, not a ticket-creation surface.
+     */
+    public function myTickets(Request $request)
+    {
+        $tickets = SupportTicket::where('user_id', $request->user()->id)
+            ->with(['shop:id,name,slug,logo_path', 'replies.user:id,name'])
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json(['success' => true, 'data' => $tickets]);
+    }
+
+    public function myTicketShow(Request $request, $ticketId)
+    {
+        $ticket = SupportTicket::where('user_id', $request->user()->id)
+            ->with(['shop:id,name,slug,logo_path', 'replies.user:id,name'])
+            ->findOrFail($ticketId);
+
+        return response()->json(['success' => true, 'data' => $ticket]);
+    }
+
+    /**
+     * Customer reply on their own ticket — mirrors reply() above but scoped
+     * to the caller's own tickets instead of a shop's, and always tagged
+     * is_admin_reply=false since only System Admin's own reply endpoint can
+     * set that true.
+     */
+    public function myTicketReply(Request $request, $ticketId)
+    {
+        $ticket = SupportTicket::where('user_id', $request->user()->id)->findOrFail($ticketId);
+
+        $validated = $request->validate([
+            'message' => 'required|string',
+        ]);
+
+        $reply = SupportTicketReply::create([
+            'ticket_id'      => $ticket->id,
+            'user_id'        => $request->user()->id,
+            'message'        => $validated['message'],
+            'is_admin_reply' => false,
+        ]);
+
+        if (in_array($ticket->status, ['resolved', 'closed'], true)) {
+            $ticket->update(['status' => 'open']);
+        }
+
+        $reply->load('user:id,name,email');
+
+        return response()->json(['success' => true, 'data' => $reply], 201);
+    }
 }

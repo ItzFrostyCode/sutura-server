@@ -47,12 +47,16 @@ class CatalogItemReviewReplyNotification extends Notification implements ShouldQ
 
     public function toArray(object $notifiable): array
     {
+        $shop = $this->review->catalogItem?->shop;
         return [
             'type' => 'catalog_item_review_reply',
             'title' => 'The shop replied to your review',
             'message' => 'The shop replied to your review of "' . ($this->review->catalogItem?->name ?? 'an item') . '".',
-            'action_url' => '/shop/' . $this->review->catalogItem?->shop?->slug . '/catalog/' . $this->review->catalog_item_id,
+            'action_url' => '/shop/' . $shop?->slug . '/catalog/' . $this->review->catalog_item_id,
             'review_id' => $this->review->id,
+            'shop' => $shop ? [
+                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            ] : null,
         ];
     }
 }

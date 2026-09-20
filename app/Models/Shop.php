@@ -12,7 +12,7 @@ class Shop extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'owner_id', 'name', 'slug', 'description', 'address', 'landmark',
+        'owner_id', 'name', 'slug', 'shop_code', 'description', 'address', 'landmark',
         'city', 'province', 'postal_code', 'phone', 'email',
         'logo_path', 'banner_path', 'gallery_images', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
@@ -22,6 +22,29 @@ class Shop extends Model
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
         'gcash_qr_path', 'bank_qr_path',
     ];
+
+    /**
+     * shop_code is confidential — used by owners, branch managers, and staff
+     * for tracking prefixes and internal identification. Never exposed to
+     * public storefront visitors or customer browsing endpoints.
+     */
+    protected $hidden = [
+        'shop_code',
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Shop $shop) {
+            if (empty($shop->shop_code) && !empty($shop->name)) {
+                $letters = preg_replace('/[^A-Za-z]/', '', $shop->name);
+                $code = strtoupper(substr($letters, 0, 4));
+                if (strlen($code) < 4) {
+                    $code = str_pad($code, 4, 'X');
+                }
+                $shop->shop_code = $code;
+            }
+        });
+    }
 
     protected $casts = [
         'approved_at' => 'datetime',
@@ -39,6 +62,17 @@ class Shop extends Model
     protected $appends = [
         'active_special_hours',
     ];
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        if ($field) {
+            return parent::resolveRouteBinding($value, $field);
+        }
+
+        return is_numeric($value)
+            ? $this->where('id', $value)->first()
+            : $this->where('slug', $value)->first();
+    }
 
     public function owner(): BelongsTo
     {
