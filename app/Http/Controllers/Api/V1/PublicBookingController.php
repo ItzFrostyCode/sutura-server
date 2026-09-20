@@ -26,13 +26,33 @@ class PublicBookingController extends Controller
             'data'    => [
                 'name'              => $shop->name,
                 'description'       => $shop->description,
+                'business_type'     => $shop->business_type,
+                'specializations'   => $shop->specializations ?? [],
+                // The booking form's payment step showed a hardcoded
+                // placeholder ("Printify Shop") regardless of which shop was
+                // being booked — this shop's own real payment details, set
+                // via SettingsBasicInfo.tsx, were never exposed here at all.
+                'gcash_number'         => $shop->gcash_number,
+                'gcash_account_name'   => $shop->gcash_account_name,
+                'gcash_qr_path'        => $shop->gcash_qr_path,
+                'bank_name'            => $shop->bank_name,
+                'bank_account_number'  => $shop->bank_account_number,
+                'bank_account_name'    => $shop->bank_account_name,
+                'bank_qr_path'         => $shop->bank_qr_path,
+                // Drives whether the booking form even shows a payment step
+                // at all — a plain consultation/fitting request shouldn't
+                // ask for a deposit unless this shop actually charges one to
+                // reserve the slot (the Tailor-Gated Handshake rule: booking
+                // is a request, not a paid commitment — that's the JobOrder
+                // downpayment's job, once staff formalizes the request).
+                'fitting_fee'       => $shop->fitting_fee,
                 'booking_policy'    => $shop->booking_policy,
                 'booking_questions' => $shop->booking_questions ?? [],
                 'max_appointments_per_day' => $shop->max_appointments_per_day,
                 'operating_hours'   => $shop->operating_hours,
                 'active_special_hours' => $shop->active_special_hours,
                 'special_hours'     => $shop->specialHours()->get(),
-                'branches'          => $shop->branches()->get(['id', 'slug', 'name', 'address', 'city']),
+                'branches'          => $shop->branches()->get(['id', 'slug', 'name', 'address', 'city', 'latitude', 'longitude']),
                 'services'          => $shop->services()
                     ->where('is_active', true)
                     ->get(['id', 'name', 'base_price', 'estimated_days']),
@@ -123,7 +143,7 @@ class PublicBookingController extends Controller
         ) {
             return response()->json([
                 'success' => false,
-                'message' => 'A payment receipt is required for GCash/PayMaya/Bank Transfer bookings.',
+                'message' => 'A payment receipt is required for GCash/PayMaya bookings.',
                 'errors'  => ['payment_receipt_path' => ['Please upload your payment receipt before confirming.']],
             ], 422);
         }
@@ -188,6 +208,23 @@ class PublicBookingController extends Controller
             if ($customerRole) {
                 $customer->roles()->attach($customerRole);
             }
+        }
+
+        // ── Anti-spam / rebooking-block guards ─────────────────────────────────
+        // Only meaningful for a customer with prior history at this shop — a
+        // brand-new account (just created above) can't trip either check.
+        if (\App\Models\Appointment::isBlockedFromRebooking($shop, $customer->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This shop is not accepting new bookings from this account. Please contact the shop directly.',
+            ], 403);
+        }
+
+        if (\App\Models\Appointment::hasActiveAppointment($shop, $customer->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You already have an active appointment at this shop. Cancel it first if you want to book a different date.',
+            ], 409);
         }
 
         // ── Associate customer with this shop ─────────────────────────────────

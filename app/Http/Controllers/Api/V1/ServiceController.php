@@ -26,13 +26,91 @@ class ServiceController extends Controller
     }
 
     /**
+     * Cross-shop services showroom feed for the public landing page —
+     * publicIndex() below is always scoped to one shop; this pulls active
+     * services (Alterations, Bespoke Tailoring, Sublimation, etc.) across
+     * every approved, non-hidden shop, the same way CatalogController::
+     * publicShowroom() does for catalog items. Services are a distinct
+     * concept from catalog items here — a service like "Alterations" isn't
+     * a garment_type value, it belongs in this feed, not the catalog grid.
+     */
+    public function publicShowroom(Request $request): JsonResponse
+    {
+        $query = Service::query()
+            ->where('is_active', true)
+            ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
+            ->with([
+                'shop' => fn ($q) => $q->with([
+                    'owner:id,name',
+                    'branches' => fn ($bq) => $bq->where('status', 'active'),
+                ]),
+            ]);
+
+        if ($request->filled('q')) {
+            $search = strtolower((string) $request->string('q'));
+            $query->where(function ($q) use ($search) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(category) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(service_type) LIKE ?', ['%' . $search . '%'])
+                    ->orWhereRaw('LOWER(description) LIKE ?', ['%' . $search . '%']);
+            });
+        }
+
+        if ($request->filled('district')) {
+            $district = $request->string('district')->toString();
+            $query->whereHas('shop.branches', function ($bq) use ($district) {
+                $bq->where('district', $district)->where('status', 'active');
+            });
+        }
+
+        match ($request->string('sort_by')->toString()) {
+            'name_asc' => $query->orderBy('name'),
+            'price_asc' => $query->orderBy('base_price'),
+            'price_desc' => $query->orderByDesc('base_price'),
+            default => $query->latest(),
+        };
+
+        $services = $query->paginate($request->input('per_page', 12));
+
+        // base_price/sale_price are declared 'decimal:2' on the model, which
+        // Laravel always re-stringifies on assignment (by design, to protect
+        // money precision) -- setting $service->base_price = (float) ... gets
+        // silently cast right back to a string, unlike CatalogItem::price
+        // (no cast at all, so a plain float assignment sticks there).
+        // Converting to a plain array first sidesteps the model's own cast
+        // for just this response.
+        $items = $services->getCollection()->map(function (Service $service) {
+            $arr = $service->toArray();
+            $arr['base_price'] = $service->base_price !== null ? (float) $service->base_price : null;
+            $arr['sale_price'] = $service->sale_price !== null ? (float) $service->sale_price : null;
+            return $arr;
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $items,
+            'meta' => [
+                'current_page' => $services->currentPage(),
+                'last_page' => $services->lastPage(),
+                'per_page' => $services->perPage(),
+                'total' => $services->total(),
+            ],
+        ]);
+    }
+
+    /**
      * Publicly accessible list of a shop's active services for its storefront page.
      */
     public function publicIndex(Shop $shop): JsonResponse
     {
+        // service_types + pricing added for the customer-facing "Request a
+        // Repair" flow — it needs to know which services are actually
+        // alteration/repair-typed, and their real per-item pricing (never a
+        // guessed flat amount) to build the request form.
         $services = $shop->services()
             ->where('is_active', true)
-            ->get(['id', 'name', 'description', 'categories', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows']);
+            ->with('pricing:id,service_id,label,amount')
+            ->get(['id', 'name', 'description', 'categories', 'service_types', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows']);
 
         return response()->json([
             'success' => true,

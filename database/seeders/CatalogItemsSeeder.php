@@ -798,5 +798,34 @@ class CatalogItemsSeeder extends Seeder
             ['catalog_item_id' => $item_48->id, 'image_url' => '/catalog/VBALL_PRE-2001_800x800.webp'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
+
+        // Populate realistic fabric_image_url for all catalog items based on garment type & material
+        foreach (\App\Models\CatalogItem::whereNull('fabric_image_url')->get() as $item) {
+            $name = strtolower($item->name);
+            $gt = strtolower($item->garment_type ?? '');
+            $mat = strtolower($item->material ?? '');
+
+            $fabric = '/catalog/fabrics/peach_twill_fabric.jpg';
+
+            if (str_contains($name, 'barong') || $gt === 'barong' || str_contains($mat, 'pina')) {
+                $fabric = '/catalog/fabrics/pina_cocoon_fabric.jpg';
+            } elseif (str_contains($name, 'green') || str_contains($name, 'greed') || str_contains($name, 'teal')) {
+                $fabric = '/catalog/fabrics/emerald_lace_fabric.jpg';
+            } elseif (str_contains($name, 'red') && (str_contains($name, 'satin') || str_contains($name, 'dress') || str_contains($name, 'gown'))) {
+                $fabric = '/catalog/fabrics/crimson_satin_fabric.jpg';
+            } elseif (str_contains($name, 'satin') || str_contains($name, 'pink') || str_contains($name, 'maid') || str_contains($name, 'bridesmaid')) {
+                $fabric = '/catalog/fabrics/satin_silk_fabric.jpg';
+            } elseif ($gt === 'gown' || str_contains($name, 'gown') || str_contains($name, 'wedding') || str_contains($name, 'tulle') || str_contains($mat, 'chiffon')) {
+                $fabric = '/catalog/fabrics/bridal_chiffon_fabric.jpg';
+            } elseif ($gt === 'suit' || str_contains($name, 'suit') || str_contains($name, 'tuxedo') || str_contains($mat, 'wool')) {
+                $fabric = '/catalog/fabrics/wool_twill_fabric.jpg';
+            } elseif (str_contains($name, 'rashguard') || str_contains($name, 'riders')) {
+                $fabric = '/catalog/fabrics/compression_spandex_fabric.jpg';
+            } elseif ($gt === 'uniform' || str_contains($name, 'jersey') || str_contains($name, 'esport') || str_contains($name, 'volleyball') || str_contains($name, 'basketball') || str_contains($mat, 'drifit')) {
+                $fabric = '/catalog/fabrics/drifit_mesh_fabric.jpg';
+            }
+
+            $item->update(['fabric_image_url' => $fabric]);
+        }
     }
 }

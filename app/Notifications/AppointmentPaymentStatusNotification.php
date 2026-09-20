@@ -63,14 +63,18 @@ class AppointmentPaymentStatusNotification extends Notification implements Shoul
     public function toArray(object $notifiable): array
     {
         $accepted = $this->status === 'paid';
+        $shop = $this->appointment->shop;
         return [
             'type' => 'appointment_payment_' . $this->status,
             'title' => $accepted ? 'Payment Confirmed' : 'Payment Not Accepted',
             'message' => $accepted
                 ? 'Your payment for your appointment on ' . $this->scheduledLabel() . ' has been confirmed.'
                 : 'Your payment for your appointment on ' . $this->scheduledLabel() . ' was not accepted.',
-            'action_url' => '/dashboard/appointments',
+            'action_url' => '/account/appointments/' . $this->appointment->id,
             'appointment_id' => $this->appointment->id,
+            'shop' => $shop ? [
+                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            ] : null,
         ];
     }
 }

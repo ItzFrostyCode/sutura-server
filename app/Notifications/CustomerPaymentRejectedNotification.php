@@ -63,15 +63,20 @@ class CustomerPaymentRejectedNotification extends Notification implements Should
 
     public function toArray(object $notifiable): array
     {
+        $shop = $this->jobOrder->shop;
         return [
             'type'         => 'customer_payment_rejected',
             'title'        => 'Payment Not Accepted',
             'message'      => 'Your ₱' . number_format((float) $this->payment->amount, 2) . ' payment for order ' . $this->jobOrder->order_number . ' was not accepted. Reason: ' . $this->reason,
+            'action_url'   => '/account/orders/' . $this->jobOrder->id,
             'job_order_id' => $this->jobOrder->id,
             'order_number' => $this->jobOrder->order_number,
             'payment_id'   => $this->payment->id,
             'amount'       => (float) $this->payment->amount,
             'reason'       => $this->reason,
+            'shop' => $shop ? [
+                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            ] : null,
         ];
     }
 }

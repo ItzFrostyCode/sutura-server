@@ -5,6 +5,7 @@ namespace App\Providers;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -32,6 +33,18 @@ class AppServiceProvider extends ServiceProvider
             $frontendUrl = rtrim(config('app.frontend_url'), '/');
 
             return "{$frontendUrl}/reset-password?token={$token}&email=".urlencode($notifiable->getEmailForPasswordReset());
+        });
+
+        // Single source of truth for "what counts as a strong password" —
+        // Password::defaults() is already referenced by ProfileController's
+        // password-change validation; before this it fell back to Laravel's
+        // bare min(8) with no complexity requirement. Registration
+        // (RegisterRequest) now uses this same rule instead of its own
+        // plain 'min:8', so the frontend's password checklist (8+ chars,
+        // number+symbol, upper+lowercase) matches what the server actually
+        // enforces everywhere a password is set, not just decorative UI copy.
+        Password::defaults(function () {
+            return Password::min(8)->mixedCase()->numbers()->symbols();
         });
     }
 }

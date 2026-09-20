@@ -56,13 +56,21 @@ class CatalogOrderPaymentStatusNotification extends Notification implements Shou
     public function toArray(object $notifiable): array
     {
         $accepted = $this->status === 'paid';
+        $shop = $this->order->shop;
         return [
             'type' => 'catalog_order_payment_' . $this->status,
             'title' => $accepted ? 'Payment Confirmed' : 'Payment Not Accepted',
             'message' => $accepted
                 ? 'Your payment for order #' . $this->order->id . ' has been confirmed.'
                 : 'Your payment for order #' . $this->order->id . ' was not accepted.',
+            // No dedicated customer-facing detail page exists for a walk-in
+            // catalog order (only JobOrder has one, via /account/orders) —
+            // the list is the closest real destination.
+            'action_url' => '/account/orders',
             'catalog_order_id' => $this->order->id,
+            'shop' => $shop ? [
+                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            ] : null,
         ];
     }
 }

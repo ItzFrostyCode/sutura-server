@@ -34,6 +34,11 @@ class ShopBranchController extends Controller
             'address' => 'required|string|max:255',
             'landmark' => 'nullable|string|max:255',
             'city' => 'required|string|max:255',
+            // Same 8 Davao City districts the public discovery filter uses
+            // (ShopController::publicIndex) — this is the only place a
+            // branch's district ever gets set, so leaving it out here meant
+            // every newly added branch stayed permanently unfilterable.
+            'district' => 'nullable|in:Poblacion,Talomo,Buhangin,Agdao,Toril,Bunawan,Calinan,Tugbok',
             'contact_number' => 'nullable|string',
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
@@ -62,6 +67,7 @@ class ShopBranchController extends Controller
             'address'          => $request->address,
             'landmark'         => $request->landmark,
             'city'             => $request->city,
+            'district'         => $request->district,
             'contact_number'   => $request->contact_number,
             'latitude'         => $request->latitude,
             'longitude'        => $request->longitude,
@@ -107,6 +113,7 @@ class ShopBranchController extends Controller
             'address' => 'required|string|max:255',
             'landmark' => 'nullable|string|max:255',
             'city' => 'required|string|max:255',
+            'district' => 'nullable|in:Poblacion,Talomo,Buhangin,Agdao,Toril,Bunawan,Calinan,Tugbok',
             'contact_number' => 'nullable|string',
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
@@ -121,6 +128,7 @@ class ShopBranchController extends Controller
             'address' => $request->address,
             'landmark' => $request->landmark,
             'city' => $request->city,
+            'district' => $request->district,
             'contact_number' => $request->contact_number,
             'latitude' => $request->filled('latitude') ? $request->latitude : ($request->latitude === '' ? null : $branch->latitude),
             'longitude' => $request->filled('longitude') ? $request->longitude : ($request->longitude === '' ? null : $branch->longitude),
