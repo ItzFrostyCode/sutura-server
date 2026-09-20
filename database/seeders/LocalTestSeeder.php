@@ -433,6 +433,7 @@ class LocalTestSeeder extends Seeder
         $customerRole = Role::where('name', 'customer')->first();
         $customers = [];
         $customerNames = [
+            ['email' => 'customer@sutura.com', 'name' => 'Juan dela Cruz'],
             ['email' => 'jose.rizal@gmail.com', 'name' => 'Jose Rizal'],
             ['email' => 'andres.b@gmail.com', 'name' => 'Andres Bonifacio'],
             ['email' => 'maria.clara@gmail.com', 'name' => 'Maria Clara'],
