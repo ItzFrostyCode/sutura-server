@@ -12,10 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('job_orders', function (Blueprint $table) {
-            // Defaults to shop-supplied since that's the common case for
+            // Defaults to store-supplied since that's the common case for
             // made-to-order tailoring; walk-ins bringing their own fabric/an
             // existing garment are the exception that needs an explicit flag.
-            $table->string('material_source')->default('shop_supplied')->after('reference_link');
+            $table->string('material_source')->default('store_supplied')->after('reference_link');
         });
     }
 

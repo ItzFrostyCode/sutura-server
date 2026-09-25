@@ -2,11 +2,12 @@
 
 namespace App\Notifications;
 
+use App\Models\JobOrder;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Models\JobOrder;
 
 class OrderReadyNotification extends Notification implements ShouldQueue
 {
@@ -14,9 +15,15 @@ class OrderReadyNotification extends Notification implements ShouldQueue
 
     public JobOrder $jobOrder;
 
-    public function __construct(JobOrder $jobOrder)
+    // Which staff/owner marked this order ready — lets the customer-facing
+    // notification row show the actual person's avatar instead of always
+    // falling back to the store logo.
+    public ?User $actor;
+
+    public function __construct(JobOrder $jobOrder, ?User $actor = null)
     {
         $this->jobOrder = $jobOrder;
+        $this->actor = $actor;
     }
 
     /**
@@ -26,9 +33,10 @@ class OrderReadyNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $channels = ['database'];
-        if ($notifiable->email && !str_starts_with($notifiable->email, 'walkin_')) {
+        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
             $channels[] = 'mail';
         }
+
         return $channels;
     }
 
@@ -37,18 +45,18 @@ class OrderReadyNotification extends Notification implements ShouldQueue
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $shop = $this->jobOrder->shop;
-        $shopUrl = $shop?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000') . '/shop/' . $shop->slug) : null;
+        $store = $this->jobOrder->store;
+        $storeUrl = $store?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000').'/store/'.$store->slug) : null;
 
         $mail = (new MailMessage)
             ->subject('Your Bespoke Garment is Ready for Pickup!')
-            ->greeting('Hello ' . $notifiable->name . ',')
-            ->line('Great news! Your order (' . $this->jobOrder->order_number . ') from ' . ($shop?->name ?? 'the shop') . ' is now ready.')
-            ->line('Please visit the shop to fit your garment. If everything is perfect, you can pay your remaining balance of ₱' . number_format($this->jobOrder->balance, 2) . ' and take it home.')
+            ->greeting('Hello '.$notifiable->name.',')
+            ->line('Great news! Your order ('.$this->jobOrder->order_number.') from '.($store?->name ?? 'the store').' is now ready.')
+            ->line('Please visit the store to fit your garment. If everything is perfect, you can pay your remaining balance of ₱'.number_format($this->jobOrder->balance, 2).' and take it home.')
             ->line('If any final adjustments are needed, our tailors will handle them on-site.');
 
-        if ($shopUrl) {
-            $mail->action('Visit ' . $shop->name, $shopUrl);
+        if ($storeUrl) {
+            $mail->action('Visit '.$store->name, $storeUrl);
         }
 
         return $mail->line('Thank you for trusting us with your custom tailoring!');
@@ -59,14 +67,25 @@ class OrderReadyNotification extends Notification implements ShouldQueue
      */
     public function toArray(object $notifiable): array
     {
+        $store = $this->jobOrder->store;
+
         return [
-            'type'          => 'order_ready',
-            'title'         => 'Order Ready for Pickup',
-            'message'       => 'Order ' . $this->jobOrder->order_number . ' is ready for pickup.',
-            'action_url'    => '/dashboard/jobs/' . $this->jobOrder->id,
-            'job_order_id'  => $this->jobOrder->id,
-            'order_number'  => $this->jobOrder->order_number,
+            'type' => 'order_ready',
+            'title' => 'Order Ready for Pickup',
+            'message' => 'Order '.$this->jobOrder->order_number.' is ready for pickup.',
+            // Customer-facing (this notifiable is the customer, not the
+            // shop owner) — must land on their own order tracker, not the
+            // owner-only dashboard route.
+            'action_url' => '/account/orders/'.$this->jobOrder->id,
+            'job_order_id' => $this->jobOrder->id,
+            'order_number' => $this->jobOrder->order_number,
             'customer_name' => $this->jobOrder->customer?->name,
+            'store' => $store ? [
+                'id' => $store->id, 'name' => $store->name, 'slug' => $store->slug, 'logo_path' => $store->logo_path,
+            ] : null,
+            'actor' => $this->actor ? [
+                'id' => $this->actor->id, 'name' => $this->actor->name, 'profile_picture' => $this->actor->profile_picture,
+            ] : null,
         ];
     }
 }

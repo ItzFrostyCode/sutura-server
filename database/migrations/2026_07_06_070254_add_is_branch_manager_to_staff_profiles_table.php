@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('staff_profiles', function (Blueprint $table) {
-            $table->boolean('is_branch_manager')->default(false)->after('shop_branch_id');
+            $table->boolean('is_branch_manager')->default(false)->after('store_branch_id');
         });
     }
 

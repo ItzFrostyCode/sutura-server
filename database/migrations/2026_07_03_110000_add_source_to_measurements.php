@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('measurements', function (Blueprint $table) {
-            // Who authored the record: the shop owner/tailor's specialized format,
+            // Who authored the record: the store owner/tailor's specialized format,
             // or the customer (walk-in / online public form).
-            $table->string('source')->default('shop_owner')->after('customer_id');
+            $table->string('source')->default('store_owner')->after('customer_id');
         });
     }
 

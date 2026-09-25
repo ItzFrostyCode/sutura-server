@@ -19,7 +19,7 @@ return new class extends Migration
             $table->timestamp('assigned_at')->useCurrent();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
-            
+
             $table->unique(['job_order_id', 'user_id', 'stage']);
         });
     }

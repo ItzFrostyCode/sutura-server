@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -14,7 +14,7 @@ return new class extends Migration
     {
         // First get all existing profiles to migrate the data
         $profiles = DB::table('staff_profiles')->get();
-        
+
         Schema::table('staff_profiles', function (Blueprint $table) {
             // In SQLite, altering column type is tricky.
             // Since it's a string(255) in SQLite it is TEXT.
@@ -26,7 +26,7 @@ return new class extends Migration
 
         // Convert existing 'Specialization A' to '["Specialization A"]'
         foreach ($profiles as $profile) {
-            if (!empty($profile->specialization) && !str_starts_with($profile->specialization, '[')) {
+            if (! empty($profile->specialization) && ! str_starts_with($profile->specialization, '[')) {
                 // Split by comma if any
                 $skills = array_map('trim', explode(',', $profile->specialization));
                 DB::table('staff_profiles')

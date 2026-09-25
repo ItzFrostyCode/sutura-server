@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->text('booking_policy')->nullable();
             $table->json('booking_questions')->nullable()->after('booking_policy');
         });
@@ -20,7 +20,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn(['booking_policy', 'booking_questions']);
         });
 

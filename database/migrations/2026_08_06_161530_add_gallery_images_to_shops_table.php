@@ -11,11 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             // The Account Settings/Storefront "About" tab editor has had a
             // full gallery upload UI (add/remove photos, save button) for
             // some time, but this column never existed — every save
-            // silently dropped gallery_images (not in UpdateShopRequest's
+            // silently dropped gallery_images (not in UpdateStoreRequest's
             // validated fields, and no column to persist it to even if it
             // were), so uploaded photos vanished on the next page load.
             $table->json('gallery_images')->nullable()->after('banner_path');
@@ -27,7 +27,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn('gallery_images');
         });
     }

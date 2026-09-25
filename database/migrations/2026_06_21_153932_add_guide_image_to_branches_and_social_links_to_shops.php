@@ -11,8 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasColumn('shop_branches', 'guide_image_url')) {
-            Schema::table('shop_branches', function (Blueprint $table) {
+        if (! Schema::hasColumn('store_branches', 'guide_image_url')) {
+            Schema::table('store_branches', function (Blueprint $table) {
                 $table->string('guide_image_url')->nullable()->after('is_main');
             });
         }
@@ -23,8 +23,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (Schema::hasColumn('shop_branches', 'guide_image_url')) {
-            Schema::table('shop_branches', function (Blueprint $table) {
+        if (Schema::hasColumn('store_branches', 'guide_image_url')) {
+            Schema::table('store_branches', function (Blueprint $table) {
                 $table->dropColumn('guide_image_url');
             });
         }

@@ -3,7 +3,7 @@
 namespace Tests\Feature\Api\V1;
 
 use App\Models\Role;
-use App\Models\Shop;
+use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -18,21 +18,21 @@ class FileUploadTest extends TestCase
     {
         // These URL-correctness tests deliberately use the REAL 'public' disk
         // (not Storage::fake()) -- see note below -- so clean up what they wrote.
-        Storage::disk('public')->deleteDirectory('shops');
+        Storage::disk('public')->deleteDirectory('stores');
         parent::tearDown();
     }
 
-    private function makeShopOwner(): array
+    private function makeStoreOwner(): array
     {
-        $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $role = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $user = User::factory()->create();
         $user->roles()->attach($role);
-        $shop = Shop::create([
-            'owner_id' => $user->id, 'name' => 'Test Shop', 'slug' => 'test-shop',
+        $store = Store::create([
+            'owner_id' => $user->id, 'name' => 'Test Store', 'slug' => 'test-store',
             'address' => '1 St', 'city' => 'Davao', 'province' => 'Davao del Sur', 'status' => 'approved',
         ]);
 
-        return [$user, $shop];
+        return [$user, $store];
     }
 
     // Regression guard for the bug where 'url' => config('app.url') . Storage::url($path)
@@ -49,25 +49,25 @@ class FileUploadTest extends TestCase
         $this->assertSame(1, substr_count($url, $appUrl), "URL is double-prefixed: {$url}");
     }
 
-    public function test_shop_owner_can_upload_catalog_image_with_correct_url(): void
+    public function test_store_owner_can_upload_catalog_image_with_correct_url(): void
     {
-        [$user, $shop] = $this->makeShopOwner();
+        [$user, $store] = $this->makeStoreOwner();
 
-        $response = $this->actingAs($user)->postJson("/api/v1/shops/{$shop->id}/upload", [
+        $response = $this->actingAs($user)->postJson("/api/v1/stores/{$store->id}/upload", [
             'file' => UploadedFile::fake()->image('logo.jpg'),
         ]);
 
         $response->assertStatus(200)->assertJson(['success' => true]);
         $url = $response->json('data.url');
         $this->assertNotDoublePrefixed($url, config('app.url'));
-        Storage::disk('public')->assertExists("shops/{$shop->id}/catalog/" . basename(parse_url($url, PHP_URL_PATH)));
+        Storage::disk('public')->assertExists("stores/{$store->id}/catalog/".basename(parse_url($url, PHP_URL_PATH)));
     }
 
-    public function test_shop_owner_can_upload_support_attachment_with_correct_url(): void
+    public function test_store_owner_can_upload_support_attachment_with_correct_url(): void
     {
-        [$user, $shop] = $this->makeShopOwner();
+        [$user, $store] = $this->makeStoreOwner();
 
-        $response = $this->actingAs($user)->postJson("/api/v1/shops/{$shop->id}/support/upload", [
+        $response = $this->actingAs($user)->postJson("/api/v1/stores/{$store->id}/support/upload", [
             'file' => UploadedFile::fake()->image('screenshot.png'),
         ]);
 
@@ -77,9 +77,9 @@ class FileUploadTest extends TestCase
 
     public function test_public_visitor_can_upload_receipt_with_correct_url(): void
     {
-        [, $shop] = $this->makeShopOwner();
+        [, $store] = $this->makeStoreOwner();
 
-        $response = $this->postJson("/api/v1/public/shops/{$shop->slug}/upload-receipt", [
+        $response = $this->postJson("/api/v1/public/stores/{$store->slug}/upload-receipt", [
             'file' => UploadedFile::fake()->image('receipt.jpg'),
         ]);
 
@@ -89,9 +89,9 @@ class FileUploadTest extends TestCase
 
     public function test_public_visitor_can_upload_reference_image_with_correct_url(): void
     {
-        [, $shop] = $this->makeShopOwner();
+        [, $store] = $this->makeStoreOwner();
 
-        $response = $this->postJson("/api/v1/public/shops/{$shop->slug}/upload-reference-image", [
+        $response = $this->postJson("/api/v1/public/stores/{$store->slug}/upload-reference-image", [
             'file' => UploadedFile::fake()->image('barong-design.jpg'),
         ]);
 
@@ -102,9 +102,9 @@ class FileUploadTest extends TestCase
     public function test_catalog_upload_rejects_non_image_file(): void
     {
         Storage::fake('public');
-        [$user, $shop] = $this->makeShopOwner();
+        [$user, $store] = $this->makeStoreOwner();
 
-        $response = $this->actingAs($user)->postJson("/api/v1/shops/{$shop->id}/upload", [
+        $response = $this->actingAs($user)->postJson("/api/v1/stores/{$store->id}/upload", [
             'file' => UploadedFile::fake()->create('notes.txt', 10),
         ]);
 
@@ -114,10 +114,10 @@ class FileUploadTest extends TestCase
     public function test_catalog_upload_rejects_oversized_file(): void
     {
         Storage::fake('public');
-        [$user, $shop] = $this->makeShopOwner();
+        [$user, $store] = $this->makeStoreOwner();
 
         // Controller caps this endpoint at 5120 KB (5MB).
-        $response = $this->actingAs($user)->postJson("/api/v1/shops/{$shop->id}/upload", [
+        $response = $this->actingAs($user)->postJson("/api/v1/stores/{$store->id}/upload", [
             'file' => UploadedFile::fake()->image('too-big.jpg')->size(6000),
         ]);
 

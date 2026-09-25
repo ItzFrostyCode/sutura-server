@@ -3,17 +3,17 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Shop\StoreServiceRequest;
-use App\Models\Shop;
+use App\Http\Requests\Store\StoreServiceRequest;
 use App\Models\Service;
+use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ServiceController extends Controller
 {
-    public function index(Request $request, Shop $shop): JsonResponse
+    public function index(Request $request, Store $store): JsonResponse
     {
-        $query = $shop->services()->with('pricing');
+        $query = $store->services()->with('pricing');
 
         if ($request->boolean('trashed')) {
             $query->onlyTrashed();
@@ -21,15 +21,15 @@ class ServiceController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $query->get()
+            'data' => $query->get(),
         ]);
     }
 
     /**
-     * Cross-shop services showroom feed for the public landing page —
-     * publicIndex() below is always scoped to one shop; this pulls active
+     * Cross-store services showroom feed for the public landing page —
+     * publicIndex() below is always scoped to one store; this pulls active
      * services (Alterations, Bespoke Tailoring, Sublimation, etc.) across
-     * every approved, non-hidden shop, the same way CatalogController::
+     * every approved, non-hidden store, the same way CatalogController::
      * publicShowroom() does for catalog items. Services are a distinct
      * concept from catalog items here — a service like "Alterations" isn't
      * a garment_type value, it belongs in this feed, not the catalog grid.
@@ -38,9 +38,11 @@ class ServiceController extends Controller
     {
         $query = Service::query()
             ->where('is_active', true)
-            ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
+            ->whereHas('store', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
+            ->withCount('reviews')
+            ->withAvg('reviews', 'rating')
             ->with([
-                'shop' => fn ($q) => $q->with([
+                'store' => fn ($q) => $q->with([
                     'owner:id,name',
                     'branches' => fn ($bq) => $bq->where('status', 'active'),
                 ]),
@@ -49,16 +51,16 @@ class ServiceController extends Controller
         if ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
             $query->where(function ($q) use ($search) {
-                $q->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
-                    ->orWhereRaw('LOWER(category) LIKE ?', ['%' . $search . '%'])
-                    ->orWhereRaw('LOWER(service_type) LIKE ?', ['%' . $search . '%'])
-                    ->orWhereRaw('LOWER(description) LIKE ?', ['%' . $search . '%']);
+                $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
+                    ->orWhereRaw('LOWER(category) LIKE ?', ['%'.$search.'%'])
+                    ->orWhereRaw('LOWER(service_type) LIKE ?', ['%'.$search.'%'])
+                    ->orWhereRaw('LOWER(description) LIKE ?', ['%'.$search.'%']);
             });
         }
 
         if ($request->filled('district')) {
             $district = $request->string('district')->toString();
-            $query->whereHas('shop.branches', function ($bq) use ($district) {
+            $query->whereHas('store.branches', function ($bq) use ($district) {
                 $bq->where('district', $district)->where('status', 'active');
             });
         }
@@ -83,6 +85,11 @@ class ServiceController extends Controller
             $arr = $service->toArray();
             $arr['base_price'] = $service->base_price !== null ? (float) $service->base_price : null;
             $arr['sale_price'] = $service->sale_price !== null ? (float) $service->sale_price : null;
+            // withAvg() returns reviews_avg_rating as whatever PDO hands back
+            // for AVG() (a numeric string, not a float) — same rounding as
+            // StoreController::publicIndex/CatalogController do for the same reason.
+            $arr['reviews_avg_rating'] = $service->reviews_avg_rating !== null ? round((float) $service->reviews_avg_rating, 1) : null;
+
             return $arr;
         });
 
@@ -99,18 +106,27 @@ class ServiceController extends Controller
     }
 
     /**
-     * Publicly accessible list of a shop's active services for its storefront page.
+     * Publicly accessible list of a store's active services for its storefront page.
      */
-    public function publicIndex(Shop $shop): JsonResponse
+    public function publicIndex(Store $store): JsonResponse
     {
         // service_types + pricing added for the customer-facing "Request a
         // Repair" flow — it needs to know which services are actually
         // alteration/repair-typed, and their real per-item pricing (never a
         // guessed flat amount) to build the request form.
-        $services = $shop->services()
+        $services = $store->services()
             ->where('is_active', true)
+            ->withCount('reviews')
+            ->withAvg('reviews', 'rating')
             ->with('pricing:id,service_id,label,amount')
-            ->get(['id', 'name', 'description', 'categories', 'service_types', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows']);
+            ->get(['id', 'name', 'description', 'categories', 'service_types', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
+            ->each(function (Service $service) {
+                // withAvg() returns a numeric string, not a float — round it
+                // the same way ServiceController::publicShowroom does.
+                $service->reviews_avg_rating = $service->reviews_avg_rating !== null
+                    ? round((float) $service->reviews_avg_rating, 1)
+                    : null;
+            });
 
         return response()->json([
             'success' => true,
@@ -124,9 +140,9 @@ class ServiceController extends Controller
      * every save, which a lightweight sale-only action shouldn't have to
      * reconstruct just to toggle a discount.
      */
-    public function updateSale(Request $request, Shop $shop, Service $service): JsonResponse
+    public function updateSale(Request $request, Store $store, Service $service): JsonResponse
     {
-        if ($service->shop_id !== $shop->id) {
+        if ($service->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -135,11 +151,11 @@ class ServiceController extends Controller
             // sale — the frontend's own Set Sale Price modal already blocks
             // this client-side, but nothing stopped it being set directly
             // via the API, storing a "discount" that discounts nothing.
-            'sale_price' => ['nullable', 'numeric', 'min:0', 'lt:' . (float) $service->base_price],
+            'sale_price' => ['nullable', 'numeric', 'min:0', 'lt:'.(float) $service->base_price],
             'sale_starts_at' => ['nullable', 'date'],
             'sale_ends_at' => ['nullable', 'date', 'after_or_equal:sale_starts_at'],
         ], [
-            'sale_price.lt' => 'The sale price must be lower than the base price (₱' . number_format((float) $service->base_price, 2) . ').',
+            'sale_price.lt' => 'The sale price must be lower than the base price (₱'.number_format((float) $service->base_price, 2).').',
         ]);
 
         $service->update([
@@ -151,7 +167,7 @@ class ServiceController extends Controller
         return response()->json(['success' => true, 'data' => $service->fresh('pricing')]);
     }
 
-    public function store(StoreServiceRequest $request, Shop $shop): JsonResponse
+    public function store(StoreServiceRequest $request, Store $store): JsonResponse
     {
         $validated = $request->validated();
         $tiers = $validated['pricing_tiers'];
@@ -162,15 +178,15 @@ class ServiceController extends Controller
         // without having to join against pricing on every read.
         $validated['tags'] = array_column($tiers, 'label');
 
-        $service = $shop->services()->create($validated);
+        $service = $store->services()->create($validated);
         $this->syncPricingTiers($service, $tiers);
 
         return response()->json(['success' => true, 'data' => $service->load('pricing')], 201);
     }
 
-    public function update(StoreServiceRequest $request, Shop $shop, Service $service): JsonResponse
+    public function update(StoreServiceRequest $request, Store $store, Service $service): JsonResponse
     {
-        if ($service->shop_id !== $shop->id) {
+        if ($service->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -215,21 +231,21 @@ class ServiceController extends Controller
         }
     }
 
-    public function destroy(Request $request, Shop $shop, Service $service): JsonResponse
+    public function destroy(Request $request, Store $store, Service $service): JsonResponse
     {
-        if ($service->shop_id !== $shop->id) {
+        if ($service->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         // Same accountability gap job_order_deleted/staff_removed already
         // closed — deleting a service definition previously left no trace
         // in the Audit Log at all.
-        $shop->auditLogs()->create([
-            'user_id'    => $request->user()->id,
-            'action'     => 'service_deleted',
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id,
+            'action' => 'service_deleted',
             'model_type' => Service::class,
-            'model_id'   => $service->id,
-            'payload'    => ['name' => $service->name],
+            'model_id' => $service->id,
+            'payload' => ['name' => $service->name],
             'ip_address' => $request->ip(),
         ]);
 
@@ -238,26 +254,25 @@ class ServiceController extends Controller
         return response()->json(['success' => true]);
     }
 
-    public function restore(Request $request, Shop $shop, int $serviceId): JsonResponse
+    public function restore(Request $request, Store $store, int $serviceId): JsonResponse
     {
         $service = Service::onlyTrashed()->where('id', $serviceId)->first();
 
-        if (!$service || $service->shop_id !== $shop->id) {
+        if (! $service || $service->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Deleted service not found.'], 404);
         }
 
         $service->restore();
 
-        $shop->auditLogs()->create([
-            'user_id'    => $request->user()->id,
-            'action'     => 'service_restored',
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id,
+            'action' => 'service_restored',
             'model_type' => Service::class,
-            'model_id'   => $service->id,
-            'payload'    => ['name' => $service->name],
+            'model_id' => $service->id,
+            'payload' => ['name' => $service->name],
             'ip_address' => $request->ip(),
         ]);
 
         return response()->json(['success' => true, 'data' => $service->load('pricing')]);
     }
-
 }

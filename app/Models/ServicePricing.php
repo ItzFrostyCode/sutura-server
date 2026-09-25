@@ -10,7 +10,7 @@ class ServicePricing extends Model
     protected $table = 'service_pricing';
 
     protected $fillable = [
-        'service_id', 'label', 'amount'
+        'service_id', 'label', 'amount',
     ];
 
     protected $casts = [

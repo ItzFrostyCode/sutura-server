@@ -14,7 +14,7 @@ return new class extends Migration
         // The Top/Bottom split this column enabled turned out to add more
         // complexity (separate version histories per half, an extra filter
         // dropdown on both the owner and customer sides) than value — one
-        // profile per customer per shop, kept simple.
+        // profile per customer per store, kept simple.
         Schema::table('measurements', function (Blueprint $table) {
             $table->dropColumn('category');
         });

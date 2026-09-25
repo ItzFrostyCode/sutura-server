@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\SubscriptionPlan;
+use Illuminate\Database\Seeder;
 
 class SubscriptionPlanSeeder extends Seeder
 {
@@ -18,14 +18,14 @@ class SubscriptionPlanSeeder extends Seeder
         SubscriptionPlan::updateOrCreate(
             ['slug' => 'basic'],
             [
-                'name'                       => 'Basic',
-                'description'                => 'Perfect for independent tailors just getting started online.',
-                'price_monthly'              => 299.00,
-                'price_yearly'               => 2990.00,
-                'max_staff'                  => 1,
-                'max_services'               => 10,
+                'name' => 'Basic',
+                'description' => 'Perfect for independent tailors just getting started online.',
+                'price_monthly' => 299.00,
+                'price_yearly' => 2990.00,
+                'max_staff' => 1,
+                'max_services' => 10,
                 'max_appointments_per_month' => 50,
-                'features'                   => [
+                'features' => [
                     'Customer Management',
                     'Appointment Scheduling',
                     'Order Tracking',
@@ -34,7 +34,7 @@ class SubscriptionPlanSeeder extends Seeder
                     'Manual Updates (Web Portal)',
                     'Standard Search Listing',
                 ],
-                'is_active'                  => true,
+                'is_active' => true,
             ]
         );
 
@@ -44,14 +44,14 @@ class SubscriptionPlanSeeder extends Seeder
         SubscriptionPlan::updateOrCreate(
             ['slug' => 'pro'],
             [
-                'name'                       => 'Pro',
-                'description'                => 'Grow faster with visibility tools, portfolio, and team management.',
-                'price_monthly'              => 799.00,
-                'price_yearly'               => 7990.00,
-                'max_staff'                  => 5,
-                'max_services'               => 50,
+                'name' => 'Pro',
+                'description' => 'Grow faster with visibility tools, portfolio, and team management.',
+                'price_monthly' => 799.00,
+                'price_yearly' => 7990.00,
+                'max_staff' => 5,
+                'max_services' => 50,
                 'max_appointments_per_month' => 200,
-                'features'                   => [
+                'features' => [
                     'All Basic Plan Features',
                     'Boosted Search Visibility',
                     'Visual Portfolio Gallery',
@@ -62,7 +62,7 @@ class SubscriptionPlanSeeder extends Seeder
                     'Multi-User Access',
                     'Staff Management',
                 ],
-                'is_active'                  => true,
+                'is_active' => true,
             ]
         );
 
@@ -72,22 +72,22 @@ class SubscriptionPlanSeeder extends Seeder
         SubscriptionPlan::updateOrCreate(
             ['slug' => 'premium'],
             [
-                'name'                       => 'Premium',
-                'description'                => 'Top-tier visibility, custom branding, and advanced reporting for serious shops.',
-                'price_monthly'              => 1999.00,
-                'price_yearly'               => 19990.00,
-                'max_staff'                  => -1, // Unlimited
-                'max_services'               => -1, // Unlimited
+                'name' => 'Premium',
+                'description' => 'Top-tier visibility, custom branding, and advanced reporting for serious stores.',
+                'price_monthly' => 1999.00,
+                'price_yearly' => 19990.00,
+                'max_staff' => -1, // Unlimited
+                'max_services' => -1, // Unlimited
                 'max_appointments_per_month' => -1, // Unlimited
-                'features'                   => [
+                'features' => [
                     'All Pro Plan Features',
                     'Multi-Branch Management',
                     'Custom Branding',
-                    'Featured Shop Visibility (Top Placement)',
+                    'Featured Store Visibility (Top Placement)',
                     'Sales Reports & Income Exports',
                     'Advanced Dashboard',
                 ],
-                'is_active'                  => true,
+                'is_active' => true,
             ]
         );
     }

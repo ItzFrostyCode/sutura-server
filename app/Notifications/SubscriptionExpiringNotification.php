@@ -2,14 +2,14 @@
 
 namespace App\Notifications;
 
+use App\Models\StoreSubscription;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Models\ShopSubscription;
 
 /**
- * SubscriptionExpiredNotification only ever fires AFTER the shop is already
+ * SubscriptionExpiredNotification only ever fires AFTER the store is already
  * hidden — nothing warned the owner beforehand. "Maintain active
  * subscription validity for continued platform visibility" is one of the
  * thesis's own stated specific objectives, so a warning that arrives too
@@ -21,10 +21,11 @@ class SubscriptionExpiringNotification extends Notification implements ShouldQue
 {
     use Queueable;
 
-    public ShopSubscription $subscription;
+    public StoreSubscription $subscription;
+
     public int $daysRemaining;
 
-    public function __construct(ShopSubscription $subscription, int $daysRemaining)
+    public function __construct(StoreSubscription $subscription, int $daysRemaining)
     {
         $this->subscription = $subscription;
         $this->daysRemaining = $daysRemaining;
@@ -37,17 +38,17 @@ class SubscriptionExpiringNotification extends Notification implements ShouldQue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $shop = $this->subscription->shop;
+        $store = $this->subscription->store;
         $planName = $this->subscription->plan?->name ?? 'your plan';
         $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
 
         return (new MailMessage)
-            ->subject('Your Subscription Expires in ' . $this->daysRemaining . ' Day' . ($this->daysRemaining === 1 ? '' : 's'))
-            ->greeting('Hello ' . $notifiable->name . ',')
-            ->line($shop?->name . "'s {$planName} subscription expires in {$this->daysRemaining} day" . ($this->daysRemaining === 1 ? '' : 's') . '.')
-            ->line('Once it expires, your shop is automatically hidden from customers until you renew.')
-            ->action('Renew Now', $frontendUrl . '/dashboard/billing')
-            ->line('Renew before then to keep your shop visible without interruption.');
+            ->subject('Your Subscription Expires in '.$this->daysRemaining.' Day'.($this->daysRemaining === 1 ? '' : 's'))
+            ->greeting('Hello '.$notifiable->name.',')
+            ->line($store?->name."'s {$planName} subscription expires in {$this->daysRemaining} day".($this->daysRemaining === 1 ? '' : 's').'.')
+            ->line('Once it expires, your store is automatically hidden from customers until you renew.')
+            ->action('Renew Now', $frontendUrl.'/dashboard/billing')
+            ->line('Renew before then to keep your store visible without interruption.');
     }
 
     public function toArray(object $notifiable): array
@@ -55,9 +56,9 @@ class SubscriptionExpiringNotification extends Notification implements ShouldQue
         return [
             'type' => 'subscription_expiring',
             'title' => 'Subscription Expiring Soon',
-            'message' => 'Your subscription expires in ' . $this->daysRemaining . ' day' . ($this->daysRemaining === 1 ? '' : 's') . '. Renew to avoid your shop being hidden from customers.',
+            'message' => 'Your subscription expires in '.$this->daysRemaining.' day'.($this->daysRemaining === 1 ? '' : 's').'. Renew to avoid your store being hidden from customers.',
             'action_url' => '/dashboard/billing',
-            'shop_id' => $this->subscription->shop_id,
+            'store_id' => $this->subscription->store_id,
             'days_remaining' => $this->daysRemaining,
         ];
     }

@@ -11,8 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shop_subscriptions', function (Blueprint $table) {
-            // app:expire-subscriptions only ever notifies AFTER the shop is
+        Schema::table('store_subscriptions', function (Blueprint $table) {
+            // app:expire-subscriptions only ever notifies AFTER the store is
             // already hidden — nothing warned the owner beforehand, even
             // though "maintain active subscription validity for continued
             // platform visibility" is one of the thesis's own stated
@@ -27,7 +27,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shop_subscriptions', function (Blueprint $table) {
+        Schema::table('store_subscriptions', function (Blueprint $table) {
             $table->dropColumn('expiry_reminder_sent_at');
         });
     }

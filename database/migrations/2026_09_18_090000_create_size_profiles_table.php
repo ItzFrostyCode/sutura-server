@@ -12,12 +12,12 @@ return new class extends Migration
     public function up(): void
     {
         // A customer's own standing body-measurement profile — deliberately
-        // NOT shop-scoped (unlike `measurements`, which is a shop's own
+        // NOT store-scoped (unlike `measurements`, which is a store's own
         // fitting-history record for a customer). One row per customer,
         // filled in once and reused as the "Size Guide" reference across
-        // every shop's catalog. All values are cm/kg — the global fashion
+        // every store's catalog. All values are cm/kg — the global fashion
         // industry standard, not the free-form unlabeled units the existing
-        // shop-scoped `measurements.metrics` JSON has always used.
+        // store-scoped `measurements.metrics` JSON has always used.
         Schema::create('size_profiles', function (Blueprint $table) {
             $table->id();
             $table->foreignId('customer_id')->unique()->constrained('users')->cascadeOnDelete();

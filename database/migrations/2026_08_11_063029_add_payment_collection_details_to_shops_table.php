@@ -17,7 +17,7 @@ return new class extends Migration
         // number or bank account customers should send that payment to — a
         // real gap for a GCash-dominant market. Informational only (the
         // system still never moves money itself, no gateway integration).
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->string('gcash_number', 20)->nullable()->after('fitting_limit');
             $table->string('gcash_account_name', 191)->nullable()->after('gcash_number');
             $table->string('bank_name', 100)->nullable()->after('gcash_account_name');
@@ -31,7 +31,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn(['gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name']);
         });
     }

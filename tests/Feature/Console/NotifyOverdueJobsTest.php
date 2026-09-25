@@ -2,11 +2,11 @@
 
 namespace Tests\Feature\Console;
 
-use App\Models\User;
-use App\Models\Shop;
-use App\Models\Service;
 use App\Models\JobOrder;
 use App\Models\Role;
+use App\Models\Service;
+use App\Models\Store;
+use App\Models\User;
 use App\Notifications\OverdueJobsNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -17,18 +17,18 @@ class NotifyOverdueJobsTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_notifies_owner_only_when_shop_has_overdue_jobs_excluding_on_hold_and_rejected()
+    public function test_notifies_owner_only_when_store_has_overdue_jobs_excluding_on_hold_and_rejected()
     {
         Notification::fake();
 
-        $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $role = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $owner = User::factory()->create();
         $owner->roles()->attach($role);
 
-        $shop = Shop::create([
+        $store = Store::create([
             'owner_id' => $owner->id,
-            'name' => 'Overdue Test Shop',
-            'slug' => 'overdue-test-shop',
+            'name' => 'Overdue Test Store',
+            'slug' => 'overdue-test-store',
             'address' => '123 Test St',
             'city' => 'Davao',
             'province' => 'Davao del Sur',
@@ -36,12 +36,12 @@ class NotifyOverdueJobsTest extends TestCase
         ]);
 
         $customer = User::factory()->create();
-        $service = Service::create(['shop_id' => $shop->id, 'name' => 'Bespoke Suit']);
+        $service = Service::create(['store_id' => $store->id, 'name' => 'Bespoke Suit']);
 
         // Genuinely overdue — should count.
         JobOrder::create([
-            'order_number' => 'JO-' . Str::random(10),
-            'shop_id' => $shop->id,
+            'order_number' => 'JO-'.Str::random(10),
+            'store_id' => $store->id,
             'customer_id' => $customer->id,
             'service_id' => $service->id,
             'status' => 'cutting',
@@ -52,8 +52,8 @@ class NotifyOverdueJobsTest extends TestCase
 
         // Past due_date but on_hold — should NOT count.
         JobOrder::create([
-            'order_number' => 'JO-' . Str::random(10),
-            'shop_id' => $shop->id,
+            'order_number' => 'JO-'.Str::random(10),
+            'store_id' => $store->id,
             'customer_id' => $customer->id,
             'service_id' => $service->id,
             'status' => 'on_hold',
@@ -77,14 +77,14 @@ class NotifyOverdueJobsTest extends TestCase
     {
         Notification::fake();
 
-        $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $role = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $owner = User::factory()->create();
         $owner->roles()->attach($role);
 
-        Shop::create([
+        Store::create([
             'owner_id' => $owner->id,
-            'name' => 'Clean Shop',
-            'slug' => 'clean-shop',
+            'name' => 'Clean Store',
+            'slug' => 'clean-store',
             'address' => '456 Test St',
             'city' => 'Davao',
             'province' => 'Davao del Sur',

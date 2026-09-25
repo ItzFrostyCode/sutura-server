@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 class ServicePackage extends Model
 {
     protected $fillable = [
-        'shop_id', 'name', 'description', 'bundle_price', 'is_active',
+        'store_id', 'name', 'description', 'bundle_price', 'is_active',
     ];
 
     protected $casts = [
@@ -17,9 +17,9 @@ class ServicePackage extends Model
         'is_active' => 'boolean',
     ];
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function services(): BelongsToMany

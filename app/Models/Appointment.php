@@ -2,8 +2,12 @@
 
 namespace App\Models;
 
+use App\Notifications\AppointmentStatusNotification;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Notifications\DatabaseNotification;
 
 class Appointment extends Model
 {
@@ -19,10 +23,10 @@ class Appointment extends Model
      */
     public const TYPE_DEFAULT_DURATIONS = [
         'consultation' => 30,
-        'measurement'  => 45,
-        'fitting'      => 45,
-        'alteration'   => 30,
-        'pickup'       => 15,
+        'measurement' => 45,
+        'fitting' => 45,
+        'alteration' => 30,
+        'pickup' => 15,
     ];
 
     /** Valid statuses */
@@ -39,17 +43,17 @@ class Appointment extends Model
      * Key = current status, value = allowed next statuses.
      */
     public const TRANSITIONS = [
-        'pending'     => ['confirmed', 'cancelled'],
-        'confirmed'   => ['in_progress', 'cancelled', 'no_show'],
+        'pending' => ['confirmed', 'cancelled'],
+        'confirmed' => ['in_progress', 'cancelled', 'no_show'],
         'in_progress' => ['completed', 'cancelled'],
-        'completed'   => [],   // terminal — no further transitions
-        'cancelled'   => [],   // terminal
-        'no_show'     => [],   // terminal
+        'completed' => [],   // terminal — no further transitions
+        'cancelled' => [],   // terminal
+        'no_show' => [],   // terminal
     ];
 
     protected $fillable = [
-        'shop_id',
-        'shop_branch_id',
+        'store_id',
+        'store_branch_id',
         'customer_id',
         'service_id',
         'appointment_type',
@@ -73,22 +77,29 @@ class Appointment extends Model
         'fitting_notes',
         'cancellation_reason',
         'rebooking_blocked',
+        // Not yet written by any current controller — this is the
+        // read-side/schema half of the Staff Check-In action
+        // (STAFF-WORKFLOW.md §1-2), prepared here so the Customer module can
+        // read arrival state once that Staff endpoint exists. On-time/Late
+        // is derived from this vs scheduled_at, never its own status value.
+        'checked_in_at',
     ];
 
     protected $casts = [
-        'scheduled_at'    => 'datetime',
+        'scheduled_at' => 'datetime',
         'duration_minutes' => 'integer',
-        'answers'         => 'array',
+        'answers' => 'array',
         'reference_images' => 'array',
         'reminder_sent_at' => 'datetime',
         'rebooking_blocked' => 'boolean',
+        'checked_in_at' => 'datetime',
     ];
 
     // ─── Relationships ────────────────────────────────────────────────────────
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function jobOrder(): BelongsTo
@@ -98,7 +109,7 @@ class Appointment extends Model
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(ShopBranch::class, 'shop_branch_id');
+        return $this->belongsTo(StoreBranch::class, 'store_branch_id');
     }
 
     public function customer(): BelongsTo
@@ -137,9 +148,12 @@ class Appointment extends Model
     /**
      * Compute the end datetime based on duration.
      */
-    public function endsAt(): ?\Carbon\Carbon
+    public function endsAt(): ?Carbon
     {
-        if (!$this->scheduled_at) return null;
+        if (! $this->scheduled_at) {
+            return null;
+        }
+
         return $this->scheduled_at->copy()->addMinutes($this->duration_minutes ?? 60);
     }
 
@@ -163,9 +177,9 @@ class Appointment extends Model
      * walk-in clients are the source of truth ("kung sino ang makauna").
      */
     public static function hasSchedulingConflict(
-        Shop $shop,
+        Store $store,
         ?int $branchId,
-        \Carbon\Carbon $scheduledAt,
+        Carbon $scheduledAt,
         int $durationMinutes,
         ?int $excludeId = null,
         bool $includePending = false
@@ -176,14 +190,14 @@ class Appointment extends Model
             ? ['pending', 'confirmed', 'in_progress']
             : ['confirmed', 'in_progress'];
 
-        $query = $shop->appointments()
+        $query = $store->appointments()
             ->whereIn('status', $statuses)
             ->where('scheduled_at', '<', $newEnd);
 
         if ($branchId !== null) {
             $query->where(function ($q) use ($branchId) {
-                $q->where('shop_branch_id', $branchId)
-                  ->orWhereNull('shop_branch_id');
+                $q->where('store_branch_id', $branchId)
+                    ->orWhereNull('store_branch_id');
             });
         }
 
@@ -201,15 +215,15 @@ class Appointment extends Model
 
     /**
      * Anti-spam guard for the public booking form: a customer may only hold
-     * one active (pending/confirmed) appointment at a given shop at a time.
-     * Scoped per-shop, not platform-wide — a customer legitimately booking
-     * two different shops for two different garments isn't spam. To book a
-     * different slot at the *same* shop, they cancel the existing one first
+     * one active (pending/confirmed) appointment at a given store at a time.
+     * Scoped per-store, not platform-wide — a customer legitimately booking
+     * two different stores for two different garments isn't spam. To book a
+     * different slot at the *same* store, they cancel the existing one first
      * (PublicBookingController::submit() surfaces this as a 409).
      */
-    public static function hasActiveAppointment(Shop $shop, int $customerId): bool
+    public static function hasActiveAppointment(Store $store, int $customerId): bool
     {
-        return $shop->appointments()
+        return $store->appointments()
             ->where('customer_id', $customerId)
             ->whereIn('status', ['pending', 'confirmed'])
             ->exists();
@@ -217,13 +231,13 @@ class Appointment extends Model
 
     /**
      * True when this customer's most recent cancelled appointment at this
-     * shop was cancelled with rebooking explicitly blocked by the shop.
+     * store was cancelled with rebooking explicitly blocked by the store.
      * Only the latest cancellation counts — an older block doesn't linger
      * past a cancellation that didn't renew it.
      */
-    public static function isBlockedFromRebooking(Shop $shop, int $customerId): bool
+    public static function isBlockedFromRebooking(Store $store, int $customerId): bool
     {
-        $latestCancelled = $shop->appointments()
+        $latestCancelled = $store->appointments()
             ->where('customer_id', $customerId)
             ->where('status', 'cancelled')
             ->latest('updated_at')
@@ -237,22 +251,22 @@ class Appointment extends Model
      * Used when a walk-in is confirmed to preempt/reschedule conflicting pending online requests.
      */
     public static function getOverlappingPendingAppointments(
-        Shop $shop,
+        Store $store,
         ?int $branchId,
-        \Carbon\Carbon $scheduledAt,
+        Carbon $scheduledAt,
         int $durationMinutes,
         ?int $excludeId = null
-    ): \Illuminate\Database\Eloquent\Collection {
+    ): Collection {
         $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes);
 
-        $query = $shop->appointments()
+        $query = $store->appointments()
             ->where('status', 'pending')
             ->where('scheduled_at', '<', $newEnd);
 
         if ($branchId !== null) {
             $query->where(function ($q) use ($branchId) {
-                $q->where('shop_branch_id', $branchId)
-                  ->orWhereNull('shop_branch_id');
+                $q->where('store_branch_id', $branchId)
+                    ->orWhereNull('store_branch_id');
             });
         }
 
@@ -276,18 +290,18 @@ class Appointment extends Model
     public function preemptByWalkIn(self $walkInAppointment, ?User $actor = null): void
     {
         $oldScheduledAt = $this->scheduled_at ? $this->scheduled_at->format('M d, Y h:i A') : 'N/A';
-        $stamp = "[Walk-in Priority] Time slot claimed by in-person client on " . now()->format('M d, Y h:i A') . ". Reschedule required.";
+        $stamp = '[Walk-in Priority] Time slot claimed by in-person client on '.now()->format('M d, Y h:i A').'. Reschedule required.';
 
-        $newNotes = $this->notes ? ($stamp . "\n" . $this->notes) : $stamp;
+        $newNotes = $this->notes ? ($stamp."\n".$this->notes) : $stamp;
 
         $this->update([
-            'notes'   => $newNotes,
+            'notes' => $newNotes,
             'outcome' => 'rescheduled',
         ]);
 
         // Notify the online customer about the walk-in preemption & reschedule prompt
         if ($this->customer) {
-            $this->customer->notify(new \App\Notifications\AppointmentStatusNotification(
+            $this->customer->notify(new AppointmentStatusNotification(
                 $this,
                 'walk_in_preempted',
                 "Your requested appointment slot for {$oldScheduledAt} was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot."
@@ -295,16 +309,16 @@ class Appointment extends Model
         }
 
         // Audit log
-        $this->shop?->auditLogs()->create([
-            'user_id'    => $actor?->id ?? $this->shop->owner_id,
-            'action'     => 'appointment_preempted_by_walk_in',
+        $this->store?->auditLogs()->create([
+            'user_id' => $actor?->id ?? $this->store->owner_id,
+            'action' => 'appointment_preempted_by_walk_in',
             'model_type' => self::class,
-            'model_id'   => $this->id,
-            'payload'    => [
+            'model_id' => $this->id,
+            'payload' => [
                 'preempted_appointment_id' => $this->id,
-                'walk_in_appointment_id'   => $walkInAppointment->id,
-                'original_slot'            => $oldScheduledAt,
-                'reason'                   => 'Preempted by physical counter walk-in (source of truth)',
+                'walk_in_appointment_id' => $walkInAppointment->id,
+                'original_slot' => $oldScheduledAt,
+                'reason' => 'Preempted by physical counter walk-in (source of truth)',
             ],
             'ip_address' => request()->ip() ?? '127.0.0.1',
         ]);
@@ -321,7 +335,7 @@ class Appointment extends Model
     protected static function booted(): void
     {
         static::deleting(function (self $appointment) {
-            \Illuminate\Notifications\DatabaseNotification::whereJsonContains('data->appointment_id', $appointment->id)->delete();
+            DatabaseNotification::whereJsonContains('data->appointment_id', $appointment->id)->delete();
         });
     }
 }

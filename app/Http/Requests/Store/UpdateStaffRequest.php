@@ -1,0 +1,48 @@
+<?php
+
+namespace App\Http\Requests\Store;
+
+use App\Models\StaffProfile;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateStaffRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()->hasRole('store_owner');
+    }
+
+    public function rules(): array
+    {
+        $staff = $this->route('staff');
+        $userId = $staff instanceof StaffProfile ? $staff->user_id : null;
+        $store = $this->route('store');
+
+        return [
+            'name' => ['sometimes', 'required', 'string', 'max:191'],
+            'email' => ['sometimes', 'required', 'string', 'email', 'max:191', 'unique:users,email,'.($userId ?? 'NULL')],
+            'phone' => ['nullable', 'string', 'max:20'],
+            'role' => ['sometimes', 'required', Rule::in(StaffProfile::ROLES)],
+            'additional_roles' => ['nullable', 'array'],
+            'additional_roles.*' => [Rule::in(StaffProfile::ROLES)],
+            'specialization' => ['nullable', 'array'],
+            'specialization.*' => ['string', 'max:100'],
+            'hired_at' => ['nullable', 'date'],
+            'is_active' => ['sometimes', 'boolean'],
+            'password' => ['nullable', 'string', 'min:8'],
+            'store_branch_id' => [
+                'nullable',
+                Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
+            ],
+            'is_branch_manager' => ['sometimes', 'boolean'],
+            'bio' => ['nullable', 'string', 'max:1000'],
+            // Distinct from is_active (employed or not) — this is a
+            // temporary "on leave / out today" flag the owner can also set
+            // on the staff member's behalf, not just the staff member
+            // themselves via the existing self-service toggleAvailability
+            // endpoint.
+            'is_available' => ['sometimes', 'boolean'],
+        ];
+    }
+}

@@ -8,9 +8,9 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('shop_subscriptions', function (Blueprint $table) {
+        Schema::create('store_subscriptions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('store_id')->constrained()->cascadeOnDelete();
             $table->foreignId('plan_id')->constrained('subscription_plans');
             $table->enum('status', ['trial', 'active', 'expired', 'cancelled'])->default('trial');
             $table->timestamp('starts_at');
@@ -23,6 +23,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('shop_subscriptions');
+        Schema::dropIfExists('store_subscriptions');
     }
 };

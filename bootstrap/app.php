@@ -1,9 +1,18 @@
 <?php
 
+use App\Http\Middleware\CheckRole;
+use App\Http\Middleware\UpdateLastSeenAt;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -14,12 +23,12 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'role'      => \App\Http\Middleware\CheckRole::class,
-            'last.seen' => \App\Http\Middleware\UpdateLastSeenAt::class,
+            'role' => CheckRole::class,
+            'last.seen' => UpdateLastSeenAt::class,
         ]);
 
         // Stamp last_seen_at on every authenticated API request
-        $middleware->appendToGroup('api', \App\Http\Middleware\UpdateLastSeenAt::class);
+        $middleware->appendToGroup('api', UpdateLastSeenAt::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
@@ -37,22 +46,22 @@ return Application::configure(basePath: dirname(__DIR__))
         // ValidationException's field-level `errors` shape specifically.
         // Everything else gets a short message and the right status instead
         // of a trace, regardless of debug mode.
-        $exceptions->render(function (\Throwable $e, Request $request) {
-            if (!$request->is('api/*')) {
+        $exceptions->render(function (Throwable $e, Request $request) {
+            if (! $request->is('api/*')) {
                 return null;
             }
 
-            if ($e instanceof \Illuminate\Validation\ValidationException
-                || $e instanceof \Illuminate\Auth\AuthenticationException
-                || $e instanceof \Illuminate\Auth\Access\AuthorizationException) {
+            if ($e instanceof ValidationException
+                || $e instanceof AuthenticationException
+                || $e instanceof AuthorizationException) {
                 return null;
             }
 
             $status = match (true) {
-                $e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException,
-                $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException => 404,
-                $e instanceof \Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException => 405,
-                $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface => $e->getStatusCode(),
+                $e instanceof ModelNotFoundException,
+                $e instanceof NotFoundHttpException => 404,
+                $e instanceof MethodNotAllowedHttpException => 405,
+                $e instanceof HttpExceptionInterface => $e->getStatusCode(),
                 default => 500,
             };
 

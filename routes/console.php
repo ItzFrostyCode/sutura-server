@@ -18,7 +18,7 @@ Schedule::command('app:backup-database')->daily();
 Schedule::command('app:notify-overdue-jobs')->dailyAt('08:00');
 
 // REQUIREMENTS.md Phase 5: "Expired subscriptions automatically downgrade
-// shop visibility to Hidden until renewed."
+// store visibility to Hidden until renewed."
 Schedule::command('app:expire-subscriptions')->daily();
 
 // Warns before that happens — "maintain active subscription validity for
@@ -27,7 +27,7 @@ Schedule::command('app:expire-subscriptions')->daily();
 Schedule::command('app:remind-expiring-subscriptions')->daily();
 
 // The "customer forgot their fitting" pain point named directly in the
-// tailoring-shop interview research — hourly so every appointment passes
+// tailoring-store interview research — hourly so every appointment passes
 // through the ~24h-ahead window once; reminder_sent_at prevents duplicates.
 Schedule::command('app:remind-upcoming-appointments')->hourly();
 

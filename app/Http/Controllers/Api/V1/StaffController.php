@@ -3,15 +3,19 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Shop\StoreStaffRequest;
-use App\Http\Requests\Shop\UpdateStaffRequest;
-use App\Models\Shop;
+use App\Http\Requests\Store\StoreStaffRequest;
+use App\Http\Requests\Store\UpdateStaffRequest;
+use App\Models\Appointment;
+use App\Models\JobOrder;
+use App\Models\Role;
 use App\Models\StaffProfile;
+use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
-use App\Models\Role;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class StaffController extends Controller
@@ -30,25 +34,25 @@ class StaffController extends Controller
             $user->roles()->detach($otherRole->id);
         }
 
-        if ($targetRole && !$user->roles()->where('roles.id', $targetRole->id)->exists()) {
+        if ($targetRole && ! $user->roles()->where('roles.id', $targetRole->id)->exists()) {
             $user->roles()->attach($targetRole->id);
         }
     }
 
-    public function index(Shop $shop): JsonResponse
+    public function index(Store $store): JsonResponse
     {
-        $cacheKey = "shop_staff_{$shop->id}";
-        if (!app()->environment('testing')) {
-            $cached = \Illuminate\Support\Facades\Cache::driver('file')->get($cacheKey);
+        $cacheKey = "store_staff_{$store->id}";
+        if (! app()->environment('testing')) {
+            $cached = Cache::driver('file')->get($cacheKey);
             if (is_array($cached) && isset($cached['data']) && is_array($cached['data'])) {
                 return response()->json($cached);
             }
         }
 
-        $staff = $shop->staff()->with(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])->get();
+        $staff = $store->staff()->with(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])->get();
 
         // One grouped query for all staff instead of 2 queries per staff
-        // member — previously scaled linearly with the shop's headcount.
+        // member — previously scaled linearly with the store's headcount.
         $userIds = $staff->pluck('user_id');
         // COUNT(DISTINCT job_order_id), not a raw row SUM — job_order_staff
         // has one row per production STAGE, and a staff member is routinely
@@ -59,7 +63,7 @@ class StaffController extends Controller
         // order showed "2 active jobs" for what was really only 1 actual
         // job. The whole point of this number is "how many distinct jobs is
         // this person on right now," not "how many stage-assignments."
-        $counts = \Illuminate\Support\Facades\DB::table('job_order_staff')
+        $counts = DB::table('job_order_staff')
             ->whereIn('user_id', $userIds)
             ->selectRaw('
                 user_id,
@@ -74,33 +78,34 @@ class StaffController extends Controller
             $row = $counts->get($s->user_id);
             $s->active_jobs = (int) ($row->active_jobs ?? 0);
             $s->completed_jobs = (int) ($row->completed_jobs ?? 0);
+
             return $s;
         });
 
         $payload = [
             'success' => true,
-            'data' => $staff->values()->toArray()
+            'data' => $staff->values()->toArray(),
         ];
 
-        if (!app()->environment('testing')) {
-            \Illuminate\Support\Facades\Cache::driver('file')->put($cacheKey, $payload, 30);
+        if (! app()->environment('testing')) {
+            Cache::driver('file')->put($cacheKey, $payload, 30);
         }
 
         return response()->json($payload);
     }
 
-    public function show(Shop $shop, StaffProfile $staff): JsonResponse
+    public function show(Store $store, StaffProfile $staff): JsonResponse
     {
-        if ($staff->shop_id !== $shop->id) {
+        if ($staff->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         // Work-history log: every job this staff was assigned to (assigned vs completed).
-        $assignments = \Illuminate\Support\Facades\DB::table('job_order_staff as jos')
+        $assignments = DB::table('job_order_staff as jos')
             ->join('job_orders as jo', 'jo.id', '=', 'jos.job_order_id')
             ->leftJoin('users as c', 'c.id', '=', 'jo.customer_id')
             ->where('jos.user_id', $staff->user_id)
-            ->where('jo.shop_id', $shop->id)
+            ->where('jo.store_id', $store->id)
             ->orderByDesc('jos.assigned_at')
             ->get([
                 'jos.job_order_id',
@@ -132,26 +137,26 @@ class StaffController extends Controller
         ]);
     }
 
-    public function store(StoreStaffRequest $request, Shop $shop): JsonResponse
+    public function store(StoreStaffRequest $request, Store $store): JsonResponse
     {
         // SubscriptionPlan::max_staff is configurable per plan (unlike the
         // branch limit, which is a flat premium-only gate) but was never
-        // actually checked here — a shop on the cheapest plan could hire an
+        // actually checked here — a store on the cheapest plan could hire an
         // unlimited staff roster with no enforcement at all.
-        $subscription = $shop->subscription()->whereIn('status', ['active', 'trial'])->first();
-        // A shop with no active/trial subscription at all must fall back to
+        $subscription = $store->subscription()->whereIn('status', ['active', 'trial'])->first();
+        // A store with no active/trial subscription at all must fall back to
         // the cheapest plan's cap, not skip the gate entirely — treating a
-        // missing subscription as "unlimited" let a shop with literally no
+        // missing subscription as "unlimited" let a store with literally no
         // plan hire more staff than a paying Basic subscriber, the opposite
-        // of ShopBranchController's equivalent gate, which already fails
+        // of StoreBranchController's equivalent gate, which already fails
         // closed the same way (no subscription => no premium perks).
         $maxStaff = $subscription?->plan?->max_staff ?? SubscriptionPlan::where('slug', 'basic')->value('max_staff') ?? 1;
         // -1 is this table's documented "unlimited" sentinel (see
         // SubscriptionPlanSeeder) — not a real cap to compare against.
-        if ($maxStaff !== -1 && $shop->staff()->count() >= $maxStaff) {
+        if ($maxStaff !== -1 && $store->staff()->count() >= $maxStaff) {
             return response()->json([
                 'success' => false,
-                'message' => "Your plan allows up to {$maxStaff} staff member" . ($maxStaff === 1 ? '' : 's') . '. Upgrade your plan to add more.',
+                'message' => "Your plan allows up to {$maxStaff} staff member".($maxStaff === 1 ? '' : 's').'. Upgrade your plan to add more.',
             ], 403);
         }
 
@@ -161,7 +166,7 @@ class StaffController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'This email already belongs to a registered account.',
-                'errors'  => ['email' => ['This email already belongs to a registered account.']],
+                'errors' => ['email' => ['This email already belongs to a registered account.']],
             ], 422);
         }
 
@@ -172,18 +177,18 @@ class StaffController extends Controller
         // the check above passed. Confirmed live: hiring "staff" with an
         // existing customer's email silently overwrote their name and
         // enrolled them as an employee. Block on any sign this identity is
-        // already a known customer, of this shop or any other.
+        // already a known customer, of this store or any other.
         if ($existing) {
             $isKnownCustomer = $existing->hasRole('customer')
-                || \Illuminate\Support\Facades\DB::table('shop_customers')->where('user_id', $existing->id)->exists()
-                || \App\Models\JobOrder::where('customer_id', $existing->id)->exists()
-                || \App\Models\Appointment::where('customer_id', $existing->id)->exists();
+                || DB::table('store_customers')->where('user_id', $existing->id)->exists()
+                || JobOrder::where('customer_id', $existing->id)->exists()
+                || Appointment::where('customer_id', $existing->id)->exists();
 
             if ($isKnownCustomer) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This email belongs to an existing customer and cannot be used for a staff account.',
-                    'errors'  => ['email' => ['This email belongs to an existing customer and cannot be used for a staff account.']],
+                    'errors' => ['email' => ['This email belongs to an existing customer and cannot be used for a staff account.']],
                 ], 422);
             }
         }
@@ -191,46 +196,46 @@ class StaffController extends Controller
         if ($existing) {
             $user = $existing;
             $user->update([
-                'name'            => $request->name,
-                'password'        => Hash::make($request->password),
+                'name' => $request->name,
+                'password' => Hash::make($request->password),
                 'password_set_at' => now(),
-                'phone'           => $request->phone ?? $user->phone,
+                'phone' => $request->phone ?? $user->phone,
             ]);
         } else {
             $user = User::create([
-                'name'            => $request->name,
-                'email'           => $request->email,
-                'password'        => Hash::make($request->password),
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
                 'password_set_at' => now(),
-                'phone'           => $request->phone,
+                'phone' => $request->phone,
             ]);
         }
 
         $isBranchManager = $request->boolean('is_branch_manager');
         $this->syncPlatformRole($user, $isBranchManager);
 
-        $staff = $shop->staff()->create([
+        $staff = $store->staff()->create([
             'user_id' => $user->id,
             'role' => $request->role,
             'additional_roles' => $request->additional_roles,
             'specialization' => $request->specialization,
             'hired_at' => $request->hired_at,
-            'shop_branch_id' => $request->shop_branch_id,
+            'store_branch_id' => $request->store_branch_id,
             'is_branch_manager' => $isBranchManager,
             'bio' => $request->bio,
         ]);
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("shop_staff_{$shop->id}");
+        Cache::driver('file')->forget("store_staff_{$store->id}");
 
         return response()->json([
             'success' => true,
-            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])
+            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name']),
         ], 201);
     }
 
-    public function update(UpdateStaffRequest $request, Shop $shop, StaffProfile $staff): JsonResponse
+    public function update(UpdateStaffRequest $request, Store $store, StaffProfile $staff): JsonResponse
     {
-        if ($staff->shop_id !== $shop->id) {
+        if ($staff->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -245,23 +250,23 @@ class StaffController extends Controller
         }
 
         // Update the StaffProfile
-        $staff->update($request->only(['role', 'additional_roles', 'specialization', 'hired_at', 'is_active', 'shop_branch_id', 'is_branch_manager', 'bio', 'is_available']));
+        $staff->update($request->only(['role', 'additional_roles', 'specialization', 'hired_at', 'is_active', 'store_branch_id', 'is_branch_manager', 'bio', 'is_available']));
 
         if ($user && $request->has('is_branch_manager')) {
             $this->syncPlatformRole($user, $staff->is_branch_manager);
         }
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("shop_staff_{$shop->id}");
+        Cache::driver('file')->forget("store_staff_{$store->id}");
 
         return response()->json([
             'success' => true,
-            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])
+            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name']),
         ]);
     }
 
-    public function destroy(Request $request, Shop $shop, StaffProfile $staff): JsonResponse
+    public function destroy(Request $request, Store $store, StaffProfile $staff): JsonResponse
     {
-        if ($staff->shop_id !== $shop->id) {
+        if ($staff->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -270,7 +275,7 @@ class StaffController extends Controller
         // into every historical record that references them by user id
         // (JobOrder::assignedStaff, Payment::recordedBy/rejectedBy,
         // AuditLog::user), silently blanking out "who did this" across the
-        // shop's entire history the moment a staff member was offboarded —
+        // store's entire history the moment a staff member was offboarded —
         // a routine action, not a reason to lose past attribution.
         //
         // Logged before delete() (the StaffProfile itself, not the User row,
@@ -278,12 +283,12 @@ class StaffController extends Controller
         // member is exactly the kind of action the owner needs to see in
         // the Audit Log for a branch_manager's own actions, and previously
         // there was no record it happened at all.
-        $shop->auditLogs()->create([
-            'user_id'    => $request->user()->id,
-            'action'     => 'staff_removed',
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id,
+            'action' => 'staff_removed',
             'model_type' => StaffProfile::class,
-            'model_id'   => $staff->id,
-            'payload'    => [
+            'model_id' => $staff->id,
+            'payload' => [
                 'name' => $staff->user?->name,
                 'role' => $staff->role,
             ],
@@ -292,11 +297,11 @@ class StaffController extends Controller
 
         $staff->delete();
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("shop_staff_{$shop->id}");
+        Cache::driver('file')->forget("store_staff_{$store->id}");
 
         return response()->json([
             'success' => true,
-            'message' => 'Staff member removed.'
+            'message' => 'Staff member removed.',
         ]);
     }
 }

@@ -2,10 +2,10 @@
 
 namespace Tests\Feature\Api\V1;
 
-use App\Models\User;
-use App\Models\Shop;
-use App\Models\Role;
 use App\Models\CatalogItem;
+use App\Models\Role;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -15,15 +15,15 @@ class CatalogItemTest extends TestCase
 
     public function test_catalog_item_stores_price_estimated_days_color_and_sizes(): void
     {
-        $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $role = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $user = User::factory()->create();
         $user->roles()->attach($role);
-        $shop = Shop::create([
-            'owner_id' => $user->id, 'name' => 'Test Shop', 'slug' => 'test-shop',
+        $store = Store::create([
+            'owner_id' => $user->id, 'name' => 'Test Store', 'slug' => 'test-store',
             'address' => '1 St', 'city' => 'Davao', 'province' => 'Davao del Sur', 'status' => 'approved',
         ]);
 
-        $response = $this->actingAs($user)->postJson("/api/v1/shops/{$shop->id}/catalog", [
+        $response = $this->actingAs($user)->postJson("/api/v1/stores/{$store->id}/catalog", [
             'name' => 'Barong Tagalog',
             'price' => 2500,
             'estimated_days' => 10,

@@ -20,18 +20,18 @@ return new class extends Migration
             $table->timestamp('password_set_at')->nullable()->after('password');
         });
 
-        // Backfill: only shop owners and staff definitely have a real,
+        // Backfill: only store owners and staff definitely have a real,
         // known password (self-registered or set by the owner directly).
         // Plain customer-only accounts are left unclaimed (null), since many
         // of those are guest-booking shadow accounts with an unknown
         // randomly-generated password.
-        \DB::table('users')
+        DB::table('users')
             ->whereNull('password_set_at')
             ->whereIn('id', function ($query) {
                 $query->select('user_id')
                     ->from('role_user')
                     ->join('roles', 'roles.id', '=', 'role_user.role_id')
-                    ->whereIn('roles.name', ['shop_owner', 'staff', 'branch_manager', 'admin']);
+                    ->whereIn('roles.name', ['store_owner', 'staff', 'branch_manager', 'admin']);
             })
             ->update(['password_set_at' => now()]);
     }

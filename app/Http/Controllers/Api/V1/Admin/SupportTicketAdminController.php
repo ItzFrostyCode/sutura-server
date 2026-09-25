@@ -5,18 +5,19 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketReply;
+use App\Notifications\SupportTicketReplyNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class SupportTicketAdminController extends Controller
 {
     /**
-     * List all tickets across all shops (admin view).
+     * List all tickets across all stores (admin view).
      */
     public function index(Request $request)
     {
         $query = SupportTicket::with([
-            'shop:id,name,slug',
+            'store:id,name,slug',
             'submittedBy:id,name,email',
             'assignedTo:id,name',
         ])->orderByDesc('created_at');
@@ -33,7 +34,7 @@ class SupportTicketAdminController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $query->get(),
+            'data' => $query->get(),
         ]);
     }
 
@@ -43,7 +44,7 @@ class SupportTicketAdminController extends Controller
     public function show($ticketId)
     {
         $ticket = SupportTicket::with([
-            'shop:id,name,slug',
+            'store:id,name,slug',
             'submittedBy:id,name,email',
             'replies.user:id,name,email',
             'assignedTo:id,name',
@@ -51,7 +52,7 @@ class SupportTicketAdminController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $ticket,
+            'data' => $ticket,
         ]);
     }
 
@@ -63,22 +64,22 @@ class SupportTicketAdminController extends Controller
         $ticket = SupportTicket::findOrFail($ticketId);
 
         $validated = $request->validate([
-            'message'     => 'required|string',
+            'message' => 'required|string',
             'attachments' => 'nullable|array',
         ]);
 
         $reply = SupportTicketReply::create([
-            'ticket_id'      => $ticket->id,
-            'user_id'        => Auth::id(),
-            'message'        => $validated['message'],
-            'attachments'    => $validated['attachments'] ?? null,
+            'ticket_id' => $ticket->id,
+            'user_id' => Auth::id(),
+            'message' => $validated['message'],
+            'attachments' => $validated['attachments'] ?? null,
             'is_admin_reply' => true,
         ]);
 
         // Automatically move ticket to in_progress when admin first replies
         if ($ticket->status === 'open') {
             $ticket->update([
-                'status'      => 'in_progress',
+                'status' => 'in_progress',
                 'assigned_to' => Auth::id(),
             ]);
         }
@@ -86,13 +87,13 @@ class SupportTicketAdminController extends Controller
         $reply->load('user:id,name,email');
 
         // The admin frontend doesn't exist yet, so this reply is otherwise
-        // invisible to the shop owner unless they happen to reopen the
+        // invisible to the store owner unless they happen to reopen the
         // ticket page themselves.
-        $ticket->submittedBy?->notify(new \App\Notifications\SupportTicketReplyNotification($ticket, $reply->user->name));
+        $ticket->submittedBy?->notify(new SupportTicketReplyNotification($ticket, $reply->user->name));
 
         return response()->json([
             'success' => true,
-            'data'    => $reply,
+            'data' => $reply,
         ], 201);
     }
 
@@ -117,7 +118,7 @@ class SupportTicketAdminController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $ticket->fresh(),
+            'data' => $ticket->fresh(),
         ]);
     }
 }

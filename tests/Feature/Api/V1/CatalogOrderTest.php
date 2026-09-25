@@ -2,10 +2,10 @@
 
 namespace Tests\Feature\Api\V1;
 
-use App\Models\User;
-use App\Models\Shop;
 use App\Models\CatalogItem;
 use App\Models\Role;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -14,28 +14,31 @@ class CatalogOrderTest extends TestCase
     use RefreshDatabase;
 
     protected User $user;
-    protected Shop $shop;
+
+    protected Store $store;
+
     protected User $customer;
+
     protected CatalogItem $catalogItem;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $ownerRole = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $ownerRole = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $customerRole = Role::create(['name' => 'customer', 'description' => 'Customer']);
 
         $this->user = User::factory()->create();
         $this->user->roles()->attach($ownerRole);
 
-        $this->shop = Shop::create([
+        $this->store = Store::create([
             'owner_id' => $this->user->id,
-            'name' => 'Test Shop',
-            'slug' => 'test-shop',
+            'name' => 'Test Store',
+            'slug' => 'test-store',
             'address' => '123 Test St',
             'city' => 'Manila',
             'province' => 'Metro Manila',
-            'status' => 'approved'
+            'status' => 'approved',
         ]);
 
         $this->customer = User::factory()->create();
@@ -44,7 +47,7 @@ class CatalogOrderTest extends TestCase
         // Made-to-order only — the approved thesis excludes ready-to-wear
         // inventory and rental stock from the system's scope.
         $this->catalogItem = CatalogItem::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'name' => 'Barong Tagalog',
             'price' => 5000.00,
             'listing_type' => 'made_to_order',
@@ -52,12 +55,12 @@ class CatalogOrderTest extends TestCase
         ]);
 
         // Create a single branch to satisfy single branch auto-resolve
-        $this->shop->branches()->create([
+        $this->store->branches()->create([
             'name' => 'Main Branch',
             'address' => '123 Test St',
             'city' => 'Manila',
             'operating_hours' => '09:00 - 18:00',
-            'status' => 'active'
+            'status' => 'active',
         ]);
     }
 
@@ -71,7 +74,7 @@ class CatalogOrderTest extends TestCase
         ];
 
         $response = $this->actingAs($this->user)
-            ->postJson("/api/v1/shops/{$this->shop->id}/catalog-orders", $payload);
+            ->postJson("/api/v1/stores/{$this->store->id}/catalog-orders", $payload);
 
         $response->assertStatus(201);
         $this->assertDatabaseHas('catalog_orders', [
@@ -95,7 +98,7 @@ class CatalogOrderTest extends TestCase
             'payment_method' => 'cash',
         ];
 
-        $response = $this->postJson("/api/v1/catalog/{$this->shop->slug}/book", $payload);
+        $response = $this->postJson("/api/v1/catalog/{$this->store->slug}/book", $payload);
 
         $response->assertStatus(201);
         $this->assertDatabaseHas('appointments', [

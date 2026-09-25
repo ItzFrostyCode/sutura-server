@@ -8,14 +8,14 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->boolean('is_featured')->default(false);
         });
     }
 
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn('is_featured');
         });
     }

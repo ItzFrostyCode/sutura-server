@@ -5,18 +5,19 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\CatalogItem;
 use App\Models\CatalogItemReview;
-use App\Models\Shop;
+use App\Models\Store;
 use App\Models\SupportTicket;
-use Illuminate\Http\Request;
+use App\Notifications\CatalogItemReviewReplyNotification;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class CatalogInteractionController extends Controller
 {
     private const NOT_FOUND_MESSAGE = 'Not found';
 
-    public function incrementViews(Shop $shop, CatalogItem $catalogItem): JsonResponse
+    public function incrementViews(Store $store, CatalogItem $catalogItem): JsonResponse
     {
-        if ($catalogItem->shop_id !== $shop->id) {
+        if ($catalogItem->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
@@ -25,14 +26,14 @@ class CatalogInteractionController extends Controller
         return response()->json(['success' => true, 'views_count' => $catalogItem->views_count]);
     }
 
-    public function toggleSave(Request $request, Shop $shop, CatalogItem $catalogItem): JsonResponse
+    public function toggleSave(Request $request, Store $store, CatalogItem $catalogItem): JsonResponse
     {
-        if ($catalogItem->shop_id !== $shop->id) {
+        if ($catalogItem->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
         $user = $request->user();
-        
+
         $existingSave = $catalogItem->saves()->where('user_id', $user->id)->first();
 
         if ($existingSave) {
@@ -46,7 +47,7 @@ class CatalogInteractionController extends Controller
         return response()->json([
             'success' => true,
             'status' => $status,
-            'saves_count' => $catalogItem->saves()->count()
+            'saves_count' => $catalogItem->saves()->count(),
         ]);
     }
 
@@ -58,52 +59,52 @@ class CatalogInteractionController extends Controller
      * Report a catalog item for review — Copyright/Offensive/Illegal/Other,
      * with an optional free-text description. Lands as a real SupportTicket
      * (type=product_report) rather than a bespoke reports table, so it
-     * reaches System Admin the same way a shop owner's ticket does, and
+     * reaches System Admin the same way a store owner's ticket does, and
      * shows up in the reporting customer's own My Support Tickets list
      * (SupportTicketController::myTickets/myTicketShow/myTicketReply).
      */
-    public function report(Request $request, Shop $shop, CatalogItem $catalogItem): JsonResponse
+    public function report(Request $request, Store $store, CatalogItem $catalogItem): JsonResponse
     {
-        if ($catalogItem->shop_id !== $shop->id) {
+        if ($catalogItem->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
         $validated = $request->validate([
-            'reason' => 'required|string|in:' . implode(',', self::REPORT_REASONS),
+            'reason' => 'required|string|in:'.implode(',', self::REPORT_REASONS),
             'description' => 'nullable|string|max:500',
         ]);
 
         $reasonLabels = [
             'copyright' => 'Copyright',
             'offensive' => 'Offensive',
-            'illegal'   => 'Illegal',
-            'other'     => 'Other',
+            'illegal' => 'Illegal',
+            'other' => 'Other',
         ];
 
-        $message = 'Reason: ' . $reasonLabels[$validated['reason']];
-        if (!empty($validated['description'])) {
-            $message .= "\n\n" . $validated['description'];
+        $message = 'Reason: '.$reasonLabels[$validated['reason']];
+        if (! empty($validated['description'])) {
+            $message .= "\n\n".$validated['description'];
         }
 
         $ticket = SupportTicket::create([
-            'shop_id'  => $shop->id,
-            'user_id'  => $request->user()->id,
-            'subject'  => 'Product Report: ' . $catalogItem->name,
-            'message'  => $message,
-            'type'     => 'product_report',
+            'store_id' => $store->id,
+            'user_id' => $request->user()->id,
+            'subject' => 'Product Report: '.$catalogItem->name,
+            'message' => $message,
+            'type' => 'product_report',
             'priority' => 'medium',
-            'status'   => 'open',
+            'status' => 'open',
         ]);
 
         return response()->json([
-            'success'   => true,
-            'message'   => "Thanks — we've received your report and will look into it.",
+            'success' => true,
+            'message' => "Thanks — we've received your report and will look into it.",
             'ticket_id' => $ticket->id,
         ], 201);
     }
 
     /**
-     * Cross-shop "my ratings" for the Showroom tab of the customer's Star
+     * Cross-store "my ratings" for the Showroom tab of the customer's Star
      * Ratings page — same customer-scoped, no-role-gate pattern as
      * /my-orders, /my-appointments, /my-measurements. No comment field in
      * the response shape the frontend cares about; comments still exist on
@@ -113,7 +114,7 @@ class CatalogInteractionController extends Controller
     public function myReviews(Request $request): JsonResponse
     {
         $reviews = CatalogItemReview::where('user_id', $request->user()->id)
-            ->with(['catalogItem.images', 'catalogItem.shop:id,name,slug'])
+            ->with(['catalogItem.images', 'catalogItem.store:id,name,slug'])
             ->latest()
             ->get()
             ->filter(fn (CatalogItemReview $r) => $r->catalogItem !== null)
@@ -134,7 +135,7 @@ class CatalogInteractionController extends Controller
                     'reviews_avg_rating' => $item->reviews_avg_rating !== null ? round((float) $item->reviews_avg_rating, 1) : null,
                     'order_count' => $item->catalog_orders_count + $item->job_orders_count,
                     'images' => $item->images->map(fn ($img) => ['image_url' => $img->image_url, 'is_primary' => $img->is_primary])->values(),
-                    'shop' => $item->shop ? ['name' => $item->shop->name, 'slug' => $item->shop->slug] : null,
+                    'store' => $item->store ? ['name' => $item->store->name, 'slug' => $item->store->slug] : null,
                 ];
             })
             ->values();
@@ -142,15 +143,15 @@ class CatalogInteractionController extends Controller
         return response()->json(['success' => true, 'data' => $reviews]);
     }
 
-    public function rate(Request $request, Shop $shop, CatalogItem $catalogItem): JsonResponse
+    public function rate(Request $request, Store $store, CatalogItem $catalogItem): JsonResponse
     {
-        if ($catalogItem->shop_id !== $shop->id) {
+        if ($catalogItem->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
         $validated = $request->validate([
             'rating' => 'required|integer|min:1|max:5',
-            'comment' => 'nullable|string'
+            'comment' => 'nullable|string',
         ]);
 
         $user = $request->user();
@@ -166,20 +167,20 @@ class CatalogInteractionController extends Controller
             'success' => true,
             'average_rating' => round($averageRating, 1),
             'reviews_count' => $catalogItem->reviews()->count(),
-            'review' => $review
+            'review' => $review,
         ]);
     }
 
     /**
-     * Owner-facing list of every review left on any of this shop's catalog
-     * items — mirrors ShopReviewController::index, but scoped one level
-     * down (per-item, not per-shop). Before this, a customer could rate/
+     * Owner-facing list of every review left on any of this store's catalog
+     * items — mirrors StoreReviewController::index, but scoped one level
+     * down (per-item, not per-store). Before this, a customer could rate/
      * comment on a specific Barong/gown design and the owner had no page
      * anywhere that surfaced it.
      */
-    public function indexForShop(Shop $shop, Request $request): JsonResponse
+    public function indexForStore(Store $store, Request $request): JsonResponse
     {
-        $query = CatalogItemReview::whereHas('catalogItem', fn ($q) => $q->where('shop_id', $shop->id))
+        $query = CatalogItemReview::whereHas('catalogItem', fn ($q) => $q->where('store_id', $store->id))
             ->with(['user:id,name,email', 'catalogItem:id,name']);
 
         if ($request->has('rating')) {
@@ -188,13 +189,13 @@ class CatalogInteractionController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $query->latest()->paginate($request->input('per_page', 15))
+            'data' => $query->latest()->paginate($request->input('per_page', 15)),
         ]);
     }
 
-    public function replyToReview(Request $request, Shop $shop, CatalogItemReview $review): JsonResponse
+    public function replyToReview(Request $request, Store $store, CatalogItemReview $review): JsonResponse
     {
-        if ($review->catalogItem?->shop_id !== $shop->id) {
+        if ($review->catalogItem?->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 
@@ -205,23 +206,23 @@ class CatalogInteractionController extends Controller
         // Only notify on an actual new/changed non-empty reply — not on
         // every save of an unrelated field, and not when the reply is being
         // cleared back to blank.
-        $isNewReply = !empty($validated['reply']) && $validated['reply'] !== $review->reply;
+        $isNewReply = ! empty($validated['reply']) && $validated['reply'] !== $review->reply;
 
         $review->update($validated);
 
         if ($isNewReply && $review->user) {
-            $review->user->notify(new \App\Notifications\CatalogItemReviewReplyNotification($review->fresh(['catalogItem.shop'])));
+            $review->user->notify(new CatalogItemReviewReplyNotification($review->fresh(['catalogItem.store'])));
         }
 
         return response()->json([
             'success' => true,
-            'data' => $review->fresh(['user:id,name,email', 'catalogItem:id,name'])
+            'data' => $review->fresh(['user:id,name,email', 'catalogItem:id,name']),
         ]);
     }
 
-    public function destroyReview(Shop $shop, CatalogItemReview $review): JsonResponse
+    public function destroyReview(Store $store, CatalogItemReview $review): JsonResponse
     {
-        if ($review->catalogItem?->shop_id !== $shop->id) {
+        if ($review->catalogItem?->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
 

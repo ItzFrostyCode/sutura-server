@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('staff_profiles', function (Blueprint $table) {
-            $table->boolean('is_available')->default(true)->after('shop_id');
+            $table->boolean('is_available')->default(true)->after('store_id');
         });
     }
 

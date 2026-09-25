@@ -18,15 +18,15 @@ return new class extends Migration
         // confirmed live during the R2 migration test, where a long, verbose
         // seeded catalog filename hit "value too long for type character
         // varying(255)" on Postgres. job_orders.completion_photo_url,
-        // services.image_url, and shop_special_hours.announcement_image_url
+        // services.image_url, and store_special_hours.announcement_image_url
         // were already widened for exactly this reason at some point -- this
         // just applies the same fix everywhere else it was missed, using TEXT
         // (no practical length limit) instead of another arbitrary number.
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->text('logo_path')->nullable()->change();
         });
 
-        Schema::table('shop_branches', function (Blueprint $table) {
+        Schema::table('store_branches', function (Blueprint $table) {
             $table->text('guide_image_url')->nullable()->change();
         });
 
@@ -62,11 +62,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->string('logo_path')->nullable()->change();
         });
 
-        Schema::table('shop_branches', function (Blueprint $table) {
+        Schema::table('store_branches', function (Blueprint $table) {
             $table->string('guide_image_url')->nullable()->change();
         });
 

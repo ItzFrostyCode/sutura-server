@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class StoreSpecialHour extends Model
+{
+    protected $fillable = [
+        'store_id',
+        'store_branch_id',
+        'title',
+        'start_date',
+        'end_date',
+        'is_closed',
+        'special_open_time',
+        'special_close_time',
+        'announcement_message',
+        'announcement_image_url',
+    ];
+
+    protected $casts = [
+        'start_date' => 'date:Y-m-d',
+        'end_date' => 'date:Y-m-d',
+        'is_closed' => 'boolean',
+    ];
+
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
+    }
+
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(StoreBranch::class, 'store_branch_id');
+    }
+}

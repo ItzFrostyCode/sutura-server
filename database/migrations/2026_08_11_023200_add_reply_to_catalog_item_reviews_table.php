@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('catalog_item_reviews', function (Blueprint $table) {
-            // ShopReview already lets the owner reply to shop-level reviews;
+            // StoreReview already lets the owner reply to store-level reviews;
             // catalog-item-level reviews (a specific Barong/gown design) had
             // no owner-facing management at all — no reply, no moderation.
             $table->text('reply')->nullable()->after('comment');

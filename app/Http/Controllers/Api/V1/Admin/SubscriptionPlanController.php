@@ -14,7 +14,7 @@ class SubscriptionPlanController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data' => SubscriptionPlan::all()
+            'data' => SubscriptionPlan::all(),
         ]);
     }
 
@@ -37,7 +37,7 @@ class SubscriptionPlanController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $plan
+            'data' => $plan,
         ], 201);
     }
 }

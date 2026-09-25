@@ -2,28 +2,29 @@
 
 namespace App\Notifications;
 
+use App\Models\Store;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
-use App\Models\Shop;
 
 /**
- * Daily digest for a shop owner whose branch_comparison/overdue_jobs KPI
+ * Daily digest for a store owner whose branch_comparison/overdue_jobs KPI
  * would otherwise sit passively on the dashboard until someone happens to
  * check it — see AnalyticsController::index()'s $overdueJobs query for the
- * exact "overdue" definition this reuses. Fired once per shop per day by
+ * exact "overdue" definition this reuses. Fired once per store per day by
  * app:notify-overdue-jobs, only when the count is actually > 0.
  */
 class OverdueJobsNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public Shop $shop;
+    public Store $store;
+
     public int $overdueCount;
 
-    public function __construct(Shop $shop, int $overdueCount)
+    public function __construct(Store $store, int $overdueCount)
     {
-        $this->shop = $shop;
+        $this->store = $store;
         $this->overdueCount = $overdueCount;
     }
 
@@ -43,14 +44,14 @@ class OverdueJobsNotification extends Notification implements ShouldQueue
         $plural = $this->overdueCount === 1 ? 'job is' : 'jobs are';
 
         return [
-            'type'          => 'overdue_jobs_digest',
-            'title'         => 'Overdue Jobs',
-            'message'       => "{$this->overdueCount} {$plural} past their due date at {$this->shop->name}.",
+            'type' => 'overdue_jobs_digest',
+            'title' => 'Overdue Jobs',
+            'message' => "{$this->overdueCount} {$plural} past their due date at {$this->store->name}.",
             // Straight to the actual overdue jobs, not just a static count
             // the owner would then have to go hunt down themselves — see
             // useJobs' overdueOnly filter.
-            'action_url'    => '/dashboard/jobs?overdue=true',
-            'shop_id'       => $this->shop->id,
+            'action_url' => '/dashboard/jobs?overdue=true',
+            'store_id' => $this->store->id,
             'overdue_count' => $this->overdueCount,
         ];
     }

@@ -2,11 +2,11 @@
 
 namespace App\Notifications;
 
+use App\Models\JobOrder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Models\JobOrder;
 
 /**
  * Free-form message the owner types and sends directly to a job order's
@@ -22,7 +22,9 @@ class CustomMessageNotification extends Notification implements ShouldQueue
     use Queueable;
 
     public JobOrder $jobOrder;
+
     public string $subject;
+
     public string $body;
 
     public function __construct(JobOrder $jobOrder, string $subject, string $body)
@@ -45,12 +47,12 @@ class CustomMessageNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $shop = $this->jobOrder->shop;
-        $shopUrl = $shop?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000') . '/shop/' . $shop->slug) : null;
+        $store = $this->jobOrder->store;
+        $storeUrl = $store?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000').'/store/'.$store->slug) : null;
 
         $mail = (new MailMessage)
-            ->subject($this->subject . ' — ' . ($shop?->name ?? 'SUTURA'))
-            ->greeting('Hello ' . $notifiable->name . ',');
+            ->subject($this->subject.' — '.($store?->name ?? 'SUTURA'))
+            ->greeting('Hello '.$notifiable->name.',');
 
         // Preserve the owner's paragraph breaks as separate lines rather than
         // collapsing free-form text into one dense block.
@@ -60,8 +62,8 @@ class CustomMessageNotification extends Notification implements ShouldQueue
             }
         }
 
-        if ($shopUrl) {
-            $mail->action('Visit ' . $shop->name, $shopUrl);
+        if ($storeUrl) {
+            $mail->action('Visit '.$store->name, $storeUrl);
         }
 
         return $mail;

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Measurement extends Model
 {
     protected $fillable = [
-        'shop_id', 'customer_id', 'source', 'profile_name', 'version', 'metrics', 'notes', 'superseded_at'
+        'store_id', 'customer_id', 'source', 'profile_name', 'version', 'metrics', 'notes', 'superseded_at',
     ];
 
     protected $casts = [
@@ -16,9 +16,9 @@ class Measurement extends Model
         'superseded_at' => 'datetime',
     ];
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function customer(): BelongsTo

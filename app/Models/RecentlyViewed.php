@@ -12,15 +12,14 @@ class RecentlyViewed extends Model
     // the real table is "recently_viewed" (see the migration).
     protected $table = 'recently_viewed';
 
-
-    /** Matches the "Showroom / Services / Shops" tab shape used across the
+    /** Matches the "Showroom / Services / Stores" tab shape used across the
      *  customer-facing Recently Viewed and My Ratings pages. */
-    public const TYPES = ['catalog_item', 'service', 'shop'];
+    public const TYPES = ['catalog_item', 'service', 'store'];
 
     private const TYPE_TO_MODEL = [
         'catalog_item' => CatalogItem::class,
-        'service'      => Service::class,
-        'shop'         => Shop::class,
+        'service' => Service::class,
+        'store' => Store::class,
     ];
 
     protected $fillable = ['user_id', 'viewable_type', 'viewable_id', 'viewed_at'];
@@ -46,7 +45,9 @@ class RecentlyViewed extends Model
     public static function record(int $userId, string $type, int $viewableId): void
     {
         $modelClass = self::TYPE_TO_MODEL[$type] ?? null;
-        if (!$modelClass) return;
+        if (! $modelClass) {
+            return;
+        }
 
         self::updateOrCreate(
             ['user_id' => $userId, 'viewable_type' => $modelClass, 'viewable_id' => $viewableId],

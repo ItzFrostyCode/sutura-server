@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -17,7 +17,7 @@ return new class extends Migration
 
         // Copy old order_type data
         DB::table('job_orders')->update(['intake_channel' => DB::raw('order_type')]);
-        
+
         // If shipping address is set, set fulfillment type to shipping
         DB::table('job_orders')
             ->whereNotNull('shipping_address')
@@ -33,7 +33,7 @@ return new class extends Migration
             $table->string('intake_channel')->default('online')->after('customer_id');
             $table->string('fulfillment_type')->default('shipping')->after('intake_channel');
         });
-        
+
         // If delivery_address is null or empty, set fulfillment to pickup
         DB::table('catalog_orders')
             ->whereNull('delivery_address')

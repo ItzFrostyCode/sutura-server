@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 return new class extends Migration
@@ -17,8 +17,8 @@ return new class extends Migration
             // No login required to check on an order — a real pain point
             // named in the interview research ("sa na po ba?" messages from
             // customers who don't want to create an account just to check
-            // status). Globally unique (not scoped per shop) since the
-            // public lookup endpoint has no other way to know which shop's
+            // status). Globally unique (not scoped per store) since the
+            // public lookup endpoint has no other way to know which store's
             // job_orders table to search. Nullable: backfilled below for
             // existing rows, but a schema-level default isn't possible for
             // a per-row random value.

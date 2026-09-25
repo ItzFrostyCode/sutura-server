@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('job_orders', function (Blueprint $table) {
-            $table->decimal('outsourcing_cost', 10, 2)->nullable()->after('partner_shop_name');
+            $table->decimal('outsourcing_cost', 10, 2)->nullable()->after('partner_store_name');
         });
     }
 

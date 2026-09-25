@@ -18,7 +18,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn([
                 'security_deposit',
                 'rental_duration_days',
@@ -33,7 +33,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->decimal('security_deposit', 10, 2)->default(0.00)->after('booking_questions');
             $table->integer('rental_duration_days')->default(3)->after('security_deposit');
             $table->decimal('overdue_penalty_per_day', 10, 2)->default(0.00)->after('rental_duration_days');

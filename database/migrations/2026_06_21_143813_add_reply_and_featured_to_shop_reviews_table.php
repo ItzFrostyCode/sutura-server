@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shop_reviews', function (Blueprint $table) {
+        Schema::table('store_reviews', function (Blueprint $table) {
             $table->text('reply')->nullable()->after('comment');
             $table->boolean('is_featured')->default(false)->after('reply');
         });
@@ -22,7 +22,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shop_reviews', function (Blueprint $table) {
+        Schema::table('store_reviews', function (Blueprint $table) {
             $table->dropColumn(['reply', 'is_featured']);
         });
     }

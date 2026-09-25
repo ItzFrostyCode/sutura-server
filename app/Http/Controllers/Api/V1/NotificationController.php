@@ -3,8 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class NotificationController extends Controller
 {
@@ -64,8 +65,8 @@ class NotificationController extends Controller
         // Quick dropdown mode (cached for 15s)
         $cacheKey = "user_notifications_{$user->id}";
 
-        if (!app()->environment('testing')) {
-            $cached = \Illuminate\Support\Facades\Cache::driver('file')->get($cacheKey);
+        if (! app()->environment('testing')) {
+            $cached = Cache::driver('file')->get($cacheKey);
             if ($cached && is_array($cached) && isset($cached['data']) && is_array($cached['data'])) {
                 return response()->json($cached);
             }
@@ -89,8 +90,8 @@ class NotificationController extends Controller
             'unread_count' => $user->unreadNotifications()->count(),
         ];
 
-        if (!app()->environment('testing')) {
-            \Illuminate\Support\Facades\Cache::driver('file')->put($cacheKey, $payload, 15);
+        if (! app()->environment('testing')) {
+            Cache::driver('file')->put($cacheKey, $payload, 15);
         }
 
         return response()->json($payload);
@@ -103,7 +104,7 @@ class NotificationController extends Controller
     {
         $notification = $request->user()->notifications()->where('id', $id)->first();
 
-        if (!$notification) {
+        if (! $notification) {
             return response()->json(['success' => false, 'message' => 'Notification not found'], 404);
         }
 
@@ -119,12 +120,12 @@ class NotificationController extends Controller
     public function markAsRead(Request $request, $id): JsonResponse
     {
         $notification = $request->user()->notifications()->where('id', $id)->first();
-        
+
         if ($notification) {
             $notification->markAsRead();
         }
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
+        Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
 
         return response()->json([
             'success' => true,
@@ -141,7 +142,7 @@ class NotificationController extends Controller
 
         if (is_array($ids) && count($ids) > 0) {
             $request->user()->notifications()->whereIn('id', $ids)->update(['read_at' => now()]);
-            \Illuminate\Support\Facades\Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
+            Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
         }
 
         return response()->json([
@@ -157,7 +158,7 @@ class NotificationController extends Controller
     {
         $request->user()->unreadNotifications->markAsRead();
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
+        Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
 
         return response()->json([
             'success' => true,
@@ -176,7 +177,7 @@ class NotificationController extends Controller
             $notification->markAsUnread();
         }
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
+        Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
 
         return response()->json([
             'success' => true,
@@ -195,7 +196,7 @@ class NotificationController extends Controller
             $notification->delete();
         }
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
+        Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
 
         return response()->json([
             'success' => true,
@@ -212,7 +213,7 @@ class NotificationController extends Controller
 
         if (is_array($ids) && count($ids) > 0) {
             $request->user()->notifications()->whereIn('id', $ids)->delete();
-            \Illuminate\Support\Facades\Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
+            Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
         }
 
         return response()->json([
@@ -227,7 +228,7 @@ class NotificationController extends Controller
     public function clearAll(Request $request): JsonResponse
     {
         $request->user()->notifications()->delete();
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
+        Cache::driver('file')->forget("user_notifications_{$request->user()->id}");
 
         return response()->json([
             'success' => true,
@@ -242,7 +243,7 @@ class NotificationController extends Controller
     {
         $user = $request->user();
         $key = "user_notification_prefs_{$user->id}";
-        $prefs = \Illuminate\Support\Facades\Cache::driver('file')->get($key);
+        $prefs = Cache::driver('file')->get($key);
 
         return response()->json([
             'success' => true,
@@ -259,7 +260,7 @@ class NotificationController extends Controller
         $key = "user_notification_prefs_{$user->id}";
         $preferences = $request->input('preferences', []);
 
-        \Illuminate\Support\Facades\Cache::driver('file')->forever($key, $preferences);
+        Cache::driver('file')->forever($key, $preferences);
 
         return response()->json([
             'success' => true,
@@ -289,7 +290,7 @@ class NotificationController extends Controller
             ['id' => 'unclaimed_pickups_digest', 'event' => 'Daily alert for unclaimed customer pickups', 'email' => true, 'mobile' => true],
             ['id' => 'jobs_on_hold_digest', 'event' => 'Alert for jobs placed on hold', 'email' => false, 'mobile' => true],
             ['id' => 'staff_assigned', 'event' => 'Staff member assigned to a production stage', 'email' => true, 'mobile' => true],
-            ['id' => 'customer_review', 'event' => 'Customer leaves a shop review or rating', 'email' => true, 'mobile' => true],
+            ['id' => 'customer_review', 'event' => 'Customer leaves a store review or rating', 'email' => true, 'mobile' => true],
             ['id' => 'subscription_alert', 'event' => 'Subscription renewal and billing notices', 'email' => true, 'mobile' => true],
         ];
     }

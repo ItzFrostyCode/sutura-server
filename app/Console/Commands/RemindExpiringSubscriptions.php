@@ -2,15 +2,15 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use App\Models\ShopSubscription;
+use App\Models\StoreSubscription;
 use App\Notifications\SubscriptionExpiringNotification;
+use Illuminate\Console\Command;
 
 class RemindExpiringSubscriptions extends Command
 {
     protected $signature = 'app:remind-expiring-subscriptions';
 
-    protected $description = 'Warns shop owners ~3 days before their subscription expires — app:expire-subscriptions only ever notifies after the shop is already hidden, which is too late to act on.';
+    protected $description = 'Warns store owners ~3 days before their subscription expires — app:expire-subscriptions only ever notifies after the store is already hidden, which is too late to act on.';
 
     private const WARNING_DAYS = 3;
 
@@ -22,18 +22,18 @@ class RemindExpiringSubscriptions extends Command
         // actually prevents a duplicate send either way.
         $windowEnd = now()->addDays(self::WARNING_DAYS)->endOfDay();
 
-        $subscriptions = ShopSubscription::whereIn('status', ['active', 'trial'])
+        $subscriptions = StoreSubscription::whereIn('status', ['active', 'trial'])
             ->whereNotNull('ends_at')
             ->where('ends_at', '>', now())
             ->where('ends_at', '<=', $windowEnd)
             ->whereNull('expiry_reminder_sent_at')
-            ->with('shop.owner', 'plan')
+            ->with('store.owner', 'plan')
             ->get();
 
         $sent = 0;
         foreach ($subscriptions as $subscription) {
-            $owner = $subscription->shop?->owner;
-            if (!$owner) {
+            $owner = $subscription->store?->owner;
+            if (! $owner) {
                 continue;
             }
             $daysRemaining = max(1, (int) now()->diffInDays($subscription->ends_at, false) + 1);
@@ -43,6 +43,7 @@ class RemindExpiringSubscriptions extends Command
         }
 
         $this->info("Sent {$sent} subscription-expiring reminder(s).");
+
         return self::SUCCESS;
     }
 }

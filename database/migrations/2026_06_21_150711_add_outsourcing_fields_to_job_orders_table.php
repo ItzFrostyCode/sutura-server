@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('job_orders', function (Blueprint $table) {
             $table->boolean('is_outsourced')->default(false)->after('status');
-            $table->string('partner_shop_name')->nullable()->after('is_outsourced');
+            $table->string('partner_store_name')->nullable()->after('is_outsourced');
         });
     }
 
@@ -23,7 +23,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('job_orders', function (Blueprint $table) {
-            $table->dropColumn(['is_outsourced', 'partner_shop_name']);
+            $table->dropColumn(['is_outsourced', 'partner_store_name']);
         });
     }
 };

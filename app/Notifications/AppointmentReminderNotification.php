@@ -2,15 +2,16 @@
 
 namespace App\Notifications;
 
+use App\Models\Appointment;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Models\Appointment;
 
 /**
  * The "customer forgot their fitting" pain point named directly in the
- * tailoring-shop interview research — sent ~24h ahead of a still-pending/
+ * tailoring-store interview research — sent ~24h ahead of a still-pending/
  * confirmed appointment by App\Console\Commands\RemindUpcomingAppointments.
  * Mirrors AppointmentStatusNotification's channel/copy structure, but this
  * one isn't triggered by a status change.
@@ -29,36 +30,37 @@ class AppointmentReminderNotification extends Notification implements ShouldQueu
     public function via(object $notifiable): array
     {
         $channels = ['database'];
-        if ($notifiable->email && !str_starts_with($notifiable->email, 'walkin_')) {
+        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
             $channels[] = 'mail';
         }
+
         return $channels;
     }
 
     private function scheduledLabel(): string
     {
         return $this->appointment->scheduled_at
-            ? \Carbon\Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
+            ? Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
             : 'N/A';
     }
 
     public function toMail(object $notifiable): MailMessage
     {
-        $shop = $this->appointment->shop;
-        $shopUrl = $shop?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000') . '/shop/' . $shop->slug) : null;
+        $store = $this->appointment->store;
+        $storeUrl = $store?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000').'/store/'.$store->slug) : null;
         $type = ucfirst($this->appointment->appointment_type ?? 'appointment');
 
         $mail = (new MailMessage)
-            ->subject('Reminder: Your ' . $type . ' Tomorrow — ' . ($shop?->name ?? 'SUTURA'))
-            ->greeting('Hello ' . $notifiable->name . ',')
-            ->line('This is a friendly reminder that you have a ' . strtolower($type) . ' appointment tomorrow, ' . $this->scheduledLabel() . '.');
+            ->subject('Reminder: Your '.$type.' Tomorrow — '.($store?->name ?? 'SUTURA'))
+            ->greeting('Hello '.$notifiable->name.',')
+            ->line('This is a friendly reminder that you have a '.strtolower($type).' appointment tomorrow, '.$this->scheduledLabel().'.');
 
-        if ($shop?->address) {
-            $mail->line('Location: ' . $shop->address);
+        if ($store?->address) {
+            $mail->line('Location: '.$store->address);
         }
 
-        if ($shopUrl) {
-            $mail->action('View Appointment', $shopUrl);
+        if ($storeUrl) {
+            $mail->action('View Appointment', $storeUrl);
         }
 
         return $mail->line('See you soon!');
@@ -66,16 +68,17 @@ class AppointmentReminderNotification extends Notification implements ShouldQueu
 
     public function toArray(object $notifiable): array
     {
-        $shop = $this->appointment->shop;
+        $store = $this->appointment->store;
+
         return [
             'type' => 'appointment_reminder',
             'title' => 'Appointment Reminder',
-            'message' => 'Reminder: your appointment is scheduled for ' . $this->scheduledLabel() . '.',
-            'action_url' => '/account/appointments/' . $this->appointment->id,
+            'message' => 'Reminder: your appointment is scheduled for '.$this->scheduledLabel().'.',
+            'action_url' => '/account/appointments/'.$this->appointment->id,
             'appointment_id' => $this->appointment->id,
             'scheduled_at' => $this->appointment->scheduled_at,
-            'shop' => $shop ? [
-                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            'store' => $store ? [
+                'id' => $store->id, 'name' => $store->name, 'slug' => $store->slug, 'logo_path' => $store->logo_path,
             ] : null,
         ];
     }

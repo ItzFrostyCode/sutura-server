@@ -21,7 +21,7 @@ class BackupDatabase extends Command
         $dbConfig = config("database.connections.{$connection}");
 
         $backupDir = storage_path('app/backups');
-        if (!is_dir($backupDir)) {
+        if (! is_dir($backupDir)) {
             mkdir($backupDir, 0755, true);
         }
 
@@ -44,12 +44,14 @@ class BackupDatabase extends Command
         $sourcePath = $config['database'];
         $destPath = "{$backupDir}/backup-{$timestamp}.sqlite";
 
-        if (!is_file($sourcePath) || !copy($sourcePath, $destPath)) {
+        if (! is_file($sourcePath) || ! copy($sourcePath, $destPath)) {
             $this->error('Failed to copy the SQLite database file.');
+
             return false;
         }
 
         $this->info("Database backed up to {$destPath}");
+
         return true;
     }
 
@@ -71,10 +73,12 @@ class BackupDatabase extends Command
 
         if ($exitCode !== 0) {
             $this->error('mysqldump failed. Is the mysql-client installed on this server?');
+
             return false;
         }
 
         $this->info("Database backed up to {$destPath}");
+
         return true;
     }
 
@@ -82,7 +86,7 @@ class BackupDatabase extends Command
     {
         $destPath = "{$backupDir}/backup-{$timestamp}.sql";
 
-        putenv('PGPASSWORD=' . ($config['password'] ?? ''));
+        putenv('PGPASSWORD='.($config['password'] ?? ''));
         $command = sprintf(
             'pg_dump --username=%s --host=%s --port=%s %s > %s 2>/dev/null',
             escapeshellarg($config['username'] ?? ''),
@@ -96,16 +100,19 @@ class BackupDatabase extends Command
 
         if ($exitCode !== 0) {
             $this->error('pg_dump failed. Is the postgresql-client installed on this server?');
+
             return false;
         }
 
         $this->info("Database backed up to {$destPath}");
+
         return true;
     }
 
     private function failUnsupported(string $connection): bool
     {
         $this->error("Unsupported database driver for backup: {$connection}");
+
         return false;
     }
 

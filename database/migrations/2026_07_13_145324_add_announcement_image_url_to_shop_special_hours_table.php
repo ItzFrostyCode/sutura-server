@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shop_special_hours', function (Blueprint $table) {
+        Schema::table('store_special_hours', function (Blueprint $table) {
             $table->string('announcement_image_url', 1000)->nullable()->after('announcement_message');
         });
     }
@@ -21,7 +21,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shop_special_hours', function (Blueprint $table) {
+        Schema::table('store_special_hours', function (Blueprint $table) {
             $table->dropColumn('announcement_image_url');
         });
     }

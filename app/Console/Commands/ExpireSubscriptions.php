@@ -2,31 +2,31 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use App\Models\ShopSubscription;
+use App\Models\StoreSubscription;
 use App\Models\SubscriptionEvent;
 use App\Notifications\SubscriptionExpiredNotification;
+use Illuminate\Console\Command;
 
 class ExpireSubscriptions extends Command
 {
     protected $signature = 'app:expire-subscriptions';
 
-    protected $description = 'Marks past-due subscriptions as expired and hides the shop from customers until renewed — matches REQUIREMENTS.md Phase 5: "Expired subscriptions automatically downgrade shop visibility to Hidden until renewed."';
+    protected $description = 'Marks past-due subscriptions as expired and hides the store from customers until renewed — matches REQUIREMENTS.md Phase 5: "Expired subscriptions automatically downgrade store visibility to Hidden until renewed."';
 
     public function handle(): int
     {
         $expired = 0;
 
-        ShopSubscription::whereIn('status', ['active', 'trial'])
+        StoreSubscription::whereIn('status', ['active', 'trial'])
             ->whereNotNull('ends_at')
             ->where('ends_at', '<', now())
-            ->with('shop')
-            ->each(function (ShopSubscription $subscription) use (&$expired) {
+            ->with('store')
+            ->each(function (StoreSubscription $subscription) use (&$expired) {
                 $subscription->update(['status' => 'expired']);
 
                 SubscriptionEvent::create([
-                    'shop_id' => $subscription->shop_id,
-                    'shop_subscription_id' => $subscription->id,
+                    'store_id' => $subscription->store_id,
+                    'store_subscription_id' => $subscription->id,
                     'event_type' => 'expired',
                     'plan_id' => $subscription->plan_id,
                     'previous_plan_id' => null,
@@ -35,18 +35,19 @@ class ExpireSubscriptions extends Command
                     'occurred_at' => now(),
                 ]);
 
-                $shop = $subscription->shop;
-                if ($shop && !$shop->is_hidden) {
-                    $shop->update(['is_hidden' => true]);
-                    if ($shop->owner) {
-                        $shop->owner->notify(new SubscriptionExpiredNotification($shop));
+                $store = $subscription->store;
+                if ($store && ! $store->is_hidden) {
+                    $store->update(['is_hidden' => true]);
+                    if ($store->owner) {
+                        $store->owner->notify(new SubscriptionExpiredNotification($store));
                     }
                 }
 
                 $expired++;
             });
 
-        $this->info("Expired {$expired} subscription(s) and hid the corresponding shop(s).");
+        $this->info("Expired {$expired} subscription(s) and hid the corresponding store(s).");
+
         return self::SUCCESS;
     }
 }

@@ -3,22 +3,40 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
 
 class ProfileController extends Controller
 {
+    /**
+     * Minimal public profile for viewing another user (e.g. tapping a
+     * reviewer's name/avatar on a catalog item's Ratings & Reviews page).
+     * Deliberately just id/name/profile_picture — no email/phone/bio/etc,
+     * and no account-hub data (Job Orders, Appointments, ...): that's
+     * private and only ever shown on the viewer's own /account.
+     */
+    public function publicShow(int $id): JsonResponse
+    {
+        $user = User::select('id', 'name', 'profile_picture')->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $user,
+        ]);
+    }
+
     // iPhones/Macs save camera photos as HEIC by default, which browsers
     // can't display and PHP's GD (what XAMPP ships) can't decode -- without
     // this message a Mac/iPhone user just sees a generic "invalid file"
     // error with no clue why a photo that opens fine in Preview won't upload.
     private const INVALID_IMAGE_MESSAGE = 'Only JPG, PNG, or WEBP images are supported. '
-        . 'If this photo was taken on an iPhone/Mac it may be saved as HEIC -- go to '
-        . 'iPhone Settings -> Camera -> Formats -> "Most Compatible" (or export/share it '
-        . 'as JPEG from Photos) before uploading.';
+        .'If this photo was taken on an iPhone/Mac it may be saved as HEIC -- go to '
+        .'iPhone Settings -> Camera -> Formats -> "Most Compatible" (or export/share it '
+        .'as JPEG from Photos) before uploading.';
 
     /**
      * Update the user's personal details.
@@ -45,8 +63,8 @@ class ProfileController extends Controller
             'message' => 'Profile updated successfully.',
             // Must include roles — the frontend replaces its entire auth-store user
             // object with this response, and a missing `roles` array flips
-            // isShopOwner to false, hiding owner-only nav until the next full reload.
-            'data' => $user->fresh()->load('roles:id,name')
+            // isStoreOwner to false, hiding owner-only nav until the next full reload.
+            'data' => $user->fresh()->load('roles:id,name'),
         ]);
     }
 
@@ -66,7 +84,7 @@ class ProfileController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Password changed successfully.'
+            'message' => 'Password changed successfully.',
         ]);
     }
 
@@ -77,22 +95,22 @@ class ProfileController extends Controller
     {
         $user = $request->user();
 
-        if (!$user->hasRole('staff') || !$user->staffProfile) {
+        if (! $user->hasRole('staff') || ! $user->staffProfile) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
         $validated = $request->validate([
-            'is_available' => 'required|boolean'
+            'is_available' => 'required|boolean',
         ]);
 
         $user->staffProfile()->update([
-            'is_available' => $validated['is_available']
+            'is_available' => $validated['is_available'],
         ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Availability updated.',
-            'data' => $user->staffProfile->fresh()
+            'data' => $user->staffProfile->fresh(),
         ]);
     }
 
@@ -122,7 +140,7 @@ class ProfileController extends Controller
         $user = $request->user();
         $file = $request->file('file');
 
-        $path = $file->store('users/' . $user->id, self::UPLOAD_DISK);
+        $path = $file->store('users/'.$user->id, self::UPLOAD_DISK);
         $url = Storage::disk(self::UPLOAD_DISK)->url($path);
 
         if ($request->type === 'avatar') {
@@ -135,7 +153,7 @@ class ProfileController extends Controller
             'success' => true,
             'message' => 'Image uploaded successfully.',
             'url' => $url,
-            'data' => $user->fresh()->load('roles:id,name')
+            'data' => $user->fresh()->load('roles:id,name'),
         ]);
     }
 }
