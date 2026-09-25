@@ -29,14 +29,33 @@ use Illuminate\Support\Facades\Schema;
  * this migration wrongly assumed the shop_* names still existed here and
  * referenced 'shops'/'shop_subscriptions', which don't exist on a fresh
  * install — exactly what broke for Bongo (errno 150, can't create table).
+ *
+ * The hasTable() guard alone isn't enough either — reproduced and fixed
+ * after Bongo hit a THIRD failure from this same table. His DB had a
+ * leftover subscription_events table from that earlier failed shop_id-based
+ * attempt: Schema::create()'s CREATE TABLE half succeeded (all columns,
+ * under the old shop_id/shop_subscription_id names) before the FK ALTER to
+ * the nonexistent 'shops' table failed, and since the exception meant this
+ * migration was never marked "Ran", a hasTable()-only guard on the next
+ * attempt saw the table "already there" and returned early — silently
+ * leaving the stale shop_id-named structure in place, which then broke the
+ * next migration's `store_id` FK rename with "Key column 'store_id'
+ * doesn't exist". Guarding on hasColumn('store_id') instead — and dropping
+ * + recreating when it's missing — means a stale/incomplete leftover from
+ * any earlier failed attempt gets replaced with the correct structure
+ * instead of being trusted as-is. Safe to drop: a table whose own creation
+ * migration never completed was never marked "Ran", so nothing in the app
+ * could have written real data through it.
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        if (Schema::hasTable('subscription_events')) {
+        if (Schema::hasTable('subscription_events') && Schema::hasColumn('subscription_events', 'store_id')) {
             return;
         }
+
+        Schema::dropIfExists('subscription_events');
 
         Schema::create('subscription_events', function (Blueprint $table) {
             $table->id();
