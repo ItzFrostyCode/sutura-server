@@ -15,12 +15,20 @@ use Illuminate\Support\Facades\Schema;
  * 2026_09_25_010000_rename_stale_fk_constraints... trying to add a
  * constraint onto a table that doesn't exist.
  *
- * Named/dated to sit right after 2026_06_13_185005_create_shop_subscriptions_table
- * and use its era's shop_* column names on purpose — 2026_09_23_013710
- * already has store-rename guards that expect + convert those to
- * store_id/store_subscription_id like every other shop-era table, so this
- * just lets that existing, already-tested rename path run instead of
- * special-casing this one table to skip it.
+ * Uses store_id/store_subscription_id and references stores/
+ * store_subscriptions directly — NOT the shop_* names the filename's era
+ * would suggest. Despite its filename, create_shops_table.php (this
+ * migration's neighbor, 2026_06_13_185004) already does
+ * Schema::create('stores', ...) directly, same for
+ * create_shop_subscriptions_table.php -> Schema::create('store_subscriptions', ...)
+ * — every historical migration's *content* was rewritten to final naming
+ * as part of the shop->store rename, only the filenames stayed on their
+ * original dates. 2026_09_23_013710's rename step is a no-op safety net
+ * for pre-existing databases that still have real shop_id-named data, not
+ * something a fresh install ever produces to rename. An earlier version of
+ * this migration wrongly assumed the shop_* names still existed here and
+ * referenced 'shops'/'shop_subscriptions', which don't exist on a fresh
+ * install — exactly what broke for Bongo (errno 150, can't create table).
  */
 return new class extends Migration
 {
@@ -32,8 +40,8 @@ return new class extends Migration
 
         Schema::create('subscription_events', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained('shops')->cascadeOnDelete();
-            $table->foreignId('shop_subscription_id')->constrained('shop_subscriptions')->cascadeOnDelete();
+            $table->foreignId('store_id')->constrained('stores')->cascadeOnDelete();
+            $table->foreignId('store_subscription_id')->constrained('store_subscriptions')->cascadeOnDelete();
             $table->enum('event_type', ['created', 'renewed', 'upgraded', 'downgraded', 'expired']);
             $table->foreignId('plan_id')->constrained('subscription_plans');
             $table->foreignId('previous_plan_id')->nullable()->constrained('subscription_plans');
