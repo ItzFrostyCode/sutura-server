@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shop_branches', function (Blueprint $table) {
+        Schema::table('store_branches', function (Blueprint $table) {
             $table->string('operating_hours')->nullable()->after('contact_number');
             $table->string('status')->default('active')->after('is_main');
         });
@@ -22,7 +22,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shop_branches', function (Blueprint $table) {
+        Schema::table('store_branches', function (Blueprint $table) {
             $table->dropColumn(['operating_hours', 'status']);
         });
     }

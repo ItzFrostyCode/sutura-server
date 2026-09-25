@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
-use App\Models\Shop;
-use App\Models\User;
 use App\Models\Role;
+use App\Models\Store;
+use App\Models\User;
+use App\Notifications\AppointmentBookedNotification;
 use Carbon\Carbon;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -17,103 +19,103 @@ use Illuminate\Validation\Rule;
 class PublicBookingController extends Controller
 {
     /**
-     * Get booking settings for a shop (branches, services, policy, questions).
+     * Get booking settings for a store (branches, services, policy, questions).
      */
-    public function getSettings(Shop $shop): JsonResponse
+    public function getSettings(Store $store): JsonResponse
     {
         return response()->json([
             'success' => true,
-            'data'    => [
-                'name'              => $shop->name,
-                'description'       => $shop->description,
-                'business_type'     => $shop->business_type,
-                'specializations'   => $shop->specializations ?? [],
+            'data' => [
+                'name' => $store->name,
+                'description' => $store->description,
+                'business_type' => $store->business_type,
+                'specializations' => $store->specializations ?? [],
                 // The booking form's payment step showed a hardcoded
-                // placeholder ("Printify Shop") regardless of which shop was
-                // being booked — this shop's own real payment details, set
+                // placeholder ("Printify Store") regardless of which store was
+                // being booked — this store's own real payment details, set
                 // via SettingsBasicInfo.tsx, were never exposed here at all.
-                'gcash_number'         => $shop->gcash_number,
-                'gcash_account_name'   => $shop->gcash_account_name,
-                'gcash_qr_path'        => $shop->gcash_qr_path,
-                'bank_name'            => $shop->bank_name,
-                'bank_account_number'  => $shop->bank_account_number,
-                'bank_account_name'    => $shop->bank_account_name,
-                'bank_qr_path'         => $shop->bank_qr_path,
+                'gcash_number' => $store->gcash_number,
+                'gcash_account_name' => $store->gcash_account_name,
+                'gcash_qr_path' => $store->gcash_qr_path,
+                'bank_name' => $store->bank_name,
+                'bank_account_number' => $store->bank_account_number,
+                'bank_account_name' => $store->bank_account_name,
+                'bank_qr_path' => $store->bank_qr_path,
                 // Drives whether the booking form even shows a payment step
                 // at all — a plain consultation/fitting request shouldn't
-                // ask for a deposit unless this shop actually charges one to
+                // ask for a deposit unless this store actually charges one to
                 // reserve the slot (the Tailor-Gated Handshake rule: booking
                 // is a request, not a paid commitment — that's the JobOrder
                 // downpayment's job, once staff formalizes the request).
-                'fitting_fee'       => $shop->fitting_fee,
-                'booking_policy'    => $shop->booking_policy,
-                'booking_questions' => $shop->booking_questions ?? [],
-                'max_appointments_per_day' => $shop->max_appointments_per_day,
-                'operating_hours'   => $shop->operating_hours,
-                'active_special_hours' => $shop->active_special_hours,
-                'special_hours'     => $shop->specialHours()->get(),
-                'branches'          => $shop->branches()->get(['id', 'slug', 'name', 'address', 'city', 'latitude', 'longitude']),
-                'services'          => $shop->services()
+                'fitting_fee' => $store->fitting_fee,
+                'booking_policy' => $store->booking_policy,
+                'booking_questions' => $store->booking_questions ?? [],
+                'max_appointments_per_day' => $store->max_appointments_per_day,
+                'operating_hours' => $store->operating_hours,
+                'active_special_hours' => $store->active_special_hours,
+                'special_hours' => $store->specialHours()->get(),
+                'branches' => $store->branches()->get(['id', 'slug', 'name', 'address', 'city', 'latitude', 'longitude']),
+                'services' => $store->services()
                     ->where('is_active', true)
                     ->get(['id', 'name', 'base_price', 'estimated_days']),
                 'appointment_types' => Appointment::TYPES,
-                'gcash_number'        => $shop->gcash_number,
-                'gcash_account_name'  => $shop->gcash_account_name,
-                'gcash_qr_path'       => $shop->gcash_qr_path,
-                'bank_name'           => $shop->bank_name,
-                'bank_account_number' => $shop->bank_account_number,
-                'bank_account_name'   => $shop->bank_account_name,
-                'bank_qr_path'        => $shop->bank_qr_path,
+                'gcash_number' => $store->gcash_number,
+                'gcash_account_name' => $store->gcash_account_name,
+                'gcash_qr_path' => $store->gcash_qr_path,
+                'bank_name' => $store->bank_name,
+                'bank_account_number' => $store->bank_account_number,
+                'bank_account_name' => $store->bank_account_name,
+                'bank_qr_path' => $store->bank_qr_path,
             ],
         ]);
     }
 
     /**
-     * Get public appointments for a shop (anonymous time slots).
+     * Get public appointments for a store (anonymous time slots).
      */
-    public function getAppointments(Shop $shop): JsonResponse
+    public function getAppointments(Store $store): JsonResponse
     {
         // Only return confirmed appointments (or pending if you want to block pending too)
         // Returning only scheduled_at and duration_minutes to keep customer details anonymous
-        $appointments = $shop->appointments()
+        $appointments = $store->appointments()
             ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
             ->where('scheduled_at', '>=', now()->subDay())
-            ->get(['scheduled_at', 'duration_minutes', 'shop_branch_id']);
+            ->get(['scheduled_at', 'duration_minutes', 'store_branch_id']);
 
         return response()->json([
             'success' => true,
-            'data'    => $appointments,
+            'data' => $appointments,
         ]);
     }
 
     /**
      * Submit a public appointment booking (unauthenticated customer).
      */
-    public function submit(Request $request, Shop $shop): JsonResponse
+    public function submit(Request $request, Store $store): JsonResponse
     {
-        $branchCount = $shop->branches()->count();
+        $branchCount = $store->branches()->count();
 
         $validated = $request->validate([
             // Customer info
-            'name'             => ['required', 'string', 'max:255'],
-            'email'            => ['required', 'email', 'max:255'],
-            'phone'            => ['nullable', 'string', 'max:20'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:20'],
 
             // Booking details
-            'appointment_type' => ['required', 'in:' . implode(',', Appointment::TYPES)],
-            'shop_branch_id'   => $branchCount > 1
-                ? ['required', Rule::exists('shop_branches', 'id')->where('shop_id', $shop->id)]
-                : ['nullable', Rule::exists('shop_branches', 'id')->where('shop_id', $shop->id)],
-            'service_id'       => ['nullable', Rule::exists('services', 'id')->where('shop_id', $shop->id)],
-            'scheduled_at'     => ['required', 'date', 'after:now'],
+            'appointment_type' => ['required', 'in:'.implode(',', Appointment::TYPES)],
+            'store_branch_id' => $branchCount > 1
+                ? ['required', Rule::exists('store_branches', 'id')->where('store_id', $store->id)]
+                : ['nullable', Rule::exists('store_branches', 'id')->where('store_id', $store->id)],
+            'service_id' => ['nullable', Rule::exists('services', 'id')->where('store_id', $store->id)],
+            'scheduled_at' => ['required', 'date', 'after:now'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
-            'notes'            => ['nullable', 'string', 'max:2000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
             'reference_images' => ['nullable', 'array', 'max:10'],
             'reference_images.*' => ['string', 'max:1000'],
-            'reference_link'   => ['nullable', 'url', 'max:500'],
-            'answers'          => ['nullable', 'array'],
-            'payment_method'   => ['nullable', 'string', 'in:cash,gcash,paymaya'],
-            'payment_reference'=> ['nullable', 'string', 'max:255'],
+            'reference_link' => ['nullable', 'url', 'max:500'],
+            'answers' => ['nullable', 'array'],
+            'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
             'payment_receipt_path' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -127,7 +129,7 @@ class PublicBookingController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => "A service must be selected for appointment type: {$type}.",
-                'errors'  => ['service_id' => ["Service is required for {$type} appointments."]],
+                'errors' => ['service_id' => ["Service is required for {$type} appointments."]],
             ], 422);
         }
 
@@ -144,32 +146,32 @@ class PublicBookingController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'A payment receipt is required for GCash/PayMaya bookings.',
-                'errors'  => ['payment_receipt_path' => ['Please upload your payment receipt before confirming.']],
+                'errors' => ['payment_receipt_path' => ['Please upload your payment receipt before confirming.']],
             ], 422);
         }
 
         // ── Resolve branch ─────────────────────────────────────────────────────
-        $branchId = $validated['shop_branch_id'] ?? null;
+        $branchId = $validated['store_branch_id'] ?? null;
         if ($branchCount === 1) {
-            $branchId = $shop->branches()->first()->id;
+            $branchId = $store->branches()->first()->id;
         }
 
         // ── Double-booking check: checks both pending and confirmed appointments ───
-        $scheduledAt     = Carbon::parse($validated['scheduled_at']);
+        $scheduledAt = Carbon::parse($validated['scheduled_at']);
         $durationMinutes = $validated['duration_minutes'] ?? 60;
 
         // Same "we are not open" backstop AppointmentController enforces for
         // owner-created bookings/reschedules
-        if ($closureTitle = $shop->closureTitleOn($scheduledAt, $branchId)) {
+        if ($closureTitle = $store->closureTitleOn($scheduledAt, $branchId)) {
             return response()->json([
                 'success' => false,
-                'message' => "The shop is closed on this date ({$closureTitle}). Please choose a different day.",
+                'message' => "The store is closed on this date ({$closureTitle}). Please choose a different day.",
             ], 409);
         }
 
         // For public storefront bookings, any slot held by a confirmed or pending
         // appointment is locked to eliminate online-vs-online collisions.
-        if (Appointment::hasSchedulingConflict($shop, $branchId, $scheduledAt, $durationMinutes, null, true)) {
+        if (Appointment::hasSchedulingConflict($store, $branchId, $scheduledAt, $durationMinutes, null, true)) {
             return response()->json([
                 'success' => false,
                 'message' => 'This time slot is already reserved or currently requested. Please choose a different time.',
@@ -177,15 +179,15 @@ class PublicBookingController extends Controller
         }
 
         // ── Peak-season capacity blocker ────────────────────────────────────────
-        // Once a day hits the shop's declared max, stop taking new bookings for it
+        // Once a day hits the store's declared max, stop taking new bookings for it
         // rather than letting quality slip from overcommitting production.
-        if ($shop->max_appointments_per_day) {
-            $sameDayCount = $shop->appointments()
+        if ($store->max_appointments_per_day) {
+            $sameDayCount = $store->appointments()
                 ->whereNotIn('status', ['cancelled'])
                 ->whereDate('scheduled_at', $scheduledAt->toDateString())
                 ->count();
 
-            if ($sameDayCount >= $shop->max_appointments_per_day) {
+            if ($sameDayCount >= $store->max_appointments_per_day) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This date is fully booked. Please choose another date.',
@@ -196,11 +198,11 @@ class PublicBookingController extends Controller
         // ── Find or create customer ────────────────────────────────────────────
         $customer = User::where('email', $validated['email'])->first();
 
-        if (!$customer) {
+        if (! $customer) {
             $customer = User::create([
-                'name'     => $validated['name'],
-                'email'    => $validated['email'],
-                'phone'    => $validated['phone'] ?? null,
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'phone' => $validated['phone'] ?? null,
                 'password' => Hash::make(Str::random(16)),
             ]);
 
@@ -211,74 +213,74 @@ class PublicBookingController extends Controller
         }
 
         // ── Anti-spam / rebooking-block guards ─────────────────────────────────
-        // Only meaningful for a customer with prior history at this shop — a
+        // Only meaningful for a customer with prior history at this store — a
         // brand-new account (just created above) can't trip either check.
-        if (\App\Models\Appointment::isBlockedFromRebooking($shop, $customer->id)) {
+        if (Appointment::isBlockedFromRebooking($store, $customer->id)) {
             return response()->json([
                 'success' => false,
-                'message' => 'This shop is not accepting new bookings from this account. Please contact the shop directly.',
+                'message' => 'This store is not accepting new bookings from this account. Please contact the store directly.',
             ], 403);
         }
 
-        if (\App\Models\Appointment::hasActiveAppointment($shop, $customer->id)) {
+        if (Appointment::hasActiveAppointment($store, $customer->id)) {
             return response()->json([
                 'success' => false,
-                'message' => 'You already have an active appointment at this shop. Cancel it first if you want to book a different date.',
+                'message' => 'You already have an active appointment at this store. Cancel it first if you want to book a different date.',
             ], 409);
         }
 
-        // ── Associate customer with this shop ─────────────────────────────────
-        // Ensures public-booked customers appear in the shop's customer
-        // list / CRM (CustomerController::index reads shop_customers).
+        // ── Associate customer with this store ─────────────────────────────────
+        // Ensures public-booked customers appear in the store's customer
+        // list / CRM (CustomerController::index reads store_customers).
         // Using attach() with skipIfAttached avoids duplicating the pivot
         // row if this customer already booked or was added manually.
-        if (!$shop->customers()->where('user_id', $customer->id)->exists()) {
-            $shop->customers()->attach($customer->id);
+        if (! $store->customers()->where('user_id', $customer->id)->exists()) {
+            $store->customers()->attach($customer->id);
         }
 
         // ── Create appointment (with transactional concurrency guard) ──────────
-        $appointment = \Illuminate\Support\Facades\DB::transaction(function () use ($shop, $customer, $branchId, $type, $validated, $scheduledAt, $durationMinutes) {
-            if (Appointment::hasSchedulingConflict($shop, $branchId, $scheduledAt, $durationMinutes, null, true)) {
+        $appointment = DB::transaction(function () use ($store, $customer, $branchId, $type, $validated, $scheduledAt, $durationMinutes) {
+            if (Appointment::hasSchedulingConflict($store, $branchId, $scheduledAt, $durationMinutes, null, true)) {
                 return null;
             }
 
-            return $shop->appointments()->create([
-                'customer_id'      => $customer->id,
-                'shop_branch_id'   => $branchId,
-                'service_id'       => $validated['service_id'] ?? null,
+            return $store->appointments()->create([
+                'customer_id' => $customer->id,
+                'store_branch_id' => $branchId,
+                'service_id' => $validated['service_id'] ?? null,
                 'appointment_type' => $type,
-                'intake_channel'   => 'online',
-                'scheduled_at'     => $validated['scheduled_at'],
+                'intake_channel' => 'online',
+                'scheduled_at' => $validated['scheduled_at'],
                 'duration_minutes' => $durationMinutes,
-                'notes'            => $validated['notes'] ?? null,
+                'notes' => $validated['notes'] ?? null,
                 'reference_images' => $validated['reference_images'] ?? null,
-                'reference_link'   => $validated['reference_link'] ?? null,
-                'answers'          => $validated['answers'] ?? null,
-                'status'           => 'pending',
-                'payment_method'   => $validated['payment_method'] ?? 'cash',
-                'payment_reference'=> $validated['payment_reference'] ?? null,
+                'reference_link' => $validated['reference_link'] ?? null,
+                'answers' => $validated['answers'] ?? null,
+                'status' => 'pending',
+                'payment_method' => $validated['payment_method'] ?? 'cash',
+                'payment_reference' => $validated['payment_reference'] ?? null,
                 'payment_receipt_path' => $validated['payment_receipt_path'] ?? null,
-                'payment_status'   => 'pending',
+                'payment_status' => 'pending',
             ]);
         });
 
-        if (!$appointment) {
+        if (! $appointment) {
             return response()->json([
                 'success' => false,
                 'message' => 'This time slot is already reserved or currently requested. Please choose a different time.',
             ], 409);
         }
 
-        // Notify shop owner
-        $shopOwner = $shop->owner;
-        if ($shopOwner) {
-            $shopOwner->notify(new \App\Notifications\AppointmentBookedNotification($appointment));
+        // Notify store owner
+        $storeOwner = $store->owner;
+        if ($storeOwner) {
+            $storeOwner->notify(new AppointmentBookedNotification($appointment));
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Appointment booked successfully. The shop will confirm your booking shortly.',
-            'data'    => $appointment,
+            'message' => 'Appointment booked successfully. The store will confirm your booking shortly.',
+            'data' => $appointment,
         ], 201);
     }
 }

@@ -2,11 +2,12 @@
 
 namespace App\Notifications;
 
+use App\Models\Appointment;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Models\Appointment;
 
 /**
  * AppointmentController::verifyPayment had zero customer-facing signal on
@@ -19,6 +20,7 @@ class AppointmentPaymentStatusNotification extends Notification implements Shoul
     use Queueable;
 
     public Appointment $appointment;
+
     public string $status; // 'paid' or 'rejected'
 
     public function __construct(Appointment $appointment, string $status)
@@ -30,16 +32,17 @@ class AppointmentPaymentStatusNotification extends Notification implements Shoul
     public function via(object $notifiable): array
     {
         $channels = ['database'];
-        if ($notifiable->email && !str_starts_with($notifiable->email, 'walkin_')) {
+        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
             $channels[] = 'mail';
         }
+
         return $channels;
     }
 
     private function scheduledLabel(): string
     {
         return $this->appointment->scheduled_at
-            ? \Carbon\Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
+            ? Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
             : 'N/A';
     }
 
@@ -47,14 +50,14 @@ class AppointmentPaymentStatusNotification extends Notification implements Shoul
     {
         $accepted = $this->status === 'paid';
         $mail = (new MailMessage)
-            ->subject(($accepted ? 'Payment Confirmed' : 'Payment Not Accepted') . ' — Appointment on ' . $this->scheduledLabel())
-            ->greeting('Hello ' . $notifiable->name . ',');
+            ->subject(($accepted ? 'Payment Confirmed' : 'Payment Not Accepted').' — Appointment on '.$this->scheduledLabel())
+            ->greeting('Hello '.$notifiable->name.',');
 
         if ($accepted) {
-            $mail->line('Your payment for your appointment on ' . $this->scheduledLabel() . ' has been confirmed. Thank you!');
+            $mail->line('Your payment for your appointment on '.$this->scheduledLabel().' has been confirmed. Thank you!');
         } else {
-            $mail->line('Your payment for your appointment on ' . $this->scheduledLabel() . ' could not be accepted.')
-                ->line('Please get in touch with the shop or resubmit your payment.');
+            $mail->line('Your payment for your appointment on '.$this->scheduledLabel().' could not be accepted.')
+                ->line('Please get in touch with the store or resubmit your payment.');
         }
 
         return $mail;
@@ -63,17 +66,18 @@ class AppointmentPaymentStatusNotification extends Notification implements Shoul
     public function toArray(object $notifiable): array
     {
         $accepted = $this->status === 'paid';
-        $shop = $this->appointment->shop;
+        $store = $this->appointment->store;
+
         return [
-            'type' => 'appointment_payment_' . $this->status,
+            'type' => 'appointment_payment_'.$this->status,
             'title' => $accepted ? 'Payment Confirmed' : 'Payment Not Accepted',
             'message' => $accepted
-                ? 'Your payment for your appointment on ' . $this->scheduledLabel() . ' has been confirmed.'
-                : 'Your payment for your appointment on ' . $this->scheduledLabel() . ' was not accepted.',
-            'action_url' => '/account/appointments/' . $this->appointment->id,
+                ? 'Your payment for your appointment on '.$this->scheduledLabel().' has been confirmed.'
+                : 'Your payment for your appointment on '.$this->scheduledLabel().' was not accepted.',
+            'action_url' => '/account/appointments/'.$this->appointment->id,
             'appointment_id' => $this->appointment->id,
-            'shop' => $shop ? [
-                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            'store' => $store ? [
+                'id' => $store->id, 'name' => $store->name, 'slug' => $store->slug, 'logo_path' => $store->logo_path,
             ] : null,
         ];
     }

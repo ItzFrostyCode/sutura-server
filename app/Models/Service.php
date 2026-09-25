@@ -2,10 +2,11 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Service extends Model
 {
@@ -15,8 +16,11 @@ class Service extends Model
     // apply (see JobOrderController/JobCreateForm) — distinct from the
     // free-text `category`/`tags` fields, which stay as rich marketing labels.
     public const TYPE_CUSTOM_TAILORING = 'custom_tailoring';
+
     public const TYPE_BULK_SUBLIMATION = 'bulk_sublimation';
+
     public const TYPE_FASHION_BRIDAL = 'fashion_bridal';
+
     public const TYPE_ALTERATION_REPAIR = 'alteration_repair';
 
     public const SERVICE_TYPES = [
@@ -27,7 +31,7 @@ class Service extends Model
     ];
 
     protected $fillable = [
-        'shop_id', 'name', 'description', 'category', 'categories', 'service_type', 'service_types', 'tags',
+        'store_id', 'name', 'description', 'category', 'categories', 'service_type', 'service_types', 'tags',
         'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
         'estimated_days', 'min_order_qty', 'is_active', 'custom_fields', 'image_url',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
@@ -58,9 +62,9 @@ class Service extends Model
         return in_array($type, $this->service_types ?? [], true);
     }
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function pricing(): HasMany
@@ -78,6 +82,11 @@ class Service extends Model
         return $this->hasMany(Appointment::class);
     }
 
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ServiceReview::class);
+    }
+
     /**
      * The price to actually suggest right now, respecting the optional sale
      * window.
@@ -89,22 +98,22 @@ class Service extends Model
         }
 
         // sale_starts_at/sale_ends_at only ever carry a bare date (no time)
-        // from the Set Sale Price form. The app runs on UTC, but the shop is
+        // from the Set Sale Price form. The app runs on UTC, but the store is
         // in the Philippines (UTC+8) — comparing the raw 'datetime' cast
         // (which anchors that bare date at UTC midnight) makes a sale
         // advertised as "through Aug 10" actually expire at 8am Manila time
         // on Aug 10, and a sale "starting Aug 5" not kick in until 8am
         // Manila time instead of the start of that day. Re-anchor to the
-        // shop's local day boundaries instead.
+        // store's local day boundaries instead.
         $now = now();
         if ($this->sale_starts_at) {
-            $startsAt = \Carbon\Carbon::parse($this->sale_starts_at->toDateString(), 'Asia/Manila')->startOfDay();
+            $startsAt = Carbon::parse($this->sale_starts_at->toDateString(), 'Asia/Manila')->startOfDay();
             if ($now->lt($startsAt)) {
                 return (float) $this->base_price;
             }
         }
         if ($this->sale_ends_at) {
-            $endsAt = \Carbon\Carbon::parse($this->sale_ends_at->toDateString(), 'Asia/Manila')->endOfDay();
+            $endsAt = Carbon::parse($this->sale_ends_at->toDateString(), 'Asia/Manila')->endOfDay();
             if ($now->gt($endsAt)) {
                 return (float) $this->base_price;
             }
@@ -113,4 +122,3 @@ class Service extends Model
         return (float) $this->sale_price;
     }
 }
-

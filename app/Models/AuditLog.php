@@ -9,17 +9,17 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class AuditLog extends Model
 {
     protected $fillable = [
-        'shop_id', 'user_id', 'action', 'model_type',
-        'model_id', 'payload', 'ip_address'
+        'store_id', 'user_id', 'action', 'model_type',
+        'model_id', 'payload', 'ip_address',
     ];
 
     protected $casts = [
         'payload' => 'array',
     ];
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function user(): BelongsTo

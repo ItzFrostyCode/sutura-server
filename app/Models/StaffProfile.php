@@ -20,7 +20,7 @@ class StaffProfile extends Model
     ];
 
     protected $fillable = [
-        'user_id', 'shop_id', 'shop_branch_id', 'role', 'additional_roles', 'specialization',
+        'user_id', 'store_id', 'store_branch_id', 'role', 'additional_roles', 'specialization',
         'bio', 'is_active', 'hired_at', 'is_branch_manager', 'is_available',
     ];
 
@@ -53,13 +53,13 @@ class StaffProfile extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(ShopBranch::class, 'shop_branch_id');
+        return $this->belongsTo(StoreBranch::class, 'store_branch_id');
     }
 }

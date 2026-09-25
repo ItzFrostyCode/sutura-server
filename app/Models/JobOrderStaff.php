@@ -13,11 +13,11 @@ class JobOrderStaff extends Pivot
         'user_id',
         'stage',
         'assigned_at',
-        'completed_at'
+        'completed_at',
     ];
 
     protected $casts = [
         'assigned_at' => 'datetime',
-        'completed_at' => 'datetime'
+        'completed_at' => 'datetime',
     ];
 }

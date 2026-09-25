@@ -1,0 +1,158 @@
+<?php
+
+namespace App\Http\Requests\Store;
+
+use App\Models\JobOrder;
+use App\Models\StaffProfile;
+use App\Models\Store;
+use App\Models\User;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StoreJobOrderRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        $store = $this->route('store');
+
+        return [
+            'intake_channel' => ['nullable', 'in:walk_in,online'],
+            // Store pickup only — the approved thesis explicitly excludes
+            // logistics/courier/delivery management from the system's scope.
+            'fulfillment_type' => ['nullable', 'in:pickup'],
+            // 'integer' alongside every 'exists' below — MySQL's implicit
+            // string-to-int coercion (e.g. '1 OR 1=1' reads as 1) otherwise
+            // lets a non-numeric id string satisfy 'exists' alone, which then
+            // crashes downstream the moment it hits a strictly-typed ?int
+            // parameter, leaking a stack trace in the response (found and
+            // fixed the same way in Store/UpdateAppointmentRequest first).
+            // 'exists:users,id' alone doesn't check WHO that user is — a
+            // staff/owner/branch_manager/admin's own id passes it just as
+            // easily as a real customer's, since job creation only ever
+            // checks the id is a real row. Mirrors CustomerController@store's
+            // own $isBusinessAccount check, applied here for the same reason:
+            // a job order's "customer" should never resolve to a business
+            // account.
+            'customer_id' => ['required', 'integer', 'exists:users,id', function ($attribute, $value, $fail) {
+                $user = User::with('roles:id,name')->find($value);
+                $businessRoles = ['store_owner', 'staff', 'branch_manager', 'admin'];
+                if ($user && $user->roles->pluck('name')->intersect($businessRoles)->isNotEmpty()) {
+                    $fail('This account belongs to a staff or owner user, not a customer.');
+                }
+            }],
+            'service_id' => [
+                'required', 'integer',
+                Rule::exists('services', 'id')->where('store_id', $store?->id),
+            ],
+            'assigned_staff_id' => [
+                'nullable', 'integer',
+                Rule::exists('staff_profiles', 'user_id')->where('store_id', $store?->id),
+                $this->staffBranchMatchesRule($store),
+            ],
+            // Same stage model as JobOrderController@assignStaff — settable
+            // at creation time too, instead of only via the single
+            // assigned_staff_id field (which is now derived from this, not
+            // chosen directly, so Create and the Job Detail page share one
+            // staffing concept).
+            'staff_stages' => ['nullable', 'array'],
+            'staff_stages.*.user_id' => [
+                'required', 'integer',
+                Rule::exists('staff_profiles', 'user_id')->where('store_id', $store?->id),
+                $this->staffBranchMatchesRule($store),
+            ],
+            'staff_stages.*.stage' => ['required', Rule::in(JobOrder::STAFF_STAGES)],
+            'measurement_id' => [
+                'nullable', 'integer',
+                Rule::exists('measurements', 'id')->where('store_id', $store?->id),
+            ],
+            'total_amount' => ['required', 'numeric', 'min:0'],
+            'balance' => ['required', 'numeric', 'min:0', 'lte:total_amount'],
+            'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya'],
+            'due_date' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string'],
+            'custom_order_data' => ['nullable', 'array'],
+            'custom_order_data.*' => ['nullable'],
+            'custom_order_data.team_name' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.organization' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.order_purpose' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.garment_type' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.garment_component' => ['nullable', 'string', 'in:top_only,bottom_only,full_set,custom_set'],
+            'custom_order_data.fabric_preference' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.colorway_notes' => ['nullable', 'string', 'max:500'],
+            'custom_order_data.neckline_style' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.shorts_cut' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.artwork_status' => ['nullable', 'string', 'in:not_yet_provided,submitted,for_review,approved,revision_requested'],
+            'custom_order_data.total_quantity' => ['nullable', 'integer', 'min:1'],
+            'custom_order_data.size_breakdown' => ['nullable', 'array'],
+            'custom_order_data.has_personalization' => ['nullable', 'boolean'],
+            'custom_order_data.personalization_config' => ['nullable', 'array'],
+            'custom_order_data.team_roster' => ['nullable', 'array'],
+            'custom_order_data.team_roster.*.name' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.team_roster.*.print_name' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.team_roster.*.number' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.team_roster.*.position' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.team_roster.*.role' => ['nullable', 'string', 'max:100'],
+            'custom_order_data.team_roster.*.size' => ['nullable', 'string', 'max:50'],
+            'custom_order_data.team_roster.*.top_size' => ['nullable', 'string', 'max:50'],
+            'custom_order_data.team_roster.*.bottom_size' => ['nullable', 'string', 'max:50'],
+            'custom_order_data.team_roster.*.remarks' => ['nullable', 'string', 'max:255'],
+            'custom_order_data.team_roster.*.completed' => ['nullable', 'boolean'],
+            'custom_order_data.pre_existing_damage_notes' => ['nullable', 'string', 'max:2000'],
+            'store_branch_id' => [
+                'nullable', 'integer',
+                Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
+            ],
+            'is_outsourced' => ['nullable', 'boolean'],
+            'partner_store_name' => ['nullable', 'string', 'max:255'],
+            'outsourcing_cost' => ['nullable', 'numeric', 'min:0'],
+            'appointment_id' => [
+                'nullable', 'integer',
+                Rule::exists('appointments', 'id')->where('store_id', $store?->id),
+            ],
+            // Design inspiration the customer attached at booking (or the owner
+            // captured for a walk-in custom job) — normally inherited automatically
+            // from the linked appointment (see JobOrderController@store), but also
+            // acceptable directly so a job with no appointment_id can still carry one.
+            'reference_images' => ['nullable', 'array', 'max:10'],
+            'reference_images.*' => ['string', 'max:1000'],
+            'reference_link' => ['nullable', 'string', 'max:500'],
+            'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
+            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
+            'is_rush' => ['nullable', 'boolean'],
+            'rush_fee' => ['nullable', 'numeric', 'min:0'],
+            'catalog_item_id' => [
+                'nullable', 'integer',
+                Rule::exists('catalog_items', 'id')->where('store_id', $store?->id),
+            ],
+            'discount_amount' => ['nullable', 'numeric', 'min:0'],
+        ];
+    }
+
+    /**
+     * Only fires when store_branch_id is explicitly present in the request —
+     * when it's omitted, JobOrderController@store derives it afterward
+     * (creator's own branch, or the store's main branch), which this
+     * FormRequest can't see yet. Staff with no fixed branch (store_branch_id
+     * null on their staff_profiles row) are floaters and always pass.
+     */
+    private function staffBranchMatchesRule(?Store $store): \Closure
+    {
+        return function ($attribute, $value, $fail) use ($store) {
+            $targetBranchId = $this->input('store_branch_id');
+            if (! $targetBranchId || ! $value) {
+                return;
+            }
+            $staffBranchId = StaffProfile::where('user_id', $value)
+                ->where('store_id', $store?->id)
+                ->value('store_branch_id');
+            if ($staffBranchId && (int) $staffBranchId !== (int) $targetBranchId) {
+                $fail('This staff member belongs to a different branch than the one selected.');
+            }
+        };
+    }
+}

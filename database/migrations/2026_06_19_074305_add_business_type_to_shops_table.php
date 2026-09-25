@@ -11,8 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
-            $table->string('business_type')->default('tailoring_shop')->after('email');
+        Schema::table('stores', function (Blueprint $table) {
+            $table->string('business_type')->default('tailoring_store')->after('email');
         });
     }
 
@@ -21,7 +21,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn('business_type');
         });
     }

@@ -11,11 +11,11 @@ use Illuminate\Support\Facades\Auth;
 class SupportTicketController extends Controller
 {
     /**
-     * List all tickets for the authenticated shop owner.
+     * List all tickets for the authenticated store owner.
      */
-    public function index(Request $request, $shopId)
+    public function index(Request $request, $storeId)
     {
-        $tickets = SupportTicket::where('shop_id', $shopId)
+        $tickets = SupportTicket::where('store_id', $storeId)
             ->with(['submittedBy:id,name,email', 'replies'])
             ->orderByDesc('created_at')
             ->get();
@@ -29,63 +29,63 @@ class SupportTicketController extends Controller
     /**
      * Create a new support ticket.
      */
-    public function store(Request $request, $shopId)
+    public function store(Request $request, $storeId)
     {
         $validated = $request->validate([
-            'subject'     => 'required|string|max:255',
-            'message'     => 'required|string',
-            'type'        => 'required|in:problem,update_request,general,billing',
-            'priority'    => 'required|in:low,medium,high,urgent',
+            'subject' => 'required|string|max:255',
+            'message' => 'required|string',
+            'type' => 'required|in:problem,update_request,general,billing',
+            'priority' => 'required|in:low,medium,high,urgent',
             'attachments' => 'nullable|array',
         ]);
 
         $ticket = SupportTicket::create([
             ...$validated,
-            'shop_id' => $shopId,
+            'store_id' => $storeId,
             'user_id' => Auth::id(),
-            'status'  => 'open',
+            'status' => 'open',
         ]);
 
         $ticket->load(['submittedBy:id,name,email', 'replies']);
 
         return response()->json([
             'success' => true,
-            'data'    => $ticket,
+            'data' => $ticket,
         ], 201);
     }
 
     /**
      * Show a single ticket with all replies.
      */
-    public function show($shopId, $ticketId)
+    public function show($storeId, $ticketId)
     {
-        $ticket = SupportTicket::where('shop_id', $shopId)
+        $ticket = SupportTicket::where('store_id', $storeId)
             ->with(['submittedBy:id,name,email', 'replies.user:id,name,email', 'assignedTo:id,name'])
             ->findOrFail($ticketId);
 
         return response()->json([
             'success' => true,
-            'data'    => $ticket,
+            'data' => $ticket,
         ]);
     }
 
     /**
-     * Post a reply to a ticket (shop owner side).
+     * Post a reply to a ticket (store owner side).
      */
-    public function reply(Request $request, $shopId, $ticketId)
+    public function reply(Request $request, $storeId, $ticketId)
     {
-        $ticket = SupportTicket::where('shop_id', $shopId)->findOrFail($ticketId);
+        $ticket = SupportTicket::where('store_id', $storeId)->findOrFail($ticketId);
 
         $validated = $request->validate([
-            'message'     => 'required|string',
+            'message' => 'required|string',
             'attachments' => 'nullable|array',
         ]);
 
         $reply = SupportTicketReply::create([
-            'ticket_id'      => $ticket->id,
-            'user_id'        => Auth::id(),
-            'message'        => $validated['message'],
-            'attachments'    => $validated['attachments'] ?? null,
+            'ticket_id' => $ticket->id,
+            'user_id' => Auth::id(),
+            'message' => $validated['message'],
+            'attachments' => $validated['attachments'] ?? null,
             'is_admin_reply' => false,
         ]);
 
@@ -98,16 +98,16 @@ class SupportTicketController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $reply,
+            'data' => $reply,
         ], 201);
     }
 
     /**
-     * Close a ticket from shop owner side.
+     * Close a ticket from store owner side.
      */
-    public function close($shopId, $ticketId)
+    public function close($storeId, $ticketId)
     {
-        $ticket = SupportTicket::where('shop_id', $shopId)->findOrFail($ticketId);
+        $ticket = SupportTicket::where('store_id', $storeId)->findOrFail($ticketId);
         $ticket->update(['status' => 'closed']);
 
         return response()->json([
@@ -117,9 +117,9 @@ class SupportTicketController extends Controller
     }
 
     /**
-     * Cross-shop "My Support Tickets" for whoever is logged in — the
-     * customer-facing counterpart to index() above, which is shop-scoped
-     * and shop-owner only. Same no-role-gate, filter-by-own-id pattern as
+     * Cross-store "My Support Tickets" for whoever is logged in — the
+     * customer-facing counterpart to index() above, which is store-scoped
+     * and store-owner only. Same no-role-gate, filter-by-own-id pattern as
      * /my-orders/my-appointments. Currently the only way a customer gets a
      * row here is via CatalogInteractionController::report() ("Report This
      * Product") — there's no general "file a ticket" form yet, so this is
@@ -128,7 +128,7 @@ class SupportTicketController extends Controller
     public function myTickets(Request $request)
     {
         $tickets = SupportTicket::where('user_id', $request->user()->id)
-            ->with(['shop:id,name,slug,logo_path', 'replies.user:id,name'])
+            ->with(['store:id,name,slug,logo_path', 'replies.user:id,name'])
             ->orderByDesc('created_at')
             ->get();
 
@@ -138,7 +138,7 @@ class SupportTicketController extends Controller
     public function myTicketShow(Request $request, $ticketId)
     {
         $ticket = SupportTicket::where('user_id', $request->user()->id)
-            ->with(['shop:id,name,slug,logo_path', 'replies.user:id,name'])
+            ->with(['store:id,name,slug,logo_path', 'replies.user:id,name'])
             ->findOrFail($ticketId);
 
         return response()->json(['success' => true, 'data' => $ticket]);
@@ -146,7 +146,7 @@ class SupportTicketController extends Controller
 
     /**
      * Customer reply on their own ticket — mirrors reply() above but scoped
-     * to the caller's own tickets instead of a shop's, and always tagged
+     * to the caller's own tickets instead of a store's, and always tagged
      * is_admin_reply=false since only System Admin's own reply endpoint can
      * set that true.
      */
@@ -159,9 +159,9 @@ class SupportTicketController extends Controller
         ]);
 
         $reply = SupportTicketReply::create([
-            'ticket_id'      => $ticket->id,
-            'user_id'        => $request->user()->id,
-            'message'        => $validated['message'],
+            'ticket_id' => $ticket->id,
+            'user_id' => $request->user()->id,
+            'message' => $validated['message'],
             'is_admin_reply' => false,
         ]);
 

@@ -2,15 +2,15 @@
 
 namespace App\Notifications;
 
+use App\Models\JobOrder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
-use App\Models\JobOrder;
 
 /**
- * The missing link in the Customer → Shop Owner → Staff → Customer chain —
+ * The missing link in the Customer → Store Owner → Staff → Customer chain —
  * every other notification in the app reaches either the customer or the
- * shop owner, but nothing ever told a staff member they'd been assigned to a
+ * store owner, but nothing ever told a staff member they'd been assigned to a
  * production stage. Fires from JobOrderController@store (new job, staffed at
  * creation) and @assignStaff (reassigned later), only for stages that are
  * actually new or handed to a different person — not on a no-op re-save.
@@ -20,6 +20,7 @@ class StaffAssignedNotification extends Notification implements ShouldQueue
     use Queueable;
 
     public JobOrder $jobOrder;
+
     public string $stage;
 
     public function __construct(JobOrder $jobOrder, string $stage)
@@ -48,14 +49,14 @@ class StaffAssignedNotification extends Notification implements ShouldQueue
         $stageLabel = $this->stageLabel();
 
         return [
-            'type'          => 'staff_assigned',
-            'title'         => "Assigned to {$stageLabel}",
-            'message'       => "You've been assigned to the {$stageLabel} stage on job order {$this->jobOrder->order_number}"
-                . ($this->jobOrder->customer?->name ? " for {$this->jobOrder->customer->name}." : '.'),
-            'action_url'    => '/dashboard/jobs/' . $this->jobOrder->id,
-            'job_order_id'  => $this->jobOrder->id,
-            'order_number'  => $this->jobOrder->order_number,
-            'stage'         => $this->stage,
+            'type' => 'staff_assigned',
+            'title' => "Assigned to {$stageLabel}",
+            'message' => "You've been assigned to the {$stageLabel} stage on job order {$this->jobOrder->order_number}"
+                .($this->jobOrder->customer?->name ? " for {$this->jobOrder->customer->name}." : '.'),
+            'action_url' => '/dashboard/jobs/'.$this->jobOrder->id,
+            'job_order_id' => $this->jobOrder->id,
+            'order_number' => $this->jobOrder->order_number,
+            'stage' => $this->stage,
         ];
     }
 }

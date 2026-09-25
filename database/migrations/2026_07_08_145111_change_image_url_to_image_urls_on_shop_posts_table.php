@@ -12,19 +12,19 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shop_posts', function (Blueprint $table) {
+        Schema::table('store_posts', function (Blueprint $table) {
             $table->json('image_urls')->nullable()->after('service_id');
         });
 
         // Backfill any existing single-image posts into the new array shape
         // before the old column disappears.
-        DB::table('shop_posts')->whereNotNull('image_url')->orderBy('id')->each(function ($post) {
-            DB::table('shop_posts')->where('id', $post->id)->update([
+        DB::table('store_posts')->whereNotNull('image_url')->orderBy('id')->each(function ($post) {
+            DB::table('store_posts')->where('id', $post->id)->update([
                 'image_urls' => json_encode([$post->image_url]),
             ]);
         });
 
-        Schema::table('shop_posts', function (Blueprint $table) {
+        Schema::table('store_posts', function (Blueprint $table) {
             $table->dropColumn('image_url');
         });
     }
@@ -34,18 +34,18 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shop_posts', function (Blueprint $table) {
+        Schema::table('store_posts', function (Blueprint $table) {
             $table->string('image_url')->nullable()->after('service_id');
         });
 
-        DB::table('shop_posts')->whereNotNull('image_urls')->orderBy('id')->each(function ($post) {
+        DB::table('store_posts')->whereNotNull('image_urls')->orderBy('id')->each(function ($post) {
             $urls = json_decode($post->image_urls, true) ?? [];
-            DB::table('shop_posts')->where('id', $post->id)->update([
+            DB::table('store_posts')->where('id', $post->id)->update([
                 'image_url' => $urls[0] ?? null,
             ]);
         });
 
-        Schema::table('shop_posts', function (Blueprint $table) {
+        Schema::table('store_posts', function (Blueprint $table) {
             $table->dropColumn('image_urls');
         });
     }

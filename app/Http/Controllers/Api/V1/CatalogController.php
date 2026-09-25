@@ -4,40 +4,41 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\CatalogItem;
-use App\Models\Shop;
-use Illuminate\Http\Request;
+use App\Models\Store;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CatalogController extends Controller
 {
     /**
-     * Is the authenticated user (if any) actually this specific shop's
+     * Is the authenticated user (if any) actually this specific store's
      * owner or staff? Mirrors CheckRole middleware's own ownership check —
      * but that middleware only guards the role-protected route path, not
-     * the deliberately-public `/catalog/{shop:slug}` one both index() and
+     * the deliberately-public `/catalog/{store:slug}` one both index() and
      * show() are also reachable through, so the controller needs its own
      * copy of the same logic rather than trusting the route it happened to
      * be reached by.
      */
-    private function belongsToShop(Request $request, Shop $shop): bool
+    private function belongsToStore(Request $request, Store $store): bool
     {
         $user = $request->user('sanctum');
-        if (!$user) {
+        if (! $user) {
             return false;
         }
 
-        return $user->hasRole('shop_owner')
-            ? $shop->owner_id === $user->id
-            : $user->staffProfile?->shop_id === $shop->id;
+        return $user->hasRole('store_owner')
+            ? $store->owner_id === $user->id
+            : $user->staffProfile?->store_id === $store->id;
     }
 
     /**
      * Display a listing of the resource.
      * Publicly accessible for customer viewing.
      */
-    public function index(Request $request, Shop $shop): JsonResponse
+    public function index(Request $request, Store $store): JsonResponse
     {
-        $query = $shop->catalogItems()
+        $query = $store->catalogItems()
             ->with(['images', 'recommendations.recommendedItem'])
             ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
             ->withAvg('reviews', 'rating')
@@ -52,20 +53,20 @@ class CatalogController extends Controller
             ->withSum('jobOrders as job_discount_sum', 'discount_amount');
 
         // Anonymous (public storefront) visitors, AND any authenticated user
-        // who isn't this specific shop's owner/staff, only ever see active
+        // who isn't this specific store's owner/staff, only ever see active
         // items. This route is reachable both through the role-protected
-        // `/shops/{shop}/catalog` path and a second, deliberately public
-        // `/catalog/{shop:slug}` path — a real cross-tenant bug lived here
-        // for a while: being logged in as *any* shop owner was enough to
+        // `/stores/{store}/catalog` path and a second, deliberately public
+        // `/catalog/{store:slug}` path — a real cross-tenant bug lived here
+        // for a while: being logged in as *any* store owner was enough to
         // see paused items and private performance metrics (views/saves/
-        // revenue) for a shop that isn't yours, because the check only
+        // revenue) for a store that isn't yours, because the check only
         // asked "is there a token at all", not "does this token's owner
-        // actually belong to this shop". Explicit 'sanctum' guard: the
+        // actually belong to this store". Explicit 'sanctum' guard: the
         // app's default guard is 'web' (session), which never resolves a
         // Bearer-token request — $request->user() alone would always read
         // as a guest here.
-        $isOwnerOrStaff = $this->belongsToShop($request, $shop);
-        if (!$isOwnerOrStaff) {
+        $isOwnerOrStaff = $this->belongsToStore($request, $store);
+        if (! $isOwnerOrStaff) {
             $query->where('is_active', true);
         }
 
@@ -74,7 +75,7 @@ class CatalogController extends Controller
             // LIKE never is. LOWER() on both sides works identically on both
             // engines, so search behaves the same after the Postgres migration.
             $search = strtolower((string) $request->string('search'));
-            $query->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%']);
+            $query->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%']);
         }
 
         if ($request->filled('garment_type')) {
@@ -93,18 +94,18 @@ class CatalogController extends Controller
         // catalog_revenue/job_revenue come from withSum() above (one query for all
         // items) rather than a per-item ->sum() call, which used to run 2 extra
         // queries per item (96 extra queries for a 48-item catalog).
-        $items->each(function($item) use ($isOwnerOrStaff) {
+        $items->each(function ($item) use ($isOwnerOrStaff) {
             $item->reviews_avg_rating = round($item->reviews_avg_rating, 1);
             $netJobRevenue = (float) $item->job_revenue - (float) $item->job_balance_sum - (float) $item->job_discount_sum;
             $item->total_revenue = (float) $item->catalog_revenue + $netJobRevenue;
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
 
-            // Sales/performance figures are the shop owner's own business data —
+            // Sales/performance figures are the store owner's own business data —
             // exact revenue and order counts have no business being visible to an
             // anonymous storefront visitor (or a competitor). The public catalog
             // card only ever renders reviews_count/reviews_avg_rating, so those
             // stay; everything money- or count-related below is owner/staff-only.
-            if (!$isOwnerOrStaff) {
+            if (! $isOwnerOrStaff) {
                 $item->makeHidden([
                     'views_count', 'saves_count', 'catalog_orders_count', 'job_orders_count',
                     'catalog_revenue', 'job_revenue', 'job_balance_sum', 'job_discount_sum',
@@ -116,27 +117,27 @@ class CatalogController extends Controller
         return response()->json([
             'success' => true,
             'data' => $items,
-            'shop' => ['name' => $shop->name, 'slug' => $shop->slug, 'description' => $shop->description, 'logo_path' => $shop->logo_path],
+            'store' => ['name' => $store->name, 'slug' => $store->slug, 'description' => $store->description, 'logo_path' => $store->logo_path],
         ]);
     }
 
     /**
-     * Cross-shop catalog showroom feed for the public landing page — index()
-     * above is always scoped to one shop; this pulls active items across
-     * every approved, non-hidden shop for the homepage's catalog grid.
+     * Cross-store catalog showroom feed for the public landing page — index()
+     * above is always scoped to one store; this pulls active items across
+     * every approved, non-hidden store for the homepage's catalog grid.
      */
     public function publicShowroom(Request $request): JsonResponse
     {
         $query = CatalogItem::query()
             ->where('is_active', true)
-            ->whereHas('shop', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
+            ->whereHas('store', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
             ->with([
-                'shop' => fn ($q) => $q->select('id', 'name', 'slug')->with([
-                    'branches' => fn ($bq) => $bq->select('id', 'shop_id', 'name', 'is_main', 'district', 'city', 'latitude', 'longitude')->where('status', 'active'),
+                'store' => fn ($q) => $q->select('id', 'name', 'slug')->with([
+                    'branches' => fn ($bq) => $bq->select('id', 'store_id', 'name', 'is_main', 'district', 'city', 'latitude', 'longitude')->where('status', 'active'),
                 ]),
                 // Not every seeded item has an image flagged is_primary (a
                 // data-entry gap, not a rule) -- CatalogController::index()'s
-                // own frontend consumer (shop/[shop_id]/page.tsx) already
+                // own frontend consumer (store/[store_id]/page.tsx) already
                 // falls back to the first image when none is primary; do the
                 // same here instead of silently showing no image at all.
                 'images',
@@ -149,21 +150,46 @@ class CatalogController extends Controller
 
         if ($request->filled('garment_type')) {
             $query->where('garment_type', $request->string('garment_type'));
+        } elseif ($request->filled('category')) {
+            $query->where('garment_type', $request->string('category'));
+        }
+
+        // Scopes "More Like This" (and any other same-garment-type lookup)
+        // to one store -- without this, catalog-item-detail's recommendation
+        // rail pulled matching items from every store platform-wide, showing
+        // a completely different shop's designs under "More Like This".
+        if ($request->filled('store_id')) {
+            $query->where('catalog_items.store_id', $request->integer('store_id'));
         }
 
         if ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
-            $query->where(function ($q) use ($search) {
-                $q->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
-                    ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%' . $search . '%'])
-                    ->orWhereRaw('LOWER(material) LIKE ?', ['%' . $search . '%'])
-                    ->orWhereRaw('LOWER(description) LIKE ?', ['%' . $search . '%'])
-                    ->orWhereHas('service', function ($sq) use ($search) {
-                        $sq->whereRaw('LOWER(name) LIKE ?', ['%' . $search . '%'])
-                            ->orWhereRaw('LOWER(category) LIKE ?', ['%' . $search . '%'])
-                            ->orWhereRaw('LOWER(service_type) LIKE ?', ['%' . $search . '%'])
-                            ->orWhereRaw('LOWER(description) LIKE ?', ['%' . $search . '%']);
+            $words = array_values(array_filter(explode(' ', $search)));
+            $query->where(function ($q) use ($search, $words) {
+                $q->where(function ($sub) use ($search) {
+                    $sub->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
+                        ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%'.$search.'%'])
+                        ->orWhereRaw('LOWER(material) LIKE ?', ['%'.$search.'%'])
+                        ->orWhereRaw('LOWER(description) LIKE ?', ['%'.$search.'%']);
+                });
+                if (count($words) > 1) {
+                    $q->orWhere(function ($sub) use ($words) {
+                        foreach ($words as $w) {
+                            $sub->where(function ($wq) use ($w) {
+                                $wq->whereRaw('LOWER(name) LIKE ?', ['%'.$w.'%'])
+                                    ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%'.$w.'%'])
+                                    ->orWhereRaw('LOWER(material) LIKE ?', ['%'.$w.'%'])
+                                    ->orWhereRaw('LOWER(description) LIKE ?', ['%'.$w.'%']);
+                            });
+                        }
                     });
+                }
+                $q->orWhereHas('service', function ($sq) use ($search) {
+                    $sq->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
+                        ->orWhereRaw('LOWER(category) LIKE ?', ['%'.$search.'%'])
+                        ->orWhereRaw('LOWER(service_type) LIKE ?', ['%'.$search.'%'])
+                        ->orWhereRaw('LOWER(description) LIKE ?', ['%'.$search.'%']);
+                });
             });
         }
 
@@ -174,7 +200,7 @@ class CatalogController extends Controller
         // but a real, functional filter, not decorative.
         if ($request->filled('color')) {
             $color = strtolower((string) $request->string('color'));
-            $query->whereRaw('LOWER(color) LIKE ?', ['%' . $color . '%']);
+            $query->whereRaw('LOWER(color) LIKE ?', ['%'.$color.'%']);
         }
 
         if ($request->filled('min_price')) {
@@ -187,7 +213,7 @@ class CatalogController extends Controller
             $query->havingRaw('reviews_avg_rating >= ?', [$request->float('min_rating')]);
         }
 
-        // Haversine distance from customer coords to shop's nearest active branch
+        // Haversine distance from customer coords to store's nearest active branch
         if ($request->filled('lat') && $request->filled('lng')) {
             $lat = $request->float('lat');
             $lng = $request->float('lng');
@@ -195,13 +221,13 @@ class CatalogController extends Controller
             $query->selectRaw('catalog_items.*, (
                 SELECT MIN(6371 * ACOS(
                     LEAST(1.0, GREATEST(-1.0,
-                        COS(RADIANS(?)) * COS(RADIANS(shop_branches.latitude)) *
-                        COS(RADIANS(shop_branches.longitude) - RADIANS(?)) +
-                        SIN(RADIANS(?)) * SIN(RADIANS(shop_branches.latitude))
+                        COS(RADIANS(?)) * COS(RADIANS(store_branches.latitude)) *
+                        COS(RADIANS(store_branches.longitude) - RADIANS(?)) +
+                        SIN(RADIANS(?)) * SIN(RADIANS(store_branches.latitude))
                     ))
                 ))
-                FROM shop_branches
-                WHERE shop_branches.shop_id = catalog_items.shop_id AND shop_branches.status = \'active\'
+                FROM store_branches
+                WHERE store_branches.store_id = catalog_items.store_id AND store_branches.status = \'active\'
             ) as distance_km', [$lat, $lng, $lat]);
 
             if ($request->filled('radius_km')) {
@@ -210,12 +236,12 @@ class CatalogController extends Controller
         }
 
         // Mobile search's location bar (see PublicNav's search redesign) --
-        // filters to shops with at least one branch in the selected Davao
+        // filters to stores with at least one branch in the selected Davao
         // City district. Nested dot-relation whereHas, same pattern used
-        // elsewhere in this controller for shop-scoped visibility checks.
+        // elsewhere in this controller for store-scoped visibility checks.
         if ($request->filled('district')) {
             $district = $request->string('district');
-            $query->whereHas('shop.branches', fn ($q) => $q->where('district', $district));
+            $query->whereHas('store.branches', fn ($q) => $q->where('district', $district));
         }
 
         match ($request->string('sort_by')->toString()) {
@@ -232,7 +258,7 @@ class CatalogController extends Controller
         $items = $query->paginate($request->input('per_page', 48));
 
         // Same reviews_avg_rating string-from-AVG() issue as index() above and
-        // the public shop feed — round it per-item into a real float. `price`
+        // the public store feed — round it per-item into a real float. `price`
         // isn't cast on the model either (decimal columns come back as
         // strings from PDO) — cast it here too rather than let a fresh
         // .toFixed()-style crash happen on the frontend again.
@@ -246,6 +272,7 @@ class CatalogController extends Controller
                 ? round((float) $item->distance_km, 1)
                 : null;
             $item->makeHidden(['catalog_orders_count', 'job_orders_count']);
+
             return $item;
         });
 
@@ -264,7 +291,7 @@ class CatalogController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request, Shop $shop): JsonResponse
+    public function store(Request $request, Store $store): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -286,7 +313,7 @@ class CatalogController extends Controller
             'is_active' => 'nullable|boolean',
             'service_id' => [
                 'nullable', 'integer',
-                \Illuminate\Validation\Rule::exists('services', 'id')->where('shop_id', $shop->id),
+                Rule::exists('services', 'id')->where('store_id', $store->id),
             ],
             'images' => 'nullable|array|max:10',
             'images.*.url' => 'required|string',
@@ -295,12 +322,12 @@ class CatalogController extends Controller
             'recommendations' => 'nullable|array',
             'recommendations.*.id' => [
                 'required', 'integer',
-                \Illuminate\Validation\Rule::exists('catalog_items', 'id')->where('shop_id', $shop->id),
+                Rule::exists('catalog_items', 'id')->where('store_id', $store->id),
             ],
             'recommendations.*.type' => 'nullable|string',
         ]);
 
-        $item = $shop->catalogItems()->create([
+        $item = $store->catalogItems()->create([
             'name' => $validated['name'],
             'price' => $validated['price'] ?? 0,
             'estimated_days' => $validated['estimated_days'] ?? 7,
@@ -324,7 +351,7 @@ class CatalogController extends Controller
             'external_gallery_url' => $validated['external_gallery_url'] ?? null,
         ]);
 
-        if (!empty($validated['images'])) {
+        if (! empty($validated['images'])) {
             foreach ($validated['images'] as $image) {
                 $item->images()->create([
                     'image_url' => $image['url'],
@@ -334,7 +361,7 @@ class CatalogController extends Controller
             }
         }
 
-        if (!empty($validated['recommendations'])) {
+        if (! empty($validated['recommendations'])) {
             foreach ($validated['recommendations'] as $rec) {
                 $item->recommendations()->create([
                     'recommended_item_id' => $rec['id'],
@@ -345,7 +372,7 @@ class CatalogController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $item->load(['images', 'recommendations'])
+            'data' => $item->load(['images', 'recommendations']),
         ], 201);
     }
 
@@ -353,41 +380,41 @@ class CatalogController extends Controller
      * Display the specified resource.
      * Publicly accessible.
      */
-    public function show(Request $request, Shop $shop, CatalogItem $catalog): JsonResponse
+    public function show(Request $request, Store $store, CatalogItem $catalog): JsonResponse
     {
-        if ($catalog->shop_id !== $shop->id) {
+        if ($catalog->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
 
         // Pausing an item (is_active = false) is supposed to hide it from the public
         // storefront entirely, but this only ever filtered the listing grid — a
         // direct/bookmarked/guessed link to the item still returned full details.
-        // Same belongsToShop() guard as index(): this shop's own owner/staff can
+        // Same belongsToStore() guard as index(): this store's own owner/staff can
         // still view/preview a paused item; anonymous visitors AND any other
-        // shop's authenticated owner/staff are blocked, same as everyone else.
-        if (!$this->belongsToShop($request, $shop) && !$catalog->is_active) {
+        // store's authenticated owner/staff are blocked, same as everyone else.
+        if (! $this->belongsToStore($request, $store) && ! $catalog->is_active) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
 
         $relations = [
             'images',
             'recommendations.recommendedItem.images',
-            'reviews' => fn ($q) => $q->with('user:id,name')->latest()->limit(50),
-            // The item detail page's own "visit this shop" card — same
-            // rating shape ShopController computes (loadCount/loadAvg on
-            // reviews), so it reads identically to the shop's own profile.
-            'shop:id,name,slug,logo_path',
+            'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest()->limit(50),
+            // The item detail page's own "visit this store" card — same
+            // rating shape StoreController computes (loadCount/loadAvg on
+            // reviews), so it reads identically to the store's own profile.
+            'store:id,name,slug,logo_path',
             // The "Find" location sheet needs somewhere to pin on the map —
             // same branch fields PublicBookingController::getSettings()
             // already exposes for the /book page's own map.
-            'shop.branches:id,shop_id,slug,name,address,city,latitude,longitude',
+            'store.branches:id,store_id,slug,name,address,city,latitude,longitude',
             // Whether this item can be Bulk Ordered depends entirely on
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.
             'service:id,name,service_types,min_order_qty',
         ];
 
-        if ($this->belongsToShop($request, $shop)) {
+        if ($this->belongsToStore($request, $store)) {
             $relations['catalogOrders'] = fn ($q) => $q->with('customer:id,name,phone,email')->latest()->limit(50);
             $relations['jobOrders'] = fn ($q) => $q->with('customer:id,name,phone,email')->latest()->limit(50);
         }
@@ -397,16 +424,16 @@ class CatalogController extends Controller
         $catalog->loadAvg('reviews', 'rating');
         $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);
 
-        if ($catalog->shop) {
-            $catalog->shop->loadCount('reviews');
-            $catalog->shop->loadAvg('reviews', 'rating');
-            $catalog->shop->reviews_avg_rating = $catalog->shop->reviews_avg_rating !== null
-                ? round((float) $catalog->shop->reviews_avg_rating, 1)
+        if ($catalog->store) {
+            $catalog->store->loadCount('reviews');
+            $catalog->store->loadAvg('reviews', 'rating');
+            $catalog->store->reviews_avg_rating = $catalog->store->reviews_avg_rating !== null
+                ? round((float) $catalog->store->reviews_avg_rating, 1)
                 : null;
             // Active items/services only — matches what a customer actually
-            // finds browsing this shop's storefront, not a raw row count
+            // finds browsing this store's storefront, not a raw row count
             // that'd include paused/hidden ones nobody can see.
-            $catalog->shop->loadCount([
+            $catalog->store->loadCount([
                 'catalogItems as catalog_items_count' => fn ($q) => $q->where('is_active', true),
                 'services as services_count' => fn ($q) => $q->where('is_active', true),
             ]);
@@ -432,7 +459,7 @@ class CatalogController extends Controller
         // Same public-vs-owner split as index() — an anonymous storefront
         // visitor (or a direct link) should never see this item's exact
         // revenue/order/save figures, only the owner/staff previewing it.
-        if (!$this->belongsToShop($request, $shop)) {
+        if (! $this->belongsToStore($request, $store)) {
             $catalog->makeHidden([
                 'views_count', 'saves_count', 'catalog_orders_count', 'job_orders_count',
                 'total_revenue', 'order_count',
@@ -445,9 +472,9 @@ class CatalogController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Shop $shop, CatalogItem $catalog): JsonResponse
+    public function update(Request $request, Store $store, CatalogItem $catalog): JsonResponse
     {
-        if ($catalog->shop_id !== $shop->id) {
+        if ($catalog->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -471,7 +498,7 @@ class CatalogController extends Controller
             'is_active' => 'sometimes|boolean',
             'service_id' => [
                 'nullable', 'integer',
-                \Illuminate\Validation\Rule::exists('services', 'id')->where('shop_id', $shop->id),
+                Rule::exists('services', 'id')->where('store_id', $store->id),
             ],
             'images' => 'nullable|array|max:10',
             'images.*.url' => 'required|string',
@@ -480,7 +507,7 @@ class CatalogController extends Controller
             'recommendations' => 'nullable|array',
             'recommendations.*.id' => [
                 'required', 'integer',
-                \Illuminate\Validation\Rule::exists('catalog_items', 'id')->where('shop_id', $shop->id),
+                Rule::exists('catalog_items', 'id')->where('store_id', $store->id),
             ],
             'recommendations.*.type' => 'nullable|string',
         ]);
@@ -536,9 +563,9 @@ class CatalogController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Request $request, Shop $shop, CatalogItem $catalog): JsonResponse
+    public function destroy(Request $request, Store $store, CatalogItem $catalog): JsonResponse
     {
-        if ($catalog->shop_id !== $shop->id) {
+        if ($catalog->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -546,12 +573,12 @@ class CatalogController extends Controller
         // service_deleted/branch_deleted already closed — and CatalogItem
         // has no SoftDeletes/restore() at all, so unlike those four this is
         // the *only* trace left once the item is gone.
-        $shop->auditLogs()->create([
-            'user_id'    => $request->user()->id,
-            'action'     => 'catalog_item_deleted',
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id,
+            'action' => 'catalog_item_deleted',
             'model_type' => CatalogItem::class,
-            'model_id'   => $catalog->id,
-            'payload'    => ['name' => $catalog->name],
+            'model_id' => $catalog->id,
+            'payload' => ['name' => $catalog->name],
             'ip_address' => $request->ip(),
         ]);
 

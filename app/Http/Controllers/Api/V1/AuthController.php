@@ -29,14 +29,14 @@ class AuthController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'This email is already registered. Please log in instead.',
-                'errors'  => ['email' => ['This email is already registered.']],
+                'errors' => ['email' => ['This email is already registered.']],
             ], 422);
         }
 
         // If no account exists with this email, check if an unclaimed walk-in
-        // shadow account was created at the shop counter matching this phone
+        // shadow account was created at the store counter matching this phone
         // number with a synthetic email (walkin_%@sutura.com):
-        if (!$existing && $request->filled('phone')) {
+        if (! $existing && $request->filled('phone')) {
             $existing = User::where('phone', $request->phone)
                 ->where('email', 'like', 'walkin_%@sutura.com')
                 ->whereNull('password_set_at')
@@ -46,24 +46,24 @@ class AuthController extends Controller
         if ($existing) {
             $user = $existing;
             $user->update([
-                'name'            => $request->name,
-                'email'           => $request->email,
-                'password'        => Hash::make($request->password),
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
                 'password_set_at' => now(),
-                'phone'           => $request->phone ?? $user->phone,
+                'phone' => $request->phone ?? $user->phone,
             ]);
         } else {
             $user = User::create([
-                'name'            => $request->name,
-                'email'           => $request->email,
-                'password'        => Hash::make($request->password),
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
                 'password_set_at' => now(),
-                'phone'           => $request->phone,
+                'phone' => $request->phone,
             ]);
         }
 
         $role = Role::where('name', $request->role)->first();
-        if ($role && !$user->hasRole($role->name)) {
+        if ($role && ! $user->hasRole($role->name)) {
             $user->roles()->attach($role->id);
         }
 
@@ -75,7 +75,7 @@ class AuthController extends Controller
             'data' => [
                 'user' => $user->load('roles:id,name'),
                 'token' => $token,
-            ]
+            ],
         ], 201);
     }
 
@@ -92,26 +92,26 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        $user->load('roles:id,name', 'shops');
-        
+        $user->load('roles:id,name', 'stores');
+
         $staffProfile = null;
         if ($user->hasRole('staff') || $user->hasRole('branch_manager')) {
-            $user->load(['staffProfile.shop', 'staffProfile.branch']);
+            $user->load(['staffProfile.store', 'staffProfile.branch']);
             if ($user->staffProfile) {
                 $staffProfile = $user->staffProfile;
             }
         }
 
-        $shop = $user->shops->first() ?? $staffProfile?->shop;
+        $store = $user->stores->first() ?? $staffProfile?->store;
 
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user,
                 'staff_profile' => $staffProfile,
-                'shop' => $shop,
+                'store' => $store,
                 'token' => $token,
-            ]
+            ],
         ]);
     }
 
@@ -121,7 +121,7 @@ class AuthController extends Controller
 
         // Always return success, whether or not the email exists — this
         // stops login-form scraping from being repurposed to enumerate
-        // registered shop-owner emails.
+        // registered store-owner emails.
         return response()->json([
             'success' => true,
             'message' => 'If that email is registered, a password reset link has been sent.',
@@ -158,31 +158,31 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Logged out.'
+            'message' => 'Logged out.',
         ]);
     }
 
     public function me(Request $request): JsonResponse
     {
-        $user = $request->user()->load('roles:id,name', 'shops');
-        
+        $user = $request->user()->load('roles:id,name', 'stores');
+
         $staffProfile = null;
         if ($user->hasRole('staff') || $user->hasRole('branch_manager')) {
-            $user->load(['staffProfile.shop', 'staffProfile.branch']);
+            $user->load(['staffProfile.store', 'staffProfile.branch']);
             if ($user->staffProfile) {
                 $staffProfile = $user->staffProfile;
             }
         }
 
-        $shop = $user->shops->first() ?? $staffProfile?->shop;
+        $store = $user->stores->first() ?? $staffProfile?->store;
 
         return response()->json([
             'success' => true,
             'data' => [
                 'user' => $user,
                 'staff_profile' => $staffProfile,
-                'shop' => $shop,
-            ]
+                'store' => $store,
+            ],
         ]);
     }
 }

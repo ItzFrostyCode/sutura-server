@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Process;
 class SystemNewsController extends Controller
 {
     private const PER_REPO_LIMIT = 15;
+
     private const TOTAL_LIMIT = 20;
 
     /**
@@ -18,7 +19,7 @@ class SystemNewsController extends Controller
      * (rental configs, Lalamove/Toktok/Grab Express shipping — all
      * explicitly out of SUTURA's approved scope) — actively misleading, not
      * just stale. Reading real commit history from both repos gives the
-     * shop owner an actually-true changelog instead.
+     * store owner an actually-true changelog instead.
      */
     public function index(): JsonResponse
     {
@@ -49,7 +50,7 @@ class SystemNewsController extends Controller
 
     private function commitsFrom(string $path, string $label): array
     {
-        if (!is_dir($path . '/.git')) {
+        if (! is_dir($path.'/.git')) {
             return [];
         }
 
@@ -64,7 +65,7 @@ class SystemNewsController extends Controller
         $result = Process::path($path)
             ->run(['git', 'log', '-n', (string) self::PER_REPO_LIMIT, '--pretty=tformat:%H%x1f%aI%x1f%s%x1e']);
 
-        if (!$result->successful()) {
+        if (! $result->successful()) {
             return [];
         }
 

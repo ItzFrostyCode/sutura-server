@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('catalog_items', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained('shops')->onDelete('cascade');
+            $table->foreignId('store_id')->constrained('stores')->onDelete('cascade');
             $table->string('name');
             $table->decimal('price', 10, 2); // PHP
             $table->string('material')->nullable(); // For the hover effect

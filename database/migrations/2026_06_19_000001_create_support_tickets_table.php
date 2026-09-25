@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('support_tickets', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained('shops')->cascadeOnDelete();
+            $table->foreignId('store_id')->constrained('stores')->cascadeOnDelete();
             $table->foreignId('user_id')->constrained('users')->cascadeOnDelete(); // who submitted
             $table->string('subject');
             $table->text('message');
@@ -26,7 +26,7 @@ return new class extends Migration
         Schema::create('support_ticket_replies', function (Blueprint $table) {
             $table->id();
             $table->foreignId('ticket_id')->constrained('support_tickets')->cascadeOnDelete();
-            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete(); // who replied (admin or shop owner)
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete(); // who replied (admin or store owner)
             $table->text('message');
             $table->boolean('is_admin_reply')->default(false);
             $table->timestamps();

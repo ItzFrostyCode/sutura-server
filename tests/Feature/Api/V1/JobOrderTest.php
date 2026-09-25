@@ -2,13 +2,18 @@
 
 namespace Tests\Feature\Api\V1;
 
-use App\Models\User;
-use App\Models\Shop;
-use App\Models\Service;
+use App\Models\Appointment;
+use App\Models\JobOrder;
 use App\Models\Measurement;
-use App\Models\StaffProfile;
+use App\Models\Payment;
 use App\Models\Role;
-use App\Models\ShopBranch;
+use App\Models\Service;
+use App\Models\StaffProfile;
+use App\Models\Store;
+use App\Models\StoreBranch;
+use App\Models\User;
+use App\Notifications\JobStatusUpdatedNotification;
+use App\Notifications\PaymentRejectedNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
@@ -18,56 +23,61 @@ class JobOrderTest extends TestCase
     use RefreshDatabase;
 
     protected User $user;
-    protected Shop $shop;
+
+    protected Store $store;
+
     protected User $customer;
+
     protected Service $service;
+
     protected StaffProfile $staffProfile;
+
     protected Measurement $measurement;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $role = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $customerRole = Role::create(['name' => 'customer', 'description' => 'Customer']);
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
 
-        $this->shop = Shop::create([
+        $this->store = Store::create([
             'owner_id' => $this->user->id,
-            'name' => 'Test Shop',
-            'slug' => 'test-shop',
+            'name' => 'Test Store',
+            'slug' => 'test-store',
             'address' => '123 Test St',
             'city' => 'Manila',
             'province' => 'Metro Manila',
-            'status' => 'approved'
+            'status' => 'approved',
         ]);
 
-        // Was previously (mistakenly) attached the shop_owner role too — the
+        // Was previously (mistakenly) attached the store_owner role too — the
         // StoreJobOrderRequest customer_id check correctly rejects any
         // account with a staff/owner/admin role as a job order's customer,
         // so every test creating a job order for this "customer" got a 422
         // instead of the 201 it expected. Confirmed live before this fix.
         $this->customer = User::factory()->create();
         $this->customer->roles()->attach($customerRole);
-        
+
         $this->service = Service::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'name' => 'Bespoke Suit',
-            'base_duration_days' => 14
+            'base_duration_days' => 14,
         ]);
-        
+
         $this->staffProfile = StaffProfile::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'user_id' => $this->user->id,
-            'role' => 'tailor'
+            'role' => 'tailor',
         ]);
 
         $this->measurement = Measurement::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'profile_name' => 'Default',
-            'metrics' => ['chest' => 40]
+            'metrics' => ['chest' => 40],
         ]);
     }
 
@@ -79,21 +89,21 @@ class JobOrderTest extends TestCase
         // happened to auto-increment both to the same coincidental value;
         // running the full suite (more prior rows, ids diverge) exposed it
         // as a real 422. Confirmed live before this fix.
-        $response = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+        $response = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'assigned_staff_id' => $this->staffProfile->user_id,
             'measurement_id' => $this->measurement->id,
             'total_amount' => 5000,
             'balance' => 2500,
-            'status' => 'pending'
+            'status' => 'pending',
         ]);
 
         $response->assertStatus(201)
-                 ->assertJsonPath('success', true);
+            ->assertJsonPath('success', true);
 
         $this->assertDatabaseHas('job_orders', [
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'total_amount' => 5000,
         ]);
@@ -104,10 +114,10 @@ class JobOrderTest extends TestCase
         // 1. Create a service with custom_fields
         $customFields = [
             ['id' => 'f1', 'label' => 'Name on Jersey', 'type' => 'text', 'required' => true],
-            ['id' => 'f2', 'label' => 'Number on Jersey', 'type' => 'number', 'required' => false]
+            ['id' => 'f2', 'label' => 'Number on Jersey', 'type' => 'number', 'required' => false],
         ];
 
-        $serviceResponse = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/services", [
+        $serviceResponse = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/services", [
             'name' => 'Custom Jersey Set',
             'base_price' => 1200,
             'estimated_days' => 10,
@@ -124,7 +134,7 @@ class JobOrderTest extends TestCase
 
         $this->assertDatabaseHas('services', [
             'id' => $serviceId,
-            'name' => 'Custom Jersey Set'
+            'name' => 'Custom Jersey Set',
         ]);
 
         // Verify custom_fields is stored
@@ -141,15 +151,15 @@ class JobOrderTest extends TestCase
         // 2. Create job order with custom_order_data
         $customOrderData = [
             'Name on Jersey' => 'Frosty',
-            'Number on Jersey' => '7'
+            'Number on Jersey' => '7',
         ];
 
-        $jobResponse = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+        $jobResponse = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $serviceId,
             'total_amount' => 1200,
             'balance' => 1200,
-            'custom_order_data' => $customOrderData
+            'custom_order_data' => $customOrderData,
         ]);
 
         $jobResponse->assertStatus(201);
@@ -157,18 +167,18 @@ class JobOrderTest extends TestCase
 
         $this->assertDatabaseHas('job_orders', [
             'id' => $jobId,
-            'total_amount' => 1200
+            'total_amount' => 1200,
         ]);
 
         // Verify custom_order_data is stored and retrieved
-        $jobOrder = \App\Models\JobOrder::find($jobId);
+        $jobOrder = JobOrder::find($jobId);
         $this->assertEquals($customOrderData, $jobOrder->custom_order_data);
     }
 
     public function test_cancelling_job_order_requires_a_reason()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9001',
@@ -177,18 +187,18 @@ class JobOrderTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $response = $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+        $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
             'status' => 'cancelled',
         ]);
 
         $response->assertStatus(422)
-                 ->assertJsonValidationErrors('cancellation_reason');
+            ->assertJsonValidationErrors('cancellation_reason');
     }
 
     public function test_cancelling_job_order_with_forfeited_deposit_reason_persists()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9002',
@@ -198,7 +208,7 @@ class JobOrderTest extends TestCase
             'status' => 'cutting',
         ]);
 
-        $response = $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+        $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
             'status' => 'cancelled',
             'cancellation_reason' => 'forfeited_deposit_abandoned',
         ]);
@@ -213,8 +223,8 @@ class JobOrderTest extends TestCase
 
     public function test_owner_can_reject_a_payment_and_balance_is_reversed()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9010',
@@ -231,7 +241,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
             ['reason' => 'GCash reference number does not match our transaction history.']
         );
 
@@ -251,8 +261,8 @@ class JobOrderTest extends TestCase
 
     public function test_rejecting_a_payment_on_an_already_completed_job_still_reverses_balance()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9011',
@@ -269,7 +279,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
             ['reason' => 'Bank transfer receipt was a reused screenshot from a different customer.']
         );
 
@@ -285,8 +295,8 @@ class JobOrderTest extends TestCase
 
     public function test_cannot_reject_an_already_rejected_payment()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9012',
@@ -305,7 +315,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
             ['reason' => 'Trying again.']
         );
 
@@ -318,13 +328,13 @@ class JobOrderTest extends TestCase
         $staffUser = User::factory()->create();
         $staffUser->roles()->attach($staffRole);
         StaffProfile::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'user_id' => $staffUser->id,
             'role' => 'tailor',
         ]);
 
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9013',
@@ -339,7 +349,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($staffUser)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
             ['reason' => 'test']
         );
 
@@ -348,8 +358,8 @@ class JobOrderTest extends TestCase
 
     public function test_rejecting_a_payment_writes_an_audit_log_entry()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9014',
@@ -364,25 +374,25 @@ class JobOrderTest extends TestCase
         ]);
 
         $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
             ['reason' => 'Fake receipt.']
         );
 
         $this->assertDatabaseHas('audit_logs', [
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'user_id' => $this->user->id,
             'action' => 'payment_rejected',
-            'model_type' => \App\Models\Payment::class,
+            'model_type' => Payment::class,
             'model_id' => $payment->id,
         ]);
     }
 
-    public function test_branch_manager_rejecting_a_payment_notifies_the_shop_owner()
+    public function test_branch_manager_rejecting_a_payment_notifies_the_store_owner()
     {
         Notification::fake();
 
-        $branch = ShopBranch::create([
-            'shop_id' => $this->shop->id,
+        $branch = StoreBranch::create([
+            'store_id' => $this->store->id,
             'name' => 'Matina Branch',
             'address' => 'Matina, Davao City',
             'city' => 'Davao City',
@@ -391,16 +401,16 @@ class JobOrderTest extends TestCase
         $manager = User::factory()->create();
         $manager->roles()->attach($managerRole);
         StaffProfile::create([
-            'shop_id' => $this->shop->id,
-            'shop_branch_id' => $branch->id,
+            'store_id' => $this->store->id,
+            'store_branch_id' => $branch->id,
             'user_id' => $manager->id,
             'role' => 'head_tailor',
             'is_branch_manager' => true,
         ]);
 
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
-            'shop_branch_id' => $branch->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $branch->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9015',
@@ -415,18 +425,18 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($manager)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
             ['reason' => 'Cash count came up short at closing.']
         );
 
         $response->assertStatus(200);
-        Notification::assertSentTo($this->user, \App\Notifications\PaymentRejectedNotification::class);
+        Notification::assertSentTo($this->user, PaymentRejectedNotification::class);
     }
 
     public function test_owner_can_reject_a_pending_job_order()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9020',
@@ -436,7 +446,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/reject",
             ['reason' => "We don't carry the fabric this order needs."]
         );
 
@@ -451,8 +461,8 @@ class JobOrderTest extends TestCase
 
     public function test_cannot_reject_a_job_order_already_in_production()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9021',
@@ -462,7 +472,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/reject",
             ['reason' => 'Changed my mind.']
         );
 
@@ -479,13 +489,13 @@ class JobOrderTest extends TestCase
         $staffUser = User::factory()->create();
         $staffUser->roles()->attach($staffRole);
         StaffProfile::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'user_id' => $staffUser->id,
             'role' => 'tailor',
         ]);
 
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9022',
@@ -495,7 +505,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($staffUser)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/reject",
             ['reason' => 'test']
         );
 
@@ -506,8 +516,8 @@ class JobOrderTest extends TestCase
     {
         Notification::fake();
 
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9023',
@@ -517,17 +527,18 @@ class JobOrderTest extends TestCase
         ]);
 
         $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/reject",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/reject",
             ['reason' => 'Fabric they want is not something we carry.']
         );
 
         Notification::assertSentTo(
             $this->customer,
-            \App\Notifications\JobStatusUpdatedNotification::class,
+            JobStatusUpdatedNotification::class,
             function ($notification) {
                 $array = $notification->toArray($this->customer);
+
                 return $array['title'] === 'Order Declined'
-                    && !str_contains($array['message'], 'Fabric they want is not something we carry.');
+                    && ! str_contains($array['message'], 'Fabric they want is not something we carry.');
             }
         );
     }
@@ -543,13 +554,13 @@ class JobOrderTest extends TestCase
         $staffUser = User::factory()->create();
         $staffUser->roles()->attach($staffRole);
         StaffProfile::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'user_id' => $staffUser->id,
             'role' => 'tailor',
         ]);
 
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9024',
@@ -559,7 +570,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($staffUser)->putJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}",
             ['status' => 'rejected']
         );
 
@@ -571,13 +582,13 @@ class JobOrderTest extends TestCase
         ]);
     }
 
-    // Even the shop owner — who IS allowed to reject via the dedicated
+    // Even the store owner — who IS allowed to reject via the dedicated
     // endpoint — must go through that endpoint, not the generic one, so the
     // pending-only guard and required reason are never skippable.
-    public function test_shop_owner_cannot_set_status_to_rejected_via_generic_update()
+    public function test_store_owner_cannot_set_status_to_rejected_via_generic_update()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9025',
@@ -587,7 +598,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->putJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}",
             ['status' => 'rejected']
         );
 
@@ -603,8 +614,8 @@ class JobOrderTest extends TestCase
     // still allow real, non-'rejected' status transitions through.
     public function test_generic_update_still_allows_a_legitimate_status_transition()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9026',
@@ -614,7 +625,7 @@ class JobOrderTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->putJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}",
             ['status' => 'design']
         );
 
@@ -627,8 +638,8 @@ class JobOrderTest extends TestCase
 
     public function test_garment_category_carries_over_from_linked_appointment()
     {
-        $appointment = \App\Models\Appointment::create([
-            'shop_id' => $this->shop->id,
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'appointment_type' => 'fitting',
             'intake_channel' => 'online',
@@ -638,7 +649,7 @@ class JobOrderTest extends TestCase
             'garment_category' => 'barong',
         ]);
 
-        $response = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+        $response = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'total_amount' => 5000,
@@ -656,7 +667,7 @@ class JobOrderTest extends TestCase
 
     public function test_garment_category_can_be_set_directly_without_an_appointment()
     {
-        $response = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+        $response = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'total_amount' => 5000,
@@ -674,8 +685,8 @@ class JobOrderTest extends TestCase
 
     public function test_entering_final_adjustments_stamps_first_adjustment_at_and_increments_count()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9030',
@@ -685,7 +696,7 @@ class JobOrderTest extends TestCase
             'status' => 'ready_for_fitting',
         ]);
 
-        $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+        $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
             'status' => 'final_adjustments',
         ])->assertStatus(200);
 
@@ -696,10 +707,10 @@ class JobOrderTest extends TestCase
 
         // Re-entering (e.g. fitting -> final_adjustments again after a second
         // fitting) increments the count but never overwrites the original timestamp.
-        $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+        $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
             'status' => 'ready_for_fitting',
         ])->assertStatus(200);
-        $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+        $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
             'status' => 'final_adjustments',
         ])->assertStatus(200);
 
@@ -710,8 +721,8 @@ class JobOrderTest extends TestCase
 
     public function test_job_order_can_be_put_on_hold_with_a_reason()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9031',
@@ -720,7 +731,7 @@ class JobOrderTest extends TestCase
             'status' => 'design',
         ]);
 
-        $response = $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+        $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
             'status' => 'on_hold',
             'hold_reason' => 'Waiting on customer to confirm fabric color.',
         ]);
@@ -735,8 +746,8 @@ class JobOrderTest extends TestCase
 
     public function test_progress_photos_append_with_current_stage_and_are_not_overwritten()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9032',
@@ -746,14 +757,14 @@ class JobOrderTest extends TestCase
         ]);
 
         $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/progress-photos",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/progress-photos",
             ['url' => 'https://example.com/photo1.jpg']
         )->assertStatus(200);
 
         $jobOrder->update(['status' => 'sewing']);
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/progress-photos",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/progress-photos",
             ['url' => 'https://example.com/photo2.jpg']
         );
         $response->assertStatus(200);
@@ -772,13 +783,13 @@ class JobOrderTest extends TestCase
         $staffUser = User::factory()->create();
         $staffUser->roles()->attach($staffRole);
         StaffProfile::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'user_id' => $staffUser->id,
             'role' => 'tailor',
         ]);
 
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9033',
@@ -788,14 +799,14 @@ class JobOrderTest extends TestCase
         ]);
 
         $this->actingAs($staffUser)->postJson(
-            "/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}/progress-photos",
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/progress-photos",
             ['url' => 'https://example.com/staff-photo.jpg']
         )->assertStatus(200);
     }
 
     public function test_rush_fee_auto_calculates_to_30_percent_when_not_provided()
     {
-        $response = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+        $response = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'total_amount' => 10000,
@@ -814,7 +825,7 @@ class JobOrderTest extends TestCase
 
     public function test_rush_fee_explicit_value_is_never_overridden_by_auto_calculation()
     {
-        $response = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+        $response = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'total_amount' => 10000,
@@ -833,8 +844,8 @@ class JobOrderTest extends TestCase
 
     public function test_rush_fee_auto_calculates_when_turned_on_via_update()
     {
-        $jobOrder = \App\Models\JobOrder::create([
-            'shop_id' => $this->shop->id,
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'order_number' => 'JO-2026-9034',
@@ -844,7 +855,7 @@ class JobOrderTest extends TestCase
             'is_rush' => false,
         ]);
 
-        $this->actingAs($this->user)->putJson("/api/v1/shops/{$this->shop->id}/jobs/{$jobOrder->id}", [
+        $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
             'is_rush' => true,
         ])->assertStatus(200);
 
@@ -857,20 +868,20 @@ class JobOrderTest extends TestCase
 
     public function test_repeat_customer_gets_a_reduced_rush_fee_rate()
     {
-        // 3 prior job orders for this customer at this shop.
+        // 3 prior job orders for this customer at this store.
         for ($i = 0; $i < 3; $i++) {
-            \App\Models\JobOrder::create([
-                'shop_id' => $this->shop->id,
+            JobOrder::create([
+                'store_id' => $this->store->id,
                 'customer_id' => $this->customer->id,
                 'service_id' => $this->service->id,
-                'order_number' => 'JO-2026-90' . (40 + $i),
+                'order_number' => 'JO-2026-90'.(40 + $i),
                 'total_amount' => 1000,
                 'balance' => 0,
                 'status' => 'completed',
             ]);
         }
 
-        $response = $this->actingAs($this->user)->postJson("/api/v1/shops/{$this->shop->id}/jobs", [
+        $response = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'total_amount' => 10000,

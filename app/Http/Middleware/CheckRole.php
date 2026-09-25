@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\Shop;
+use App\Models\Store;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -12,7 +12,7 @@ class CheckRole
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
@@ -21,43 +21,43 @@ class CheckRole
         if (! $user || ! $user->roles()->whereIn('name', $roles)->exists()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized. Insufficient permissions.'
+                'message' => 'Unauthorized. Insufficient permissions.',
             ], 403);
         }
 
-        // Admin routes intentionally act across every shop; skip tenant scoping.
+        // Admin routes intentionally act across every store; skip tenant scoping.
         if (in_array('admin', $roles, true)) {
             return $next($request);
         }
 
-        // Every other role-gated route is scoped to a single shop. Verify the
-        // authenticated user actually belongs to the {shop} in the URL —
+        // Every other role-gated route is scoped to a single store. Verify the
+        // authenticated user actually belongs to the {store} in the URL —
         // having the role globally is not enough, otherwise staff/branch
-        // managers of one shop could read or modify another shop's data.
+        // managers of one store could read or modify another store's data.
         //
-        // Some controllers accept the route segment as a raw id (e.g. `$shopId`)
-        // instead of type-hinting `Shop $shop`, so implicit route-model binding
+        // Some controllers accept the route segment as a raw id (e.g. `$storeId`)
+        // instead of type-hinting `Store $store`, so implicit route-model binding
         // never runs for them. Resolve it manually in that case rather than
         // skipping the check.
-        $shopParam = $request->route('shop');
-        if ($shopParam !== null) {
-            $shop = $shopParam instanceof Shop ? $shopParam : Shop::find($shopParam);
+        $storeParam = $request->route('store');
+        if ($storeParam !== null) {
+            $store = $storeParam instanceof Store ? $storeParam : Store::find($storeParam);
 
-            if (! $shop) {
+            if (! $store) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Shop not found.'
+                    'message' => 'Store not found.',
                 ], 404);
             }
 
-            $belongsToShop = $user->hasRole('shop_owner')
-                ? $shop->owner_id === $user->id
-                : $user->staffProfile?->shop_id === $shop->id;
+            $belongsToStore = $user->hasRole('store_owner')
+                ? $store->owner_id === $user->id
+                : $user->staffProfile?->store_id === $store->id;
 
-            if (! $belongsToShop) {
+            if (! $belongsToStore) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized. You do not belong to this shop.'
+                    'message' => 'Unauthorized. You do not belong to this store.',
                 ], 403);
             }
         }

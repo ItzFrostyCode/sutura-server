@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Coupons (reusable discount codes) are replaced by a manual per-order
- * discount the shop owner applies directly, informed by the customer's job
+ * discount the store owner applies directly, informed by the customer's job
  * order count — see discount_amount, which stays on both tables.
  */
 return new class extends Migration
@@ -28,7 +28,7 @@ return new class extends Migration
     {
         Schema::create('coupons', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('store_id')->constrained()->cascadeOnDelete();
             $table->string('code', 50);
             $table->enum('discount_type', ['percent', 'fixed']);
             $table->decimal('discount_value', 10, 2);
@@ -40,7 +40,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
-            $table->unique(['shop_id', 'code']);
+            $table->unique(['store_id', 'code']);
         });
 
         Schema::table('catalog_orders', function (Blueprint $table) {

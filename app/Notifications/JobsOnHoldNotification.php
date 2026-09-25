@@ -2,28 +2,29 @@
 
 namespace App\Notifications;
 
+use App\Models\Store;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
-use App\Models\Shop;
 
 /**
- * Daily digest for a shop owner with job orders sitting on_hold 7+ days —
+ * Daily digest for a store owner with job orders sitting on_hold 7+ days —
  * same "passive KPI into a proactive alert" pattern as
  * OverdueJobsNotification/UnclaimedPickupsNotification, for the
  * jobs_on_hold list added to AnalyticsController::index(). Fired once per
- * shop per day by app:notify-jobs-on-hold, only when the count is > 0.
+ * store per day by app:notify-jobs-on-hold, only when the count is > 0.
  */
 class JobsOnHoldNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public Shop $shop;
+    public Store $store;
+
     public int $onHoldCount;
 
-    public function __construct(Shop $shop, int $onHoldCount)
+    public function __construct(Store $store, int $onHoldCount)
     {
-        $this->shop = $shop;
+        $this->store = $store;
         $this->onHoldCount = $onHoldCount;
     }
 
@@ -37,12 +38,12 @@ class JobsOnHoldNotification extends Notification implements ShouldQueue
         $plural = $this->onHoldCount === 1 ? 'order has' : 'orders have';
 
         return [
-            'type'           => 'jobs_on_hold_digest',
-            'title'          => 'Jobs On Hold',
-            'message'        => "{$this->onHoldCount} {$plural} been on hold 7+ days at {$this->shop->name}.",
-            'action_url'     => '/dashboard/reports',
-            'shop_id'        => $this->shop->id,
-            'on_hold_count'  => $this->onHoldCount,
+            'type' => 'jobs_on_hold_digest',
+            'title' => 'Jobs On Hold',
+            'message' => "{$this->onHoldCount} {$plural} been on hold 7+ days at {$this->store->name}.",
+            'action_url' => '/dashboard/reports',
+            'store_id' => $this->store->id,
+            'on_hold_count' => $this->onHoldCount,
         ];
     }
 }

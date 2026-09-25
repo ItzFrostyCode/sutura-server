@@ -11,8 +11,8 @@ return new class extends Migration
         Schema::create('staff_profiles', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('shop_branch_id')->nullable()->constrained('shop_branches')->nullOnDelete();
+            $table->foreignId('store_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('store_branch_id')->nullable()->constrained('store_branches')->nullOnDelete();
             $table->enum('role', ['head_tailor', 'tailor', 'assistant', 'receptionist'])->default('tailor');
             $table->string('specialization', 255)->nullable();
             $table->text('bio')->nullable();
@@ -20,7 +20,7 @@ return new class extends Migration
             $table->date('hired_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['user_id', 'shop_id']);
+            $table->unique(['user_id', 'store_id']);
         });
     }
 

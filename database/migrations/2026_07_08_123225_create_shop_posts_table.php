@@ -11,9 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('shop_posts', function (Blueprint $table) {
+        Schema::create('store_posts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('store_id')->constrained()->cascadeOnDelete();
             // Optional — lets the owner route "Inquire" clicks on this post
             // straight into booking the specific service it showcases.
             $table->foreignId('service_id')->nullable()->constrained()->nullOnDelete();
@@ -28,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('shop_posts');
+        Schema::dropIfExists('store_posts');
     }
 };

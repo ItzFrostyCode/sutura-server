@@ -3,16 +3,16 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SupportTicket extends Model
 {
     use SoftDeletes;
 
     protected $fillable = [
-        'shop_id', 'user_id', 'subject', 'message', 'attachments',
+        'store_id', 'user_id', 'subject', 'message', 'attachments',
         'type', 'priority', 'status', 'assigned_to', 'resolved_at',
     ];
 
@@ -21,9 +21,9 @@ class SupportTicket extends Model
         'attachments' => 'array',
     ];
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function submittedBy(): BelongsTo

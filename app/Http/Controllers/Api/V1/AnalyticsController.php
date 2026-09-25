@@ -3,8 +3,17 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Shop;
+use App\Models\CatalogOrder;
+use App\Models\Payment;
+use App\Models\StaffProfile;
+use App\Models\Store;
+use App\Models\StoreSubscription;
+use App\Models\SubscriptionEvent;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class AnalyticsController extends Controller
 {
@@ -20,94 +29,94 @@ class AnalyticsController extends Controller
      * endpoint with an uncaught Carbon\Exceptions\InvalidFormatException,
      * leaking a full stack trace with server file paths in the response.
      */
-    private function validateDateRange(\Illuminate\Http\Request $request): array
+    private function validateDateRange(Request $request): array
     {
         $validated = $request->validate([
             'start_date' => ['nullable', 'date'],
-            'end_date'   => ['nullable', 'date', 'after_or_equal:start_date'],
+            'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
         ]);
 
         return [$validated['start_date'] ?? null, $validated['end_date'] ?? null];
     }
 
-    public function branchComparison(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
+    public function branchComparison(Request $request, Store $store): JsonResponse
     {
         @ini_set('max_execution_time', 120);
 
         [$startDate, $endDate] = $this->validateDateRange($request);
 
-        $cacheKey = "branch_comparison_{$shop->id}_" . ($startDate ?? 'all') . "_" . ($endDate ?? 'all');
-        if (!app()->environment('testing')) {
-            $cached = \Illuminate\Support\Facades\Cache::driver('file')->get($cacheKey);
+        $cacheKey = "branch_comparison_{$store->id}_".($startDate ?? 'all').'_'.($endDate ?? 'all');
+        if (! app()->environment('testing')) {
+            $cached = Cache::driver('file')->get($cacheKey);
             if ($cached) {
                 return response()->json($cached);
             }
         }
 
-        $jobsQuery = $shop->jobOrders();
+        $jobsQuery = $store->jobOrders();
         if ($startDate && $endDate) {
-            $jobsQuery->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+            $jobsQuery->whereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
         }
         $branchJobStats = $jobsQuery
             ->selectRaw("
-                shop_branch_id,
+                store_branch_id,
                 COUNT(*) as total_jobs,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_jobs,
                 COALESCE(SUM(total_amount), 0) as sum_total_amount,
                 COALESCE(SUM(balance), 0) as sum_balance,
                 COALESCE(SUM(discount_amount), 0) as sum_discount_amount
             ")
-            ->groupBy('shop_branch_id')
+            ->groupBy('store_branch_id')
             ->get()
-            ->keyBy(fn ($item) => $item->shop_branch_id ? (string) $item->shop_branch_id : 'null');
+            ->keyBy(fn ($item) => $item->store_branch_id ? (string) $item->store_branch_id : 'null');
 
-        $appointmentsQuery = $shop->appointments();
+        $appointmentsQuery = $store->appointments();
         if ($startDate && $endDate) {
-            $appointmentsQuery->whereBetween('scheduled_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+            $appointmentsQuery->whereBetween('scheduled_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
         }
         $branchAppointmentStats = $appointmentsQuery
-            ->selectRaw("shop_branch_id, COUNT(*) as total_appointments")
-            ->groupBy('shop_branch_id')
+            ->selectRaw('store_branch_id, COUNT(*) as total_appointments')
+            ->groupBy('store_branch_id')
             ->get()
-            ->keyBy(fn ($item) => $item->shop_branch_id ? (string) $item->shop_branch_id : 'null');
+            ->keyBy(fn ($item) => $item->store_branch_id ? (string) $item->store_branch_id : 'null');
 
-        $catalogOrdersQuery = \App\Models\CatalogOrder::where('shop_id', $shop->id);
+        $catalogOrdersQuery = CatalogOrder::where('store_id', $store->id);
         if ($startDate && $endDate) {
-            $catalogOrdersQuery->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+            $catalogOrdersQuery->whereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
         }
         $branchCatalogStats = $catalogOrdersQuery
-            ->selectRaw("shop_branch_id, COUNT(*) as total_walkin_orders")
-            ->groupBy('shop_branch_id')
+            ->selectRaw('store_branch_id, COUNT(*) as total_walkin_orders')
+            ->groupBy('store_branch_id')
             ->get()
-            ->keyBy(fn ($item) => $item->shop_branch_id ? (string) $item->shop_branch_id : 'null');
+            ->keyBy(fn ($item) => $item->store_branch_id ? (string) $item->store_branch_id : 'null');
 
-        $staffCounts = \App\Models\StaffProfile::where('shop_id', $shop->id)
-            ->whereNotNull('shop_branch_id')
-            ->selectRaw("shop_branch_id, COUNT(*) as total_staff")
-            ->groupBy('shop_branch_id')
-            ->pluck('total_staff', 'shop_branch_id');
+        $staffCounts = StaffProfile::where('store_id', $store->id)
+            ->whereNotNull('store_branch_id')
+            ->selectRaw('store_branch_id, COUNT(*) as total_staff')
+            ->groupBy('store_branch_id')
+            ->pluck('total_staff', 'store_branch_id');
 
-        $rejectedPayments = \App\Models\Payment::whereNotNull('payments.rejected_at')
+        $rejectedPayments = Payment::whereNotNull('payments.rejected_at')
             ->join('job_orders', 'payments.job_order_id', '=', 'job_orders.id')
-            ->where('job_orders.shop_id', $shop->id)
-            ->when($startDate && $endDate, fn ($q) => $q->whereBetween('job_orders.created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']))
-            ->selectRaw("job_orders.shop_branch_id, COALESCE(SUM(payments.amount), 0) as rejected_amount")
-            ->groupBy('job_orders.shop_branch_id')
+            ->where('job_orders.store_id', $store->id)
+            ->when($startDate && $endDate, fn ($q) => $q->whereBetween('job_orders.created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']))
+            ->selectRaw('job_orders.store_branch_id, COALESCE(SUM(payments.amount), 0) as rejected_amount')
+            ->groupBy('job_orders.store_branch_id')
             ->get()
-            ->keyBy(fn ($item) => $item->shop_branch_id ? (string) $item->shop_branch_id : 'null');
+            ->keyBy(fn ($item) => $item->store_branch_id ? (string) $item->store_branch_id : 'null');
 
-        $forfeitedPayments = \App\Models\Payment::whereNull('payments.rejected_at')
+        $forfeitedPayments = Payment::whereNull('payments.rejected_at')
             ->join('job_orders', 'payments.job_order_id', '=', 'job_orders.id')
-            ->where('job_orders.shop_id', $shop->id)
+            ->where('job_orders.store_id', $store->id)
             ->where('job_orders.status', 'cancelled')
             ->where('job_orders.cancellation_reason', 'forfeited_deposit_abandoned')
-            ->when($startDate && $endDate, fn ($q) => $q->whereBetween('job_orders.created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']))
-            ->selectRaw("job_orders.shop_branch_id, COALESCE(SUM(payments.amount), 0) as forfeited_amount")
-            ->groupBy('job_orders.shop_branch_id')
+            ->when($startDate && $endDate, fn ($q) => $q->whereBetween('job_orders.created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']))
+            ->selectRaw('job_orders.store_branch_id, COALESCE(SUM(payments.amount), 0) as forfeited_amount')
+            ->groupBy('job_orders.store_branch_id')
             ->get()
-            ->keyBy(fn ($item) => $item->shop_branch_id ? (string) $item->shop_branch_id : 'null');
+            ->keyBy(fn ($item) => $item->store_branch_id ? (string) $item->store_branch_id : 'null');
 
-        $branches = $shop->branches()->orderByDesc('is_main')->get();
+        $branches = $store->branches()->orderByDesc('is_main')->get();
 
         $buildRow = function (?int $branchId, string $name, bool $isMain) use (
             $branchJobStats, $branchAppointmentStats, $branchCatalogStats,
@@ -127,26 +136,26 @@ class AnalyticsController extends Controller
             $forfStat = $forfeitedPayments->get($key);
 
             return [
-                'branch_id'                 => $branchId,
-                'branch_name'               => $name,
-                'is_main'                   => $isMain,
-                'total_jobs'                => $totalJobs,
-                'completed_jobs'            => $completedJobs,
-                'completion_rate'           => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
-                'total_revenue'             => max(0.0, $sumTotal - $sumBal - $sumDisc),
+                'branch_id' => $branchId,
+                'branch_name' => $name,
+                'is_main' => $isMain,
+                'total_jobs' => $totalJobs,
+                'completed_jobs' => $completedJobs,
+                'completion_rate' => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
+                'total_revenue' => max(0.0, $sumTotal - $sumBal - $sumDisc),
                 'total_outstanding_balance' => $sumBal,
-                'total_appointments'        => (int) ($apptStat->total_appointments ?? 0),
-                'total_walkin_orders'       => (int) ($catStat->total_walkin_orders ?? 0),
-                'total_staff'               => $branchId ? (int) ($staffCounts[$branchId] ?? 0) : 0,
-                'rejected_payments_amount'  => (float) ($rejStat->rejected_amount ?? 0),
-                'forfeited_deposit_amount'  => (float) ($forfStat->forfeited_amount ?? 0),
+                'total_appointments' => (int) ($apptStat->total_appointments ?? 0),
+                'total_walkin_orders' => (int) ($catStat->total_walkin_orders ?? 0),
+                'total_staff' => $branchId ? (int) ($staffCounts[$branchId] ?? 0) : 0,
+                'rejected_payments_amount' => (float) ($rejStat->rejected_amount ?? 0),
+                'forfeited_deposit_amount' => (float) ($forfStat->forfeited_amount ?? 0),
             ];
         };
 
         $rows = $branches->map(fn ($branch) => $buildRow($branch->id, $branch->name, (bool) $branch->is_main))->values();
 
         // Jobs/appointments never tagged to a branch (legacy data, or a
-        // single-branch shop) still need to be visible somewhere, not silently
+        // single-branch store) still need to be visible somewhere, not silently
         // dropped from the comparison.
         $unassigned = $buildRow(null, 'Unassigned', false);
         if ($unassigned['total_jobs'] > 0 || $unassigned['total_appointments'] > 0 || $unassigned['total_walkin_orders'] > 0) {
@@ -158,8 +167,8 @@ class AnalyticsController extends Controller
             'data' => $rows->values()->toArray(),
         ];
 
-        if (!app()->environment('testing')) {
-            \Illuminate\Support\Facades\Cache::driver('file')->put($cacheKey, $responsePayload, 60);
+        if (! app()->environment('testing')) {
+            Cache::driver('file')->put($cacheKey, $responsePayload, 60);
         }
 
         return response()->json($responsePayload);
@@ -170,16 +179,16 @@ class AnalyticsController extends Controller
      * staff member is completing/carrying the most work), so like
      * branchComparison() it is deliberately not exposed to branch managers.
      */
-    public function staffProductivity(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
+    public function staffProductivity(Request $request, Store $store): JsonResponse
     {
         @ini_set('max_execution_time', 120);
 
         [$startDate, $endDate] = $this->validateDateRange($request);
-        $branchId  = $request->filled('branch_id') ? $request->branch_id : null;
+        $branchId = $request->filled('branch_id') ? $request->branch_id : null;
 
-        $cacheKey = "staff_productivity_{$shop->id}_b{$branchId}_s{$startDate}_e{$endDate}";
-        if (!app()->environment('testing')) {
-            $cached = \Illuminate\Support\Facades\Cache::driver('file')->get($cacheKey);
+        $cacheKey = "staff_productivity_{$store->id}_b{$branchId}_s{$startDate}_e{$endDate}";
+        if (! app()->environment('testing')) {
+            $cached = Cache::driver('file')->get($cacheKey);
             if (is_array($cached) && isset($cached['data']) && is_array($cached['data'])) {
                 return response()->json($cached);
             }
@@ -187,38 +196,39 @@ class AnalyticsController extends Controller
 
         $scopeToRange = function ($query) use ($startDate, $endDate) {
             if ($startDate && $endDate) {
-                $query->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+                $query->whereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
             }
+
             return $query;
         };
 
-        $staffQuery = $shop->staff()->with('user:id,name')->where('is_active', true);
+        $staffQuery = $store->staff()->with('user:id,name')->where('is_active', true);
         if ($branchId) {
-            $staffQuery->where('shop_branch_id', $branchId);
+            $staffQuery->where('store_branch_id', $branchId);
         }
 
-        $rows = $staffQuery->get()->map(function (\App\Models\StaffProfile $profile) use ($shop, $scopeToRange) {
+        $rows = $staffQuery->get()->map(function (StaffProfile $profile) use ($store, $scopeToRange) {
             // A job's single assigned_staff_id only reflects whichever
             // production stage was assigned first — a staff member working a
             // later stage (e.g. sewing, when someone else did cutting first)
             // would otherwise never show up here despite doing real work on
             // the job, so also credit jobs where they're assigned to ANY
             // stage via the Multi-Stage Staff Assignment pivot.
-            $jobsQuery = $shop->jobOrders()->where(function ($q) use ($profile) {
+            $jobsQuery = $store->jobOrders()->where(function ($q) use ($profile) {
                 $q->where('assigned_staff_id', $profile->user_id)
-                  ->orWhereHas('staffStages', function ($sq) use ($profile) {
-                      // staffStages is a belongsToMany(User::class, ...), so the
-                      // related model's own key is `id`, not `user_id` — the
-                      // pivot's user_id is what the join already matches on.
-                      // Qualified with the table name since both job_orders
-                      // and users have an `id` column, which is otherwise
-                      // ambiguous inside this EXISTS subquery.
-                      $sq->where('users.id', $profile->user_id);
-                  });
+                    ->orWhereHas('staffStages', function ($sq) use ($profile) {
+                        // staffStages is a belongsToMany(User::class, ...), so the
+                        // related model's own key is `id`, not `user_id` — the
+                        // pivot's user_id is what the join already matches on.
+                        // Qualified with the table name since both job_orders
+                        // and users have an `id` column, which is otherwise
+                        // ambiguous inside this EXISTS subquery.
+                        $sq->where('users.id', $profile->user_id);
+                    });
             });
             $scopeToRange($jobsQuery);
 
-            $totalJobs     = $jobsQuery->count();
+            $totalJobs = $jobsQuery->count();
             $completedJobs = (clone $jobsQuery)->where('status', 'completed')->count();
 
             // Average Final Adjustment rounds across this staff member's jobs
@@ -231,13 +241,13 @@ class AnalyticsController extends Controller
                 : 0;
 
             return [
-                'staff_id'            => $profile->user_id,
-                'name'                => $profile->user?->name,
-                'role'                => $profile->role,
-                'total_jobs'          => $totalJobs,
-                'completed_jobs'      => $completedJobs,
-                'completion_rate'     => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
-                // Same discount fix as the shop-wide/branch revenue figures —
+                'staff_id' => $profile->user_id,
+                'name' => $profile->user?->name,
+                'role' => $profile->role,
+                'total_jobs' => $totalJobs,
+                'completed_jobs' => $completedJobs,
+                'completion_rate' => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
+                // Same discount fix as the store-wide/branch revenue figures —
                 // a completed job's total_amount alone still includes any
                 // discount, overstating what this staff member's work
                 // actually brought in. Also subtract balance, not just
@@ -246,10 +256,10 @@ class AnalyticsController extends Controller
                 // catch on an already-completed job), and this figure must
                 // not keep counting that reversed amount as earned revenue —
                 // same formula as every other revenue figure in this file.
-                'total_revenue'       => (float) (clone $jobsQuery)->where('status', 'completed')->sum('total_amount')
+                'total_revenue' => (float) (clone $jobsQuery)->where('status', 'completed')->sum('total_amount')
                     - (float) (clone $jobsQuery)->where('status', 'completed')->sum('balance')
                     - (float) (clone $jobsQuery)->where('status', 'completed')->sum('discount_amount'),
-                'avg_adjustments'     => $avgAdjustments,
+                'avg_adjustments' => $avgAdjustments,
             ];
         })->sortByDesc('completed_jobs')->values();
 
@@ -258,14 +268,14 @@ class AnalyticsController extends Controller
             'data' => $rows->values()->toArray(),
         ];
 
-        if (!app()->environment('testing')) {
-            \Illuminate\Support\Facades\Cache::driver('file')->put($cacheKey, $responsePayload, 60);
+        if (! app()->environment('testing')) {
+            Cache::driver('file')->put($cacheKey, $responsePayload, 60);
         }
 
         return response()->json($responsePayload);
     }
 
-    public function index(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
+    public function index(Request $request, Store $store): JsonResponse
     {
         @ini_set('max_execution_time', 120);
         [$startDate, $endDate] = $this->validateDateRange($request);
@@ -273,15 +283,15 @@ class AnalyticsController extends Controller
         $isBranchManager = $request->user()?->hasRole('branch_manager') ? 1 : 0;
         $branchId = null;
         if ($isBranchManager) {
-            $branchId = $request->user()->staffProfile->shop_branch_id ?? null;
+            $branchId = $request->user()->staffProfile->store_branch_id ?? null;
         } elseif ($request->filled('branch_id')) {
             $branchId = $request->branch_id;
         }
 
-        $cacheKey = "shop_analytics_{$shop->id}_b{$branchId}_s{$startDate}_e{$endDate}_bm{$isBranchManager}";
+        $cacheKey = "store_analytics_{$store->id}_b{$branchId}_s{$startDate}_e{$endDate}_bm{$isBranchManager}";
 
-        if (!app()->environment('testing')) {
-            $cached = \Illuminate\Support\Facades\Cache::driver('file')->get($cacheKey);
+        if (! app()->environment('testing')) {
+            $cached = Cache::driver('file')->get($cacheKey);
             if ($cached) {
                 return response()->json($cached);
             }
@@ -291,25 +301,25 @@ class AnalyticsController extends Controller
         // NOT date-filtered — these are "current state" metrics (overdue/pending/etc.),
         // but they must still respect the selected branch.
         $branchJobs = fn () => $branchId
-            ? $shop->jobOrders()->where('shop_branch_id', $branchId)
-            : $shop->jobOrders();
+            ? $store->jobOrders()->where('store_branch_id', $branchId)
+            : $store->jobOrders();
         $branchAppointments = fn () => $branchId
-            ? $shop->appointments()->where('shop_branch_id', $branchId)
-            : $shop->appointments();
+            ? $store->appointments()->where('store_branch_id', $branchId)
+            : $store->appointments();
 
         // Overview Stats
-        $jobsQuery        = $shop->jobOrders();
-        $appointmentsQuery = $shop->appointments();
+        $jobsQuery = $store->jobOrders();
+        $appointmentsQuery = $store->appointments();
 
         if ($branchId) {
-            $jobsQuery->where('shop_branch_id', $branchId);
-            $appointmentsQuery->where('shop_branch_id', $branchId);
+            $jobsQuery->where('store_branch_id', $branchId);
+            $appointmentsQuery->where('store_branch_id', $branchId);
         }
 
         if ($startDate && $endDate) {
             // Need to append time to ensure end date is inclusive of that whole day
-            $jobsQuery->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
-            $appointmentsQuery->whereBetween('scheduled_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+            $jobsQuery->whereBetween('created_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
+            $appointmentsQuery->whereBetween('scheduled_at', [$startDate.' 00:00:00', $endDate.' 23:59:59']);
         }
 
         // Consolidated overview aggregates for jobs (1 query instead of 6)
@@ -323,10 +333,10 @@ class AnalyticsController extends Controller
             ")
             ->first();
 
-        $totalJobs     = (int) ($jobsOverview->total_jobs ?? 0);
+        $totalJobs = (int) ($jobsOverview->total_jobs ?? 0);
         $completedJobs = (int) ($jobsOverview->completed_jobs ?? 0);
-        $totalRevenue  = (float) ($jobsOverview->total_amount ?? 0) - (float) ($jobsOverview->total_balance ?? 0) - (float) ($jobsOverview->total_discount ?? 0);
-        $totalBalance  = (float) ($jobsOverview->total_balance ?? 0);
+        $totalRevenue = (float) ($jobsOverview->total_amount ?? 0) - (float) ($jobsOverview->total_balance ?? 0) - (float) ($jobsOverview->total_discount ?? 0);
+        $totalBalance = (float) ($jobsOverview->total_balance ?? 0);
 
         // Consolidated appointment aggregates (1 query instead of 3)
         $appointmentsOverview = (clone $appointmentsQuery)
@@ -338,48 +348,48 @@ class AnalyticsController extends Controller
             ->first();
 
         $convertibleAppointments = (int) ($appointmentsOverview->convertible_count ?? 0);
-        $convertedAppointments   = (int) ($appointmentsOverview->converted_count ?? 0);
-        $bookingConversionRate   = $convertibleAppointments > 0
+        $convertedAppointments = (int) ($appointmentsOverview->converted_count ?? 0);
+        $bookingConversionRate = $convertibleAppointments > 0
             ? round(($convertedAppointments / $convertibleAppointments) * 100, 1)
             : 0;
 
         $upcomingAppointments = (int) ($appointmentsOverview->upcoming_count ?? 0);
 
-        $totalStaff     = $shop->staff()->count();
-        // The shop_customers pivot is only populated by the CRM's own "Add
+        $totalStaff = $store->staff()->count();
+        // The store_customers pivot is only populated by the CRM's own "Add
         // Customer" form — a customer who came in via a job order, walk-in
         // creation, or public appointment booking never gets attached to it,
-        // so counting the pivot alone showed 0 for shops whose customers all
+        // so counting the pivot alone showed 0 for stores whose customers all
         // arrived through those other paths. Database UNION performs distinct
         // count inside the engine in 1 query without transferring ID arrays over network.
-        $totalCustomers = \Illuminate\Support\Facades\DB::table(function ($q) use ($shop) {
+        $totalCustomers = DB::table(function ($q) use ($store) {
             $q->select('user_id as customer_id')
-                ->from('shop_customers')
-                ->where('shop_id', $shop->id)
+                ->from('store_customers')
+                ->where('store_id', $store->id)
                 ->union(
-                    \Illuminate\Support\Facades\DB::table('job_orders')
+                    DB::table('job_orders')
                         ->select('customer_id')
-                        ->where('shop_id', $shop->id)
+                        ->where('store_id', $store->id)
                         ->whereNotNull('customer_id')
                 )
                 ->union(
-                    \Illuminate\Support\Facades\DB::table('appointments')
+                    DB::table('appointments')
                         ->select('customer_id')
-                        ->where('shop_id', $shop->id)
+                        ->where('store_id', $store->id)
                         ->whereNotNull('customer_id')
                 );
         }, 'all_cust')->count();
 
         // Jobs by status breakdown — used for pie chart in Reports page
         $jobsByStatus = (clone $jobsQuery)
-            ->select('status', \Illuminate\Support\Facades\DB::raw('COUNT(*) as count'))
+            ->select('status', DB::raw('COUNT(*) as count'))
             ->groupBy('status')
             ->get()
             ->map(fn ($row) => ['status' => $row->status, 'count' => (int) $row->count])
             ->values()
             ->toArray();
 
-        // Orders by garment category — descriptive breakdown of what the shop
+        // Orders by garment category — descriptive breakdown of what the store
         // is actually being asked to make (barong vs. gown vs. alterations,
         // etc.), the literal core of a "tailoring" report. Reports previously
         // had no view of this at all, only revenue/status/branch/staff
@@ -391,8 +401,8 @@ class AnalyticsController extends Controller
             ->whereNotNull('garment_category')
             ->select(
                 'garment_category',
-                \Illuminate\Support\Facades\DB::raw('COUNT(*) as count'),
-                \Illuminate\Support\Facades\DB::raw('SUM(total_amount) as revenue')
+                DB::raw('COUNT(*) as count'),
+                DB::raw('SUM(total_amount) as revenue')
             )
             ->groupBy('garment_category')
             ->orderByDesc('count')
@@ -407,14 +417,14 @@ class AnalyticsController extends Controller
 
         // Compute revenue data split into 4 buckets across the selected range
         // (defaults to the current month), branch-scoped.
-        $rangeStart = $startDate ? \Illuminate\Support\Carbon::parse($startDate)->startOfDay() : now()->startOfMonth();
-        $rangeEnd   = $endDate ? \Illuminate\Support\Carbon::parse($endDate)->endOfDay() : now()->endOfMonth();
+        $rangeStart = $startDate ? Carbon::parse($startDate)->startOfDay() : now()->startOfMonth();
+        $rangeEnd = $endDate ? Carbon::parse($endDate)->endOfDay() : now()->endOfMonth();
         $rangeSeconds = max(1, abs($rangeStart->diffInSeconds($rangeEnd)));
-        
+
         $jobsThisMonth = $branchJobs()
             ->whereBetween('created_at', [$rangeStart, $rangeEnd])
             ->get();
-            
+
         // Bucket labels used to be hard-coded "Week 1"-"Week 4" regardless of
         // the selected range — correct-looking for the "This Month" default,
         // but nonsensical once a period selector actually varies the range
@@ -434,8 +444,8 @@ class AnalyticsController extends Controller
             // zero," which is just time passing, not a real decline.
             $revenueData[] = ['month' => $bucketStart->format('M j'), 'date' => $bucketStart->toDateString(), 'revenue' => 0];
         }
-        
-        foreach($jobsThisMonth as $job) {
+
+        foreach ($jobsThisMonth as $job) {
             $elapsed = abs($rangeStart->diffInSeconds($job->created_at));
             $bucket = (int) floor(($elapsed / $rangeSeconds) * 4);
             $bucket = max(0, min(3, $bucket));
@@ -475,23 +485,23 @@ class AnalyticsController extends Controller
             ", [$today, $today, $today, $nextWeek])
             ->first();
 
-        $overdueJobs             = (int) ($kpiAggregates->overdue_jobs ?? 0);
-        $pendingDepositJobs      = (int) ($kpiAggregates->pending_deposit_jobs ?? 0);
-        $readyForPickupJobs      = (int) ($kpiAggregates->ready_for_pickup_jobs ?? 0);
-        $rushJobsActive          = (int) ($kpiAggregates->rush_jobs_active ?? 0);
+        $overdueJobs = (int) ($kpiAggregates->overdue_jobs ?? 0);
+        $pendingDepositJobs = (int) ($kpiAggregates->pending_deposit_jobs ?? 0);
+        $readyForPickupJobs = (int) ($kpiAggregates->ready_for_pickup_jobs ?? 0);
+        $rushJobsActive = (int) ($kpiAggregates->rush_jobs_active ?? 0);
         $completedUnpaidJobsCount = (int) ($kpiAggregates->completed_unpaid_count ?? 0);
-        $pendingDpJobsCount      = (int) ($kpiAggregates->pending_dp_count ?? 0);
-        $dueTodayCount           = (int) ($kpiAggregates->due_today_count ?? 0);
-        $dueThisWeekCount        = (int) ($kpiAggregates->due_this_week_count ?? 0);
+        $pendingDpJobsCount = (int) ($kpiAggregates->pending_dp_count ?? 0);
+        $dueTodayCount = (int) ($kpiAggregates->due_today_count ?? 0);
+        $dueThisWeekCount = (int) ($kpiAggregates->due_this_week_count ?? 0);
 
-        $completedTotalAmount    = (float) ($kpiAggregates->completed_total_amount ?? 0);
+        $completedTotalAmount = (float) ($kpiAggregates->completed_total_amount ?? 0);
         $completedDiscountAmount = (float) ($kpiAggregates->completed_discount_amount ?? 0);
 
         // Today's revenue: sum of payments created today
-        $todayRevenue = (float) \App\Models\Payment::whereHas('jobOrder', function ($q) use ($shop, $branchId) {
-            $q->where('shop_id', $shop->id);
+        $todayRevenue = (float) Payment::whereHas('jobOrder', function ($q) use ($store, $branchId) {
+            $q->where('store_id', $store->id);
             if ($branchId) {
-                $q->where('shop_branch_id', $branchId);
+                $q->where('store_branch_id', $branchId);
             }
         })->whereDate('created_at', $today)->sum('amount');
 
@@ -664,29 +674,28 @@ class AnalyticsController extends Controller
             ->all();
 
         // Rejected-payments and forfeited-deposit loss figures
-        $rejectedStats = \App\Models\Payment::whereNotNull('rejected_at')
-            ->whereHas('jobOrder', function ($q) use ($shop, $branchId) {
-                $q->where('shop_id', $shop->id);
+        $rejectedStats = Payment::whereNotNull('rejected_at')
+            ->whereHas('jobOrder', function ($q) use ($store, $branchId) {
+                $q->where('store_id', $store->id);
                 if ($branchId) {
-                    $q->where('shop_branch_id', $branchId);
+                    $q->where('store_branch_id', $branchId);
                 }
             })
             ->selectRaw('COUNT(*) as count, COALESCE(SUM(amount), 0) as amount')
             ->first();
-        $rejectedPaymentsCount  = (int) ($rejectedStats->count ?? 0);
+        $rejectedPaymentsCount = (int) ($rejectedStats->count ?? 0);
         $rejectedPaymentsAmount = (float) ($rejectedStats->amount ?? 0);
 
         $forfeitedJobIds = $branchJobs()
             ->where('status', 'cancelled')
             ->where('cancellation_reason', 'forfeited_deposit_abandoned')
             ->pluck('id');
-        $forfeitedDepositCount  = $forfeitedJobIds->count();
+        $forfeitedDepositCount = $forfeitedJobIds->count();
         $forfeitedDepositAmount = $forfeitedDepositCount > 0
-            ? (float) \App\Models\Payment::whereIn('job_order_id', $forfeitedJobIds)
+            ? (float) Payment::whereIn('job_order_id', $forfeitedJobIds)
                 ->whereNull('rejected_at')
                 ->sum('amount')
             : 0.0;
-
 
         // Today's appointments
         $todayAppointments = $branchAppointments()
@@ -695,93 +704,93 @@ class AnalyticsController extends Controller
             ->whereNotIn('status', ['cancelled'])
             ->orderBy('scheduled_at')
             ->get()
-            ->map(fn($a) => [
-                'id'               => $a->id,
-                'scheduled_at'     => $a->scheduled_at,
+            ->map(fn ($a) => [
+                'id' => $a->id,
+                'scheduled_at' => $a->scheduled_at,
                 'appointment_type' => $a->appointment_type,
-                'status'           => $a->status,
-                'customer'         => $a->customer,
-                'service'          => $a->service,
+                'status' => $a->status,
+                'customer' => $a->customer,
+                'service' => $a->service,
             ])
             ->values()
             ->all();
 
-        // Combined shop-level auxiliary stats (1 query instead of 4)
-        $shopStats = \Illuminate\Support\Facades\DB::selectOne('
+        // Combined store-level auxiliary stats (1 query instead of 4)
+        $storeStats = DB::selectOne('
             SELECT
-                (SELECT COUNT(*) FROM services WHERE shop_id = ?) as total_services,
-                (SELECT COUNT(*) FROM catalog_orders WHERE shop_id = ?) as total_collections,
-                (SELECT COUNT(*) FROM shop_branches WHERE shop_id = ?) as total_branches,
-                (SELECT AVG(rating) FROM shop_reviews WHERE shop_id = ?) as avg_rating,
-                (SELECT COUNT(*) FROM shop_reviews WHERE shop_id = ?) as total_reviews
-        ', [$shop->id, $shop->id, $shop->id, $shop->id, $shop->id]);
+                (SELECT COUNT(*) FROM services WHERE store_id = ?) as total_services,
+                (SELECT COUNT(*) FROM catalog_orders WHERE store_id = ?) as total_collections,
+                (SELECT COUNT(*) FROM store_branches WHERE store_id = ?) as total_branches,
+                (SELECT AVG(rating) FROM store_reviews WHERE store_id = ?) as avg_rating,
+                (SELECT COUNT(*) FROM store_reviews WHERE store_id = ?) as total_reviews
+        ', [$store->id, $store->id, $store->id, $store->id, $store->id]);
 
         $responsePayload = [
             'success' => true,
             'data' => [
-                'total_jobs'                 => $totalJobs,
-                'completed_jobs'             => $completedJobs,
-                'total_revenue'              => $totalRevenue,
-                'total_outstanding_balance'  => $totalBalance,
-                'upcoming_appointments'      => $upcomingAppointments,
-                'booking_conversion_rate'    => $bookingConversionRate,
-                'total_appointments'         => $shop->appointments()->count(),
-                'total_services'             => (int) ($shopStats->total_services ?? 0),
-                'total_collections'          => (int) ($shopStats->total_collections ?? 0),
-                'total_branches'             => (int) ($shopStats->total_branches ?? 0),
-                'total_staff'                => $totalStaff,
-                'total_customers'            => $totalCustomers,
-                'revenue_data'               => $revenueData,
-                'jobs_by_status'             => $jobsByStatus,
-                'garment_breakdown'          => $garmentBreakdown,
-                'recent_jobs'                => $recentJobs,
+                'total_jobs' => $totalJobs,
+                'completed_jobs' => $completedJobs,
+                'total_revenue' => $totalRevenue,
+                'total_outstanding_balance' => $totalBalance,
+                'upcoming_appointments' => $upcomingAppointments,
+                'booking_conversion_rate' => $bookingConversionRate,
+                'total_appointments' => $store->appointments()->count(),
+                'total_services' => (int) ($storeStats->total_services ?? 0),
+                'total_collections' => (int) ($storeStats->total_collections ?? 0),
+                'total_branches' => (int) ($storeStats->total_branches ?? 0),
+                'total_staff' => $totalStaff,
+                'total_customers' => $totalCustomers,
+                'revenue_data' => $revenueData,
+                'jobs_by_status' => $jobsByStatus,
+                'garment_breakdown' => $garmentBreakdown,
+                'recent_jobs' => $recentJobs,
                 // ── New KPIs ──────────────────────────────────────────────────
-                'overdue_jobs'               => $overdueJobs,
-                'pending_deposit_jobs'       => $pendingDepositJobs,
-                'ready_for_pickup_jobs'      => $readyForPickupJobs,
-                'rush_jobs_active'           => $rushJobsActive,
-                'today_revenue'              => $todayRevenue,
-                'completion_rate'            => $completionRate,
-                'avg_order_value'            => $avgOrderValue,
-                'avg_turnaround_days'        => $avgTurnaroundDays,
-                'today_appointments'         => $todayAppointments,
-                'outstanding_balances'       => $outstandingBalances,
-                'completed_unpaid_jobs'       => $completedUnpaidJobs,
+                'overdue_jobs' => $overdueJobs,
+                'pending_deposit_jobs' => $pendingDepositJobs,
+                'ready_for_pickup_jobs' => $readyForPickupJobs,
+                'rush_jobs_active' => $rushJobsActive,
+                'today_revenue' => $todayRevenue,
+                'completion_rate' => $completionRate,
+                'avg_order_value' => $avgOrderValue,
+                'avg_turnaround_days' => $avgTurnaroundDays,
+                'today_appointments' => $todayAppointments,
+                'outstanding_balances' => $outstandingBalances,
+                'completed_unpaid_jobs' => $completedUnpaidJobs,
                 'completed_unpaid_jobs_count' => $completedUnpaidJobsCount,
-                'pending_dp_jobs_list'        => $pendingDpJobsList,
-                'pending_dp_jobs_list_count'  => $pendingDpJobsCount,
-                'due_today_jobs'              => $dueTodayJobs,
-                'due_today_jobs_count'        => $dueTodayCount,
-                'due_this_week_jobs'          => $dueThisWeekJobs,
-                'due_this_week_jobs_count'    => $dueThisWeekCount,
-                'unclaimed_pickups'          => $unclaimedPickups,
-                'jobs_on_hold'                => $jobsOnHold,
-                'rejected_payments_count'    => $rejectedPaymentsCount,
-                'rejected_payments_amount'   => $rejectedPaymentsAmount,
-                'forfeited_deposit_count'    => $forfeitedDepositCount,
-                'forfeited_deposit_amount'  => $forfeitedDepositAmount,
-                'avg_rating'                 => !empty($shopStats->avg_rating) ? round((float) $shopStats->avg_rating, 1) : null,
-                'total_reviews'              => (int) ($shopStats->total_reviews ?? 0),
-            ]
+                'pending_dp_jobs_list' => $pendingDpJobsList,
+                'pending_dp_jobs_list_count' => $pendingDpJobsCount,
+                'due_today_jobs' => $dueTodayJobs,
+                'due_today_jobs_count' => $dueTodayCount,
+                'due_this_week_jobs' => $dueThisWeekJobs,
+                'due_this_week_jobs_count' => $dueThisWeekCount,
+                'unclaimed_pickups' => $unclaimedPickups,
+                'jobs_on_hold' => $jobsOnHold,
+                'rejected_payments_count' => $rejectedPaymentsCount,
+                'rejected_payments_amount' => $rejectedPaymentsAmount,
+                'forfeited_deposit_count' => $forfeitedDepositCount,
+                'forfeited_deposit_amount' => $forfeitedDepositAmount,
+                'avg_rating' => ! empty($storeStats->avg_rating) ? round((float) $storeStats->avg_rating, 1) : null,
+                'total_reviews' => (int) ($storeStats->total_reviews ?? 0),
+            ],
         ];
 
-        if (!app()->environment('testing')) {
-            \Illuminate\Support\Facades\Cache::driver('file')->put($cacheKey, $responsePayload, 60);
+        if (! app()->environment('testing')) {
+            Cache::driver('file')->put($cacheKey, $responsePayload, 60);
         }
 
         return response()->json($responsePayload);
     }
 
     /**
-     * Objective 7's "subscription activity" reporting for shop owners — the
+     * Objective 7's "subscription activity" reporting for store owners — the
      * current plan + real usage vs. its limits, plus the actual event
      * history (created/renewed/upgraded/downgraded/expired), not just the
-     * single latest ShopSubscription row the Billing page already shows.
+     * single latest StoreSubscription row the Billing page already shows.
      */
-    public function subscriptionActivity(\Illuminate\Http\Request $request, Shop $shop): JsonResponse
+    public function subscriptionActivity(Request $request, Store $store): JsonResponse
     {
-        $current = \App\Models\ShopSubscription::with('plan')
-            ->where('shop_id', $shop->id)
+        $current = StoreSubscription::with('plan')
+            ->where('store_id', $store->id)
             ->latest()
             ->first();
 
@@ -789,15 +798,15 @@ class AnalyticsController extends Controller
 
         $usage = [
             'staff' => [
-                'used' => $shop->staff()->count(),
+                'used' => $store->staff()->count(),
                 'max' => $plan?->max_staff ?? 0,
             ],
             'services' => [
-                'used' => $shop->services()->count(),
+                'used' => $store->services()->count(),
                 'max' => $plan?->max_services ?? 0,
             ],
             'branches' => [
-                'used' => $shop->branches()->count(),
+                'used' => $store->branches()->count(),
                 // No max_branches column on subscription_plans — Premium is
                 // the only tier that supports multiple branches at all,
                 // matching SubscriptionController::subscribe()'s own
@@ -806,7 +815,7 @@ class AnalyticsController extends Controller
             ],
         ];
 
-        $events = \App\Models\SubscriptionEvent::where('shop_id', $shop->id)
+        $events = SubscriptionEvent::where('store_id', $store->id)
             ->with(['plan:id,name,slug,price_monthly', 'previousPlan:id,name,slug,price_monthly'])
             ->latest('occurred_at')
             ->paginate($request->input('per_page', 20));

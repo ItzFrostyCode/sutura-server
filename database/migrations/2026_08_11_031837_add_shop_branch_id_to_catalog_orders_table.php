@@ -12,13 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('catalog_orders', function (Blueprint $table) {
-            // JobOrder and Appointment already carry shop_branch_id for
+            // JobOrder and Appointment already carry store_branch_id for
             // exactly this reason — a walk-in/RTW sale was the one order
             // type in the system with no branch attribution at all, so it
             // was invisible to branch performance comparison and to a
             // branch_manager's own access scoping.
-            $table->foreignId('shop_branch_id')->nullable()->after('shop_id')
-                ->constrained('shop_branches')->nullOnDelete();
+            $table->foreignId('store_branch_id')->nullable()->after('store_id')
+                ->constrained('store_branches')->nullOnDelete();
         });
     }
 
@@ -28,7 +28,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('catalog_orders', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('shop_branch_id');
+            $table->dropConstrainedForeignId('store_branch_id');
         });
     }
 };

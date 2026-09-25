@@ -9,7 +9,7 @@ class SubscriptionPlan extends Model
 {
     protected $fillable = [
         'name', 'slug', 'description', 'price_monthly', 'price_yearly',
-        'max_staff', 'max_services', 'max_appointments_per_month', 'features', 'is_active'
+        'max_staff', 'max_services', 'max_appointments_per_month', 'features', 'is_active',
     ];
 
     protected $casts = [
@@ -21,6 +21,6 @@ class SubscriptionPlan extends Model
 
     public function subscriptions(): HasMany
     {
-        return $this->hasMany(ShopSubscription::class, 'plan_id');
+        return $this->hasMany(StoreSubscription::class, 'plan_id');
     }
 }

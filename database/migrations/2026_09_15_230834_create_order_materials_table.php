@@ -26,7 +26,7 @@ return new class extends Migration
             $table->foreignId('logged_by_staff_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            // Per-order attribution only — deliberately no shop-wide/aggregate
+            // Per-order attribution only — deliberately no store-wide/aggregate
             // index or a separate stock-balance table. This is not an
             // inventory ledger (thesis Scope & Limitations, Line 203).
         });

@@ -2,8 +2,10 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
@@ -24,9 +26,9 @@ class UpdateLastSeenAt
             $cacheKey = "last_seen_{$user->id}";
 
             // Only update DB once per minute per user
-            if ($user instanceof \App\Models\User && !Cache::has($cacheKey)) {
+            if ($user instanceof User && ! Cache::has($cacheKey)) {
                 $user->timestamps = false; // Don't bump updated_at
-                $user->last_seen_at = \Illuminate\Support\Carbon::now();
+                $user->last_seen_at = Carbon::now();
                 $user->save();
 
                 Cache::put($cacheKey, true, 60); // 60 seconds TTL

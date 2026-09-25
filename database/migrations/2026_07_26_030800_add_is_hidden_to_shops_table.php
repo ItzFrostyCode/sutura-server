@@ -11,9 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             // Owner-controlled visibility, separate from `status` (admin
-            // approval: pending/approved/rejected). A hidden shop is still
+            // approval: pending/approved/rejected). A hidden store is still
             // approved and fully functional for the owner — it just doesn't
             // show up to customers.
             $table->boolean('is_hidden')->default(false)->after('is_featured');
@@ -25,7 +25,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn('is_hidden');
         });
     }

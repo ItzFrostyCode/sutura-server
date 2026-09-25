@@ -2,12 +2,12 @@
 
 namespace Tests\Feature\Api\V1;
 
-use App\Models\User;
-use App\Models\Shop;
-use App\Models\ShopBranch;
-use App\Models\Service;
 use App\Models\JobOrder;
 use App\Models\Role;
+use App\Models\Service;
+use App\Models\Store;
+use App\Models\StoreBranch;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -17,24 +17,29 @@ class AnalyticsTest extends TestCase
     use RefreshDatabase;
 
     protected User $user;
-    protected Shop $shop;
+
+    protected Store $store;
+
     protected User $customer;
+
     protected Service $service;
-    protected ShopBranch $branchA;
-    protected ShopBranch $branchB;
+
+    protected StoreBranch $branchA;
+
+    protected StoreBranch $branchB;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $role = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
 
-        $this->shop = Shop::create([
+        $this->store = Store::create([
             'owner_id' => $this->user->id,
-            'name' => 'Test Shop',
-            'slug' => 'test-shop',
+            'name' => 'Test Store',
+            'slug' => 'test-store',
             'address' => '123 Test St',
             'city' => 'Davao',
             'province' => 'Davao del Sur',
@@ -42,25 +47,25 @@ class AnalyticsTest extends TestCase
         ]);
 
         $this->customer = User::factory()->create();
-        $this->service = Service::create(['shop_id' => $this->shop->id, 'name' => 'Bespoke Suit']);
+        $this->service = Service::create(['store_id' => $this->store->id, 'name' => 'Bespoke Suit']);
 
-        $this->branchA = ShopBranch::create(['shop_id' => $this->shop->id, 'name' => 'Branch A', 'address' => 'A St', 'city' => 'Davao']);
-        $this->branchB = ShopBranch::create(['shop_id' => $this->shop->id, 'name' => 'Branch B', 'address' => 'B St', 'city' => 'Davao']);
+        $this->branchA = StoreBranch::create(['store_id' => $this->store->id, 'name' => 'Branch A', 'address' => 'A St', 'city' => 'Davao']);
+        $this->branchB = StoreBranch::create(['store_id' => $this->store->id, 'name' => 'Branch B', 'address' => 'B St', 'city' => 'Davao']);
     }
 
     private function makeOverdueJob(?int $branchId): JobOrder
     {
         return JobOrder::create([
-            'order_number'   => 'JO-' . Str::random(10),
-            'shop_id'        => $this->shop->id,
-            'shop_branch_id' => $branchId,
-            'customer_id'    => $this->customer->id,
-            'service_id'     => $this->service->id,
-            'status'         => 'pending',
+            'order_number' => 'JO-'.Str::random(10),
+            'store_id' => $this->store->id,
+            'store_branch_id' => $branchId,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'status' => 'pending',
             'payment_status' => 'unpaid',
-            'due_date'       => now()->subDay()->toDateString(),
-            'total_amount'   => 1000,
-            'balance'        => 1000,
+            'due_date' => now()->subDay()->toDateString(),
+            'total_amount' => 1000,
+            'balance' => 1000,
         ]);
     }
 
@@ -69,16 +74,16 @@ class AnalyticsTest extends TestCase
         $this->makeOverdueJob($this->branchA->id);
         $this->makeOverdueJob($this->branchB->id);
 
-        // No branch filter → both overdue/unpaid jobs are counted shop-wide.
+        // No branch filter → both overdue/unpaid jobs are counted store-wide.
         $this->actingAs($this->user)
-            ->getJson("/api/v1/shops/{$this->shop->id}/analytics")
+            ->getJson("/api/v1/stores/{$this->store->id}/analytics")
             ->assertStatus(200)
             ->assertJsonPath('data.overdue_jobs', 2)
             ->assertJsonPath('data.pending_deposit_jobs', 2);
 
         // Branch A filter → only Branch A's job. (Previously these KPIs ignored branch_id.)
         $this->actingAs($this->user)
-            ->getJson("/api/v1/shops/{$this->shop->id}/analytics?branch_id={$this->branchA->id}")
+            ->getJson("/api/v1/stores/{$this->store->id}/analytics?branch_id={$this->branchA->id}")
             ->assertStatus(200)
             ->assertJsonPath('data.overdue_jobs', 1)
             ->assertJsonPath('data.pending_deposit_jobs', 1);
@@ -88,9 +93,9 @@ class AnalyticsTest extends TestCase
     {
         // Branch A: a completed job with a payment later rejected as fraudulent.
         $completedJob = JobOrder::create([
-            'order_number' => 'JO-' . Str::random(10),
-            'shop_id' => $this->shop->id,
-            'shop_branch_id' => $this->branchA->id,
+            'order_number' => 'JO-'.Str::random(10),
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branchA->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'status' => 'completed',
@@ -108,9 +113,9 @@ class AnalyticsTest extends TestCase
 
         // Branch B: a cancelled job with a forfeited deposit already collected.
         $forfeitedJob = JobOrder::create([
-            'order_number' => 'JO-' . Str::random(10),
-            'shop_id' => $this->shop->id,
-            'shop_branch_id' => $this->branchB->id,
+            'order_number' => 'JO-'.Str::random(10),
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branchB->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'status' => 'cancelled',
@@ -125,7 +130,7 @@ class AnalyticsTest extends TestCase
         ]);
 
         $indexResponse = $this->actingAs($this->user)
-            ->getJson("/api/v1/shops/{$this->shop->id}/analytics?branch_id={$this->branchA->id}");
+            ->getJson("/api/v1/stores/{$this->store->id}/analytics?branch_id={$this->branchA->id}");
 
         // assertJsonPath() compares with assertSame(): PHP's json_encode()
         // drops the trailing .0 on whole-number floats (5000.0 -> "5000" in
@@ -138,7 +143,7 @@ class AnalyticsTest extends TestCase
         $this->assertEquals(0.0, $indexResponse->json('data.forfeited_deposit_amount'));
 
         $response = $this->actingAs($this->user)
-            ->getJson("/api/v1/shops/{$this->shop->id}/analytics/branches");
+            ->getJson("/api/v1/stores/{$this->store->id}/analytics/branches");
 
         $response->assertStatus(200);
         $rows = collect($response->json('data'));

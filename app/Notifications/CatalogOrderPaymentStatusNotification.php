@@ -2,11 +2,11 @@
 
 namespace App\Notifications;
 
+use App\Models\CatalogOrder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use App\Models\CatalogOrder;
 
 /**
  * Same gap as AppointmentPaymentStatusNotification, for the walk-in/RTW
@@ -18,6 +18,7 @@ class CatalogOrderPaymentStatusNotification extends Notification implements Shou
     use Queueable;
 
     public CatalogOrder $order;
+
     public string $status; // 'paid' or 'rejected'
 
     public function __construct(CatalogOrder $order, string $status)
@@ -29,9 +30,10 @@ class CatalogOrderPaymentStatusNotification extends Notification implements Shou
     public function via(object $notifiable): array
     {
         $channels = ['database'];
-        if ($notifiable->email && !str_starts_with($notifiable->email, 'walkin_')) {
+        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
             $channels[] = 'mail';
         }
+
         return $channels;
     }
 
@@ -40,14 +42,14 @@ class CatalogOrderPaymentStatusNotification extends Notification implements Shou
         $accepted = $this->status === 'paid';
         $amount = number_format((float) $this->order->total_amount, 2);
         $mail = (new MailMessage)
-            ->subject(($accepted ? 'Payment Confirmed' : 'Payment Not Accepted') . ' — Order #' . $this->order->id)
-            ->greeting('Hello ' . $notifiable->name . ',');
+            ->subject(($accepted ? 'Payment Confirmed' : 'Payment Not Accepted').' — Order #'.$this->order->id)
+            ->greeting('Hello '.$notifiable->name.',');
 
         if ($accepted) {
-            $mail->line('Your payment of ₱' . $amount . ' for order #' . $this->order->id . ' has been confirmed. Thank you!');
+            $mail->line('Your payment of ₱'.$amount.' for order #'.$this->order->id.' has been confirmed. Thank you!');
         } else {
-            $mail->line('Your payment of ₱' . $amount . ' for order #' . $this->order->id . ' could not be accepted.')
-                ->line('Please get in touch with the shop or resubmit your payment.');
+            $mail->line('Your payment of ₱'.$amount.' for order #'.$this->order->id.' could not be accepted.')
+                ->line('Please get in touch with the store or resubmit your payment.');
         }
 
         return $mail;
@@ -56,20 +58,21 @@ class CatalogOrderPaymentStatusNotification extends Notification implements Shou
     public function toArray(object $notifiable): array
     {
         $accepted = $this->status === 'paid';
-        $shop = $this->order->shop;
+        $store = $this->order->store;
+
         return [
-            'type' => 'catalog_order_payment_' . $this->status,
+            'type' => 'catalog_order_payment_'.$this->status,
             'title' => $accepted ? 'Payment Confirmed' : 'Payment Not Accepted',
             'message' => $accepted
-                ? 'Your payment for order #' . $this->order->id . ' has been confirmed.'
-                : 'Your payment for order #' . $this->order->id . ' was not accepted.',
+                ? 'Your payment for order #'.$this->order->id.' has been confirmed.'
+                : 'Your payment for order #'.$this->order->id.' was not accepted.',
             // No dedicated customer-facing detail page exists for a walk-in
             // catalog order (only JobOrder has one, via /account/orders) —
             // the list is the closest real destination.
             'action_url' => '/account/orders',
             'catalog_order_id' => $this->order->id,
-            'shop' => $shop ? [
-                'id' => $shop->id, 'name' => $shop->name, 'slug' => $shop->slug, 'logo_path' => $shop->logo_path,
+            'store' => $store ? [
+                'id' => $store->id, 'name' => $store->name, 'slug' => $store->slug, 'logo_path' => $store->logo_path,
             ] : null,
         ];
     }

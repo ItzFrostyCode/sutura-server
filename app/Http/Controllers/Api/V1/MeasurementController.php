@@ -3,28 +3,28 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Shop\StoreMeasurementRequest;
-use App\Models\Shop;
+use App\Http\Requests\Store\StoreMeasurementRequest;
 use App\Models\Measurement;
+use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class MeasurementController extends Controller
 {
     /**
-     * Cross-shop "My Measurements" for whoever is logged in — the customer
-     * counterpart to index() above, which is shop-scoped and staff/owner
+     * Cross-store "My Measurements" for whoever is logged in — the customer
+     * counterpart to index() above, which is store-scoped and staff/owner
      * only. Same "Measurement Obfuscation" privacy rule the doc corpus
      * describes (customer-module/customer/01_account_and_auth/26 §1) is
      * satisfied by construction here: this only ever returns rows where
      * customer_id is the caller's own id, so no other customer's body
      * measurements are ever reachable through this endpoint. Read-only —
-     * a customer can view what a shop's staff recorded, not edit it.
+     * a customer can view what a store's staff recorded, not edit it.
      */
     public function myMeasurements(Request $request): JsonResponse
     {
         $measurements = Measurement::where('customer_id', $request->user()->id)
-            ->with('shop:id,name,slug,logo_path')
+            ->with('store:id,name,slug,logo_path')
             ->orderBy('profile_name')
             ->orderBy('version')
             ->get();
@@ -35,13 +35,13 @@ class MeasurementController extends Controller
         ]);
     }
 
-    public function index(Shop $shop, Request $request): JsonResponse
+    public function index(Store $store, Request $request): JsonResponse
     {
         // Returns every version of every profile — the frontend groups these
-        // by profile_name and lets the shop owner switch between versions
+        // by profile_name and lets the store owner switch between versions
         // client-side (see MeasurementList's version selector), so history
         // has to be in this same response, not a separate endpoint.
-        $query = $shop->measurements()->with('customer:id,name,email');
+        $query = $store->measurements()->with('customer:id,name,email');
 
         if ($request->has('customer_id')) {
             $query->where('customer_id', $request->customer_id);
@@ -49,35 +49,35 @@ class MeasurementController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $query->get()
+            'data' => $query->get(),
         ]);
     }
 
-    public function store(StoreMeasurementRequest $request, Shop $shop): JsonResponse
+    public function store(StoreMeasurementRequest $request, Store $store): JsonResponse
     {
-        $measurement = $shop->measurements()->create($request->validated());
+        $measurement = $store->measurements()->create($request->validated());
 
         return response()->json([
             'success' => true,
-            'data' => $measurement->load('customer:id,name')
+            'data' => $measurement->load('customer:id,name'),
         ], 201);
     }
 
-    public function show(Shop $shop, Measurement $measurement): JsonResponse
+    public function show(Store $store, Measurement $measurement): JsonResponse
     {
-        if ($measurement->shop_id !== $shop->id) {
+        if ($measurement->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         return response()->json([
             'success' => true,
-            'data' => $measurement->load('customer:id,name')
+            'data' => $measurement->load('customer:id,name'),
         ]);
     }
 
-    public function update(Request $request, Shop $shop, Measurement $measurement): JsonResponse
+    public function update(Request $request, Store $store, Measurement $measurement): JsonResponse
     {
-        if ($measurement->shop_id !== $shop->id) {
+        if ($measurement->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -89,10 +89,10 @@ class MeasurementController extends Controller
         }
 
         $validated = $request->validate([
-            'source' => 'nullable|in:shop_owner,customer',
+            'source' => 'nullable|in:store_owner,customer',
             'metrics' => 'sometimes|array',
             'measurements' => 'sometimes|array',
-            'notes' => 'nullable|string'
+            'notes' => 'nullable|string',
         ]);
 
         if (isset($validated['measurements'])) {
@@ -102,12 +102,12 @@ class MeasurementController extends Controller
 
         // Saving an edit never overwrites the current row in place — it closes
         // out this version (superseded_at) and inserts the next one, so a
-        // shop owner can always look back at what a customer's measurements
+        // store owner can always look back at what a customer's measurements
         // were at an earlier fitting instead of losing that the moment it's
         // updated.
         $measurement->update(['superseded_at' => now()]);
 
-        $nextVersion = $shop->measurements()->create([
+        $nextVersion = $store->measurements()->create([
             'customer_id' => $measurement->customer_id,
             'source' => $validated['source'] ?? $measurement->source,
             'profile_name' => $measurement->profile_name,
@@ -118,27 +118,27 @@ class MeasurementController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $nextVersion->load('customer:id,name')
+            'data' => $nextVersion->load('customer:id,name'),
         ]);
     }
 
-    public function destroy(Shop $shop, Measurement $measurement): JsonResponse
+    public function destroy(Store $store, Measurement $measurement): JsonResponse
     {
-        if ($measurement->shop_id !== $shop->id) {
+        if ($measurement->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         // Deleting a profile removes its whole version history, not just the
         // current snapshot — otherwise old versions would be left orphaned
         // with no current row pointing at them.
-        Measurement::where('shop_id', $shop->id)
+        Measurement::where('store_id', $store->id)
             ->where('customer_id', $measurement->customer_id)
             ->where('profile_name', $measurement->profile_name)
             ->delete();
 
         return response()->json([
             'success' => true,
-            'message' => 'Measurement deleted successfully'
+            'message' => 'Measurement deleted successfully',
         ]);
     }
 }

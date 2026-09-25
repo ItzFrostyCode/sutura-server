@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class SubscriptionEvent extends Model
 {
     protected $fillable = [
-        'shop_id', 'shop_subscription_id', 'event_type', 'plan_id',
+        'store_id', 'store_subscription_id', 'event_type', 'plan_id',
         'previous_plan_id', 'billing_cycle', 'triggered_by', 'occurred_at',
     ];
 
@@ -16,14 +16,14 @@ class SubscriptionEvent extends Model
         'occurred_at' => 'datetime',
     ];
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function subscription(): BelongsTo
     {
-        return $this->belongsTo(ShopSubscription::class, 'shop_subscription_id');
+        return $this->belongsTo(StoreSubscription::class, 'store_subscription_id');
     }
 
     public function plan(): BelongsTo

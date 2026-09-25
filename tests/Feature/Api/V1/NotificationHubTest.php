@@ -2,9 +2,10 @@
 
 namespace Tests\Feature\Api\V1;
 
-use App\Models\User;
 use App\Models\Role;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -17,29 +18,30 @@ class NotificationHubTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $this->user = User::factory()->create();
     }
 
     private function createNotification(array $data = [], ?string $readAt = null): string
     {
         $id = (string) Str::uuid();
-        \Illuminate\Support\Facades\DB::table('notifications')->insert([
-            'id'              => $id,
-            'type'            => 'App\\Notifications\\NewJobOrderNotification',
+        DB::table('notifications')->insert([
+            'id' => $id,
+            'type' => 'App\\Notifications\\NewJobOrderNotification',
             'notifiable_type' => 'App\\Models\\User',
-            'notifiable_id'   => $this->user->id,
-            'data'            => json_encode(array_merge([
-                'type'          => 'new_job_order',
-                'title'         => 'New Job Order Created',
-                'message'       => 'Job order JO-1001 was created.',
-                'action_url'    => '/dashboard/jobs/1',
+            'notifiable_id' => $this->user->id,
+            'data' => json_encode(array_merge([
+                'type' => 'new_job_order',
+                'title' => 'New Job Order Created',
+                'message' => 'Job order JO-1001 was created.',
+                'action_url' => '/dashboard/jobs/1',
                 'customer_name' => 'Maria Clara',
             ], $data)),
-            'read_at'         => $readAt,
-            'created_at'      => now(),
-            'updated_at'      => now(),
+            'read_at' => $readAt,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
+
         return $id;
     }
 
@@ -52,20 +54,20 @@ class NotificationHubTest extends TestCase
         // Quick list (limit 30)
         $resQuick = $this->getJson('/api/v1/notifications');
         $resQuick->assertStatus(200)
-                 ->assertJsonPath('success', true)
-                 ->assertJsonPath('unread_count', 2);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('unread_count', 2);
 
         // Paginated list
         $resPaged = $this->getJson('/api/v1/notifications?page=1&per_page=1');
         $resPaged->assertStatus(200)
-                 ->assertJsonStructure([
-                     'success',
-                     'data',
-                     'meta' => ['current_page', 'last_page', 'per_page', 'total'],
-                     'unread_count',
-                 ])
-                 ->assertJsonPath('meta.total', 2)
-                 ->assertJsonPath('meta.last_page', 2);
+            ->assertJsonStructure([
+                'success',
+                'data',
+                'meta' => ['current_page', 'last_page', 'per_page', 'total'],
+                'unread_count',
+            ])
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.last_page', 2);
     }
 
     public function test_can_show_single_notification(): void
@@ -89,7 +91,7 @@ class NotificationHubTest extends TestCase
         // Bulk read
         $resRead = $this->postJson('/api/v1/notifications/bulk-read', ['ids' => [$id1, $id2]]);
         $resRead->assertStatus(200)
-                ->assertJsonPath('unread_count', 1);
+            ->assertJsonPath('unread_count', 1);
 
         // Bulk delete
         $resDelete = $this->postJson('/api/v1/notifications/bulk-delete', ['ids' => [$id1, $id2]]);
@@ -120,8 +122,8 @@ class NotificationHubTest extends TestCase
         // Get defaults
         $resGet = $this->getJson('/api/v1/notifications/preferences');
         $resGet->assertStatus(200)
-               ->assertJsonPath('success', true)
-               ->assertJsonStructure(['data' => [['id', 'event', 'email', 'mobile']]]);
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['data' => [['id', 'event', 'email', 'mobile']]]);
 
         // Update preferences
         $customPrefs = [
@@ -130,12 +132,12 @@ class NotificationHubTest extends TestCase
 
         $resUpdate = $this->postJson('/api/v1/notifications/preferences', ['preferences' => $customPrefs]);
         $resUpdate->assertStatus(200)
-                  ->assertJsonPath('success', true)
-                  ->assertJsonPath('data.0.email', false);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.0.email', false);
 
         // Re-get confirms persistence
         $resReGet = $this->getJson('/api/v1/notifications/preferences');
         $resReGet->assertStatus(200)
-                 ->assertJsonPath('data.0.email', false);
+            ->assertJsonPath('data.0.email', false);
     }
 }

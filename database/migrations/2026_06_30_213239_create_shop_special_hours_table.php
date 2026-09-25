@@ -11,9 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('shop_special_hours', function (Blueprint $table) {
+        Schema::create('store_special_hours', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('store_id')->constrained()->cascadeOnDelete();
             $table->string('title');
             $table->date('start_date');
             $table->date('end_date');
@@ -30,6 +30,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('shop_special_hours');
+        Schema::dropIfExists('store_special_hours');
     }
 };

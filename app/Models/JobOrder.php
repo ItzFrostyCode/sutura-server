@@ -3,8 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Notifications\DatabaseNotification;
 
 class JobOrder extends Model
 {
@@ -30,6 +33,13 @@ class JobOrder extends Model
         'pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
         'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
         'completed', 'cancelled', 'rejected', 'on_hold',
+        // Repair Override short pipeline (isRepairOnly() below) — 'pending',
+        // 'ready_for_pickup', 'completed', 'cancelled', 'rejected', 'on_hold'
+        // are shared with the custom-tailoring pipeline above; these three are
+        // repair-specific. Values only — the actual status-transition logic a
+        // repair job moves through is Staff/Owner operational work, not built
+        // here (docs/REPAIR-WORKFLOW.md §5, cross-role dependency).
+        'queued', 'in_repair', 'qc_check',
     ];
 
     /**
@@ -58,36 +68,51 @@ class JobOrder extends Model
     public const STAGES_REQUIRING_DOWNPAYMENT = [
         'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
         'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
+        // Repair Override pipeline — same "no material committed until a
+        // downpayment is logged" rule applies once a repair actually starts
+        // (not at 'pending'/'queued', mirroring 'pending'/'design' being
+        // exempt above). docs/REPAIR-WORKFLOW.md §5.
+        'in_repair', 'qc_check',
     ];
 
     /**
      * Who provided the fabric/garment being worked on — the digital equivalent
-     * of a shop physically taping a fabric swatch onto a paper logbook entry so
-     * staff don't confuse a customer's own material with shop stock. Applies
+     * of a store physically taping a fabric swatch onto a paper logbook entry so
+     * staff don't confuse a customer's own material with store stock. Applies
      * across service types, not just alterations (which already separately
      * track pre-existing damage on an existing garment via custom_order_data).
      */
-    public const MATERIAL_SOURCES = ['shop_supplied', 'customer_supplied'];
+    public const MATERIAL_SOURCES = ['store_supplied', 'customer_supplied'];
+
+    /**
+     * Factual condition of a customer-supplied material, set by the
+     * authorized store-side role after physically assessing it — meaningful
+     * only when material_source = 'customer_supplied'. The system records
+     * the fact only; liability/compensation decisions are never derived from
+     * this value. See docs/EMERGENCY-WORKFLOW.md §7.
+     */
+    public const CUSTOMER_MATERIAL_STATUSES = ['safe', 'damaged', 'lost', 'returned'];
 
     /**
      * Categorizes why a job order was cancelled. `forfeited_deposit_abandoned`
      * is the one with real financial-reporting consequences (see
      * AnalyticsController) — the customer went uncontactable after fabric was
-     * already cut, and per shop policy the deposit already collected is kept,
+     * already cut, and per store policy the deposit already collected is kept,
      * not refunded. The other three carry no reversal or reporting logic.
      */
     public const CANCELLATION_REASONS = [
-        'customer_request', 'shop_unable_to_fulfill', 'forfeited_deposit_abandoned', 'other',
+        'customer_request', 'store_unable_to_fulfill', 'forfeited_deposit_abandoned', 'other',
     ];
 
     protected $fillable = [
-        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'shop_id', 'shop_branch_id', 'customer_id', 'service_id',
+        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id',
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
-        'is_outsourced', 'partner_shop_name', 'outsourcing_cost', 'is_rush', 'rush_fee', 'completion_photo_url',
+        'is_outsourced', 'partner_store_name', 'outsourcing_cost', 'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source', 'garment_category',
         'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
+        'estimated_ready_at', 'customer_material_status',
     ];
 
     protected $casts = [
@@ -97,6 +122,10 @@ class JobOrder extends Model
         // Eloquent's full datetime format on save, silently writing a
         // "00:00:00" time component into a column declared as a pure DATE.
         'due_date' => 'date:Y-m-d',
+        // Time-of-day granularity due_date deliberately doesn't have — see
+        // docs/REPAIR-WORKFLOW.md §6. A real 'datetime' cast here on purpose,
+        // unlike due_date above.
+        'estimated_ready_at' => 'datetime',
         'custom_order_data' => 'array',
         'reference_images' => 'array',
         'is_outsourced' => 'boolean',
@@ -109,9 +138,9 @@ class JobOrder extends Model
         'progress_photos' => 'array',
     ];
 
-    public function shop(): BelongsTo
+    public function store(): BelongsTo
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function customer(): BelongsTo
@@ -129,11 +158,10 @@ class JobOrder extends Model
         return $this->belongsTo(CatalogItem::class, 'catalog_item_id');
     }
 
-    public function appointments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    public function appointments(): HasMany
     {
         return $this->hasMany(Appointment::class);
     }
-
 
     public function assignedStaff(): BelongsTo
     {
@@ -147,25 +175,25 @@ class JobOrder extends Model
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(ShopBranch::class, 'shop_branch_id');
+        return $this->belongsTo(StoreBranch::class, 'store_branch_id');
     }
 
-    public function payments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
     }
 
-    public function materials(): \Illuminate\Database\Eloquent\Relations\HasMany
+    public function materials(): HasMany
     {
         return $this->hasMany(OrderMaterial::class);
     }
 
-    public function staffStages(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function staffStages(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'job_order_staff', 'job_order_id', 'user_id')
-                    ->using(JobOrderStaff::class)
-                    ->withPivot('stage', 'assigned_at', 'completed_at')
-                    ->withTimestamps();
+            ->using(JobOrderStaff::class)
+            ->withPivot('stage', 'assigned_at', 'completed_at')
+            ->withTimestamps();
     }
 
     /**
@@ -176,11 +204,11 @@ class JobOrder extends Model
      */
     public function isBulkOrder(): bool
     {
-        if (!empty($this->custom_order_data['team_roster'] ?? null)) {
+        if (! empty($this->custom_order_data['team_roster'] ?? null)) {
             return true;
         }
 
-        if (!empty($this->custom_order_data['size_breakdown'] ?? null)) {
+        if (! empty($this->custom_order_data['size_breakdown'] ?? null)) {
             return true;
         }
 
@@ -188,8 +216,28 @@ class JobOrder extends Model
     }
 
     /**
+     * Repair Override signal, mirroring isBulkOrder() above — a job whose
+     * garment_category is 'alteration_repair', or whose linked Service
+     * carries the alteration_repair type, is a candidate for the short
+     * repair pipeline (pending -> queued -> in_repair -> qc_check ->
+     * ready_for_pickup -> completed) instead of the full custom-tailoring
+     * one. Read-only signal only — this model does not itself drive any
+     * automatic status transition; which stage a repair job is actually in
+     * remains a Staff/Owner operational decision (docs/REPAIR-WORKFLOW.md §5,
+     * docs/STAFF-WORKFLOW.md §8, cross-role dependency).
+     */
+    public function isRepairOnly(): bool
+    {
+        if ($this->garment_category === 'alteration_repair') {
+            return true;
+        }
+
+        return $this->service?->hasType(Service::TYPE_ALTERATION_REPAIR) ?? false;
+    }
+
+    /**
      * Notifications referencing a job order (NewJobOrderNotification,
-     * JobStatusUpdatedNotification, ShopActivityNotification, etc.) are
+     * JobStatusUpdatedNotification, StoreActivityNotification, etc.) are
      * plain JSON blobs with no foreign key to this table — deleting the job
      * used to leave them behind as dead links that 404 the moment someone
      * clicks through. Cleaned up here instead, on both soft and force delete.
@@ -197,7 +245,7 @@ class JobOrder extends Model
     protected static function booted(): void
     {
         static::deleting(function (self $jobOrder) {
-            \Illuminate\Notifications\DatabaseNotification::whereJsonContains('data->job_order_id', $jobOrder->id)->delete();
+            DatabaseNotification::whereJsonContains('data->job_order_id', $jobOrder->id)->delete();
         });
     }
 }

@@ -3,17 +3,17 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Shop;
 use App\Models\ServicePackage;
+use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class ServicePackageController extends Controller
 {
-    public function index(Shop $shop): JsonResponse
+    public function index(Store $store): JsonResponse
     {
-        $packages = $shop->servicePackages()->with('services')->get();
+        $packages = $store->servicePackages()->with('services')->get();
 
         return response()->json([
             'success' => true,
@@ -22,14 +22,14 @@ class ServicePackageController extends Controller
     }
 
     /**
-     * Publicly accessible list of a shop's active packages for its storefront page.
+     * Publicly accessible list of a store's active packages for its storefront page.
      */
-    public function publicIndex(Shop $shop): JsonResponse
+    public function publicIndex(Store $store): JsonResponse
     {
-        $packages = $shop->servicePackages()
+        $packages = $store->servicePackages()
             ->where('is_active', true)
             ->with('services:id,name,base_price')
-            ->get(['id', 'shop_id', 'name', 'description', 'bundle_price']);
+            ->get(['id', 'store_id', 'name', 'description', 'bundle_price']);
 
         return response()->json([
             'success' => true,
@@ -37,11 +37,11 @@ class ServicePackageController extends Controller
         ]);
     }
 
-    public function store(Request $request, Shop $shop): JsonResponse
+    public function store(Request $request, Store $store): JsonResponse
     {
-        $validated = $this->validatePackage($request, $shop);
+        $validated = $this->validatePackage($request, $store);
 
-        $package = $shop->servicePackages()->create([
+        $package = $store->servicePackages()->create([
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
             'bundle_price' => $validated['bundle_price'] ?? null,
@@ -56,13 +56,13 @@ class ServicePackageController extends Controller
         ], 201);
     }
 
-    public function update(Request $request, Shop $shop, ServicePackage $servicePackage): JsonResponse
+    public function update(Request $request, Store $store, ServicePackage $servicePackage): JsonResponse
     {
-        if ($servicePackage->shop_id !== $shop->id) {
+        if ($servicePackage->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $validated = $this->validatePackage($request, $shop);
+        $validated = $this->validatePackage($request, $store);
 
         $servicePackage->update([
             'name' => $validated['name'],
@@ -79,9 +79,9 @@ class ServicePackageController extends Controller
         ]);
     }
 
-    public function destroy(Shop $shop, ServicePackage $servicePackage): JsonResponse
+    public function destroy(Store $store, ServicePackage $servicePackage): JsonResponse
     {
-        if ($servicePackage->shop_id !== $shop->id) {
+        if ($servicePackage->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
@@ -92,9 +92,9 @@ class ServicePackageController extends Controller
 
     /**
      * A package only makes sense as a bundle of 2+ real services belonging to
-     * this shop — a single-service "package" is just that service.
+     * this store — a single-service "package" is just that service.
      */
-    private function validatePackage(Request $request, Shop $shop): array
+    private function validatePackage(Request $request, Store $store): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -107,7 +107,7 @@ class ServicePackageController extends Controller
             // only ever bundling one real service (sync() silently dedupes
             // the pivot), defeating the "2+ services" requirement entirely.
             'service_ids' => ['required', 'array', 'min:2'],
-            'service_ids.*' => ['integer', 'distinct', Rule::exists('services', 'id')->where('shop_id', $shop->id)],
+            'service_ids.*' => ['integer', 'distinct', Rule::exists('services', 'id')->where('store_id', $store->id)],
         ]);
     }
 }

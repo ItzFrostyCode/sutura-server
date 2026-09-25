@@ -2,36 +2,37 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use App\Models\Shop;
+use App\Models\Store;
 use App\Notifications\UnclaimedPickupsNotification;
+use Illuminate\Console\Command;
 
 class NotifyUnclaimedPickups extends Command
 {
     protected $signature = 'app:notify-unclaimed-pickups';
 
-    protected $description = 'Notify each shop owner once daily if they have job orders sitting ready_for_pickup 14+ days — turns the passive unclaimed_pickups Reports list into a proactive alert.';
+    protected $description = 'Notify each store owner once daily if they have job orders sitting ready_for_pickup 14+ days — turns the passive unclaimed_pickups Reports list into a proactive alert.';
 
     public function handle(): int
     {
         $notified = 0;
 
-        Shop::where('status', 'approved')->whereNull('deleted_at')->each(function (Shop $shop) use (&$notified) {
+        Store::where('status', 'approved')->whereNull('deleted_at')->each(function (Store $store) use (&$notified) {
             // Same 14-day threshold and query shape as AnalyticsController::index()'s
             // $unclaimedPickups list.
-            $unclaimedCount = $shop->jobOrders()
+            $unclaimedCount = $store->jobOrders()
                 ->where('status', 'ready_for_pickup')
                 ->whereNotNull('ready_for_pickup_at')
                 ->where('ready_for_pickup_at', '<=', now()->subDays(14))
                 ->count();
 
-            if ($unclaimedCount > 0 && $shop->owner) {
-                $shop->owner->notify(new UnclaimedPickupsNotification($shop, $unclaimedCount));
+            if ($unclaimedCount > 0 && $store->owner) {
+                $store->owner->notify(new UnclaimedPickupsNotification($store, $unclaimedCount));
                 $notified++;
             }
         });
 
-        $this->info("Notified {$notified} shop owner(s) with unclaimed pickups.");
+        $this->info("Notified {$notified} store owner(s) with unclaimed pickups.");
+
         return self::SUCCESS;
     }
 }

@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             // Polymorphic (viewable_type/viewable_id) rather than three
-            // nullable FKs — one row shape covers Shop/CatalogItem/Service
+            // nullable FKs — one row shape covers Store/CatalogItem/Service
             // alike, same pattern AuditLog already uses in this codebase.
             $table->morphs('viewable');
             // Separate from created_at: re-viewing something already in the

@@ -16,7 +16,7 @@ return new class extends Migration
         // string(), from the start: real cloud storage URLs (domain + bucket +
         // encoded filename) routinely exceed varchar(255), a bug already hit
         // and fixed once on logo_path/catalog images (see CLAUDE.md).
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->text('gcash_qr_path')->nullable()->after('bank_account_name');
             $table->text('bank_qr_path')->nullable()->after('gcash_qr_path');
         });
@@ -27,7 +27,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('shops', function (Blueprint $table) {
+        Schema::table('stores', function (Blueprint $table) {
             $table->dropColumn(['gcash_qr_path', 'bank_qr_path']);
         });
     }

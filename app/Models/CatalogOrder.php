@@ -2,16 +2,16 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 class CatalogOrder extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'shop_id',
-        'shop_branch_id',
+        'store_id',
+        'store_branch_id',
         'catalog_item_id',
         'selected_size',
         'customer_id',
@@ -31,14 +31,14 @@ class CatalogOrder extends Model
         'discount_amount' => 'decimal:2',
     ];
 
-    public function shop()
+    public function store()
     {
-        return $this->belongsTo(Shop::class);
+        return $this->belongsTo(Store::class);
     }
 
     public function branch()
     {
-        return $this->belongsTo(ShopBranch::class, 'shop_branch_id');
+        return $this->belongsTo(StoreBranch::class, 'store_branch_id');
     }
 
     public function catalogItem()

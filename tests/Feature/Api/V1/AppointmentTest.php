@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\Api\V1;
 
-use App\Models\User;
-use App\Models\Shop;
-use App\Models\Service;
 use App\Models\Appointment;
 use App\Models\Role;
+use App\Models\Service;
+use App\Models\Store;
+use App\Models\User;
+use App\Notifications\AppointmentStatusNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 class AppointmentTest extends TestCase
@@ -15,42 +17,45 @@ class AppointmentTest extends TestCase
     use RefreshDatabase;
 
     protected User $user;
-    protected Shop $shop;
+
+    protected Store $store;
+
     protected User $customer;
+
     protected Service $service;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $role = Role::create(['name' => 'shop_owner', 'description' => 'Shop Owner']);
+        $role = Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
         $this->user = User::factory()->create();
         $this->user->roles()->attach($role);
 
-        $this->shop = Shop::create([
+        $this->store = Store::create([
             'owner_id' => $this->user->id,
-            'name' => 'Test Shop',
-            'slug' => 'test-shop',
+            'name' => 'Test Store',
+            'slug' => 'test-store',
             'address' => '123 Test St',
             'city' => 'Manila',
             'province' => 'Metro Manila',
-            'status' => 'approved'
+            'status' => 'approved',
         ]);
 
         $this->customer = User::factory()->create();
         $this->customer->roles()->attach($role);
 
         $this->service = Service::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'name' => 'Bespoke Suit',
-            'base_duration_days' => 14
+            'base_duration_days' => 14,
         ]);
     }
 
     public function test_fitting_notes_can_be_set_via_general_update()
     {
         $appointment = Appointment::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'appointment_type' => 'consultation',
@@ -60,7 +65,7 @@ class AppointmentTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->putJson(
-            "/api/v1/shops/{$this->shop->id}/appointments/{$appointment->id}",
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
             ['fitting_notes' => 'Take in the waist, shorten sleeves by 1 inch.']
         );
 
@@ -75,7 +80,7 @@ class AppointmentTest extends TestCase
     public function test_fitting_notes_can_be_set_when_completing_an_appointment()
     {
         $appointment = Appointment::create([
-            'shop_id' => $this->shop->id,
+            'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
             'service_id' => $this->service->id,
             'appointment_type' => 'consultation',
@@ -85,7 +90,7 @@ class AppointmentTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/appointments/{$appointment->id}/complete",
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}/complete",
             ['outcome' => 'completed', 'fitting_notes' => 'Customer wants a looser collar.']
         );
 
@@ -103,22 +108,22 @@ class AppointmentTest extends TestCase
 
         // First customer books online -> creates pending appointment
         Appointment::create([
-            'shop_id'          => $this->shop->id,
-            'customer_id'      => $this->customer->id,
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
             'appointment_type' => 'consultation',
-            'intake_channel'   => 'online',
-            'scheduled_at'     => $slotTime,
+            'intake_channel' => 'online',
+            'scheduled_at' => $slotTime,
             'duration_minutes' => 30,
-            'status'           => 'pending',
+            'status' => 'pending',
         ]);
 
         // Second online customer attempts to book the exact same slot
-        $response = $this->postJson("/api/v1/catalog/{$this->shop->slug}/book", [
-            'name'             => 'Second Customer',
-            'email'            => 'second@example.com',
-            'phone'            => '09123456789',
+        $response = $this->postJson("/api/v1/catalog/{$this->store->slug}/book", [
+            'name' => 'Second Customer',
+            'email' => 'second@example.com',
+            'phone' => '09123456789',
             'appointment_type' => 'consultation',
-            'scheduled_at'     => $slotTime->format('Y-m-d H:i:s'),
+            'scheduled_at' => $slotTime->format('Y-m-d H:i:s'),
             'duration_minutes' => 30,
         ]);
 
@@ -131,45 +136,45 @@ class AppointmentTest extends TestCase
 
     public function test_walkin_appointment_takes_precedence_over_pending_online_booking_and_preempts_it()
     {
-        \Illuminate\Support\Facades\Notification::fake();
+        Notification::fake();
 
         $slotTime = now()->addDays(2)->setTime(15, 0, 0);
 
         // Customer booked online -> pending
         $pendingAppointment = Appointment::create([
-            'shop_id'          => $this->shop->id,
-            'customer_id'      => $this->customer->id,
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
             'appointment_type' => 'consultation',
-            'intake_channel'   => 'online',
-            'scheduled_at'     => $slotTime,
+            'intake_channel' => 'online',
+            'scheduled_at' => $slotTime,
             'duration_minutes' => 30,
-            'status'           => 'pending',
+            'status' => 'pending',
         ]);
 
         // Walk-in client arrives at the counter ("source of truth is ang walkin kung sino ang makauna")
         $walkInCustomer = User::factory()->create();
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/appointments",
+            "/api/v1/stores/{$this->store->id}/appointments",
             [
-                'customer_id'      => $walkInCustomer->id,
+                'customer_id' => $walkInCustomer->id,
                 'appointment_type' => 'consultation',
-                'scheduled_at'     => $slotTime->format('Y-m-d H:i:s'),
+                'scheduled_at' => $slotTime->format('Y-m-d H:i:s'),
                 'duration_minutes' => 30,
             ]
         );
 
         $response->assertStatus(201);
         $response->assertJson([
-            'success'         => true,
+            'success' => true,
             'preempted_count' => 1,
         ]);
 
         // Verify walk-in is confirmed immediately
         $this->assertDatabaseHas('appointments', [
-            'customer_id'    => $walkInCustomer->id,
+            'customer_id' => $walkInCustomer->id,
             'intake_channel' => 'walk_in',
-            'status'         => 'confirmed',
+            'status' => 'confirmed',
         ]);
 
         // Verify pending appointment was preempted and flagged with Walk-in Priority
@@ -179,16 +184,16 @@ class AppointmentTest extends TestCase
 
         // Verify audit log
         $this->assertDatabaseHas('audit_logs', [
-            'shop_id'    => $this->shop->id,
-            'action'     => 'appointment_preempted_by_walk_in',
+            'store_id' => $this->store->id,
+            'action' => 'appointment_preempted_by_walk_in',
             'model_type' => Appointment::class,
-            'model_id'   => $pendingAppointment->id,
+            'model_id' => $pendingAppointment->id,
         ]);
 
         // Verify notification sent to online customer
-        \Illuminate\Support\Facades\Notification::assertSentTo(
+        Notification::assertSentTo(
             $this->customer,
-            \App\Notifications\AppointmentStatusNotification::class
+            AppointmentStatusNotification::class
         );
     }
 
@@ -198,23 +203,23 @@ class AppointmentTest extends TestCase
 
         // An already confirmed appointment exists on that slot
         Appointment::create([
-            'shop_id'          => $this->shop->id,
-            'customer_id'      => $this->customer->id,
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
             'appointment_type' => 'consultation',
-            'intake_channel'   => 'online',
-            'scheduled_at'     => $slotTime,
+            'intake_channel' => 'online',
+            'scheduled_at' => $slotTime,
             'duration_minutes' => 30,
-            'status'           => 'confirmed',
+            'status' => 'confirmed',
         ]);
 
         $walkInCustomer = User::factory()->create();
 
         $response = $this->actingAs($this->user)->postJson(
-            "/api/v1/shops/{$this->shop->id}/appointments",
+            "/api/v1/stores/{$this->store->id}/appointments",
             [
-                'customer_id'      => $walkInCustomer->id,
+                'customer_id' => $walkInCustomer->id,
                 'appointment_type' => 'consultation',
-                'scheduled_at'     => $slotTime->format('Y-m-d H:i:s'),
+                'scheduled_at' => $slotTime->format('Y-m-d H:i:s'),
                 'duration_minutes' => 30,
             ]
         );

@@ -1,42 +1,54 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\V1\AuthController;
-use App\Http\Controllers\Api\V1\ShopController;
-use App\Http\Controllers\Api\V1\Admin\ShopController as AdminShopController;
+use App\Http\Controllers\Api\V1\Admin\StoreController as AdminStoreController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
-use App\Http\Controllers\Api\V1\StaffController;
-use App\Http\Controllers\Api\V1\ServiceController;
-use App\Http\Controllers\Api\V1\ShopSpecialHourController;
-use App\Http\Controllers\Api\V1\AppointmentController;
-use App\Http\Controllers\Api\V1\MeasurementController;
-use App\Http\Controllers\Api\V1\JobOrderController;
-use App\Http\Controllers\Api\V1\AuditLogController;
+use App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController;
 use App\Http\Controllers\Api\V1\AnalyticsController;
+use App\Http\Controllers\Api\V1\AppointmentController;
+use App\Http\Controllers\Api\V1\AuditLogController;
+use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CatalogController;
-use App\Http\Controllers\Api\V1\FileUploadController;
+use App\Http\Controllers\Api\V1\CatalogInteractionController;
 use App\Http\Controllers\Api\V1\CustomerController;
-use App\Http\Controllers\Api\V1\PublicBookingController;
+use App\Http\Controllers\Api\V1\FileUploadController;
+use App\Http\Controllers\Api\V1\JobOrderController;
+use App\Http\Controllers\Api\V1\JobOrderTrackingController;
+use App\Http\Controllers\Api\V1\MeasurementController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\ProfileController;
+use App\Http\Controllers\Api\V1\PublicBookingController;
+use App\Http\Controllers\Api\V1\RecentlyViewedController;
+use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\ServicePackageController;
+use App\Http\Controllers\Api\V1\ServiceReviewController;
+use App\Http\Controllers\Api\V1\StaffController;
+use App\Http\Controllers\Api\V1\StoreBranchController;
+use App\Http\Controllers\Api\V1\StoreController;
+use App\Http\Controllers\Api\V1\StorePostController;
+use App\Http\Controllers\Api\V1\StoreReviewController;
+use App\Http\Controllers\Api\V1\StoreSpecialHourController;
+use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\SupportTicketController;
+use App\Http\Controllers\Api\V1\SystemNewsController;
+use App\Http\Controllers\CatalogOrderController;
+use Illuminate\Support\Facades\Route;
 
-if (!defined('MEASUREMENT_DETAIL_ROUTE')) {
+if (! defined('MEASUREMENT_DETAIL_ROUTE')) {
     define('MEASUREMENT_DETAIL_ROUTE', '/measurements/{measurement}');
 }
-if (!defined('JOB_DETAIL_ROUTE')) {
+if (! defined('JOB_DETAIL_ROUTE')) {
     define('JOB_DETAIL_ROUTE', '/jobs/{jobOrder}');
 }
-if (!defined('TICKETS_ROUTE')) {
+if (! defined('TICKETS_ROUTE')) {
     define('TICKETS_ROUTE', '/tickets');
 }
-if (!defined('TICKETS_DETAIL_ROUTE')) {
+if (! defined('TICKETS_DETAIL_ROUTE')) {
     define('TICKETS_DETAIL_ROUTE', '/tickets/{ticket}');
 }
-if (!defined('CUSTOMER_DETAIL_ROUTE')) {
+if (! defined('CUSTOMER_DETAIL_ROUTE')) {
     define('CUSTOMER_DETAIL_ROUTE', '/customers/{customer}');
 }
-if (!defined('STAFF_DETAIL_ROUTE')) {
+if (! defined('STAFF_DETAIL_ROUTE')) {
     define('STAFF_DETAIL_ROUTE', '/staff/{staff}');
 }
 
@@ -57,26 +69,26 @@ Route::prefix('v1')->group(function () {
     // page yet (see the loop's memory note for the pending frontend task).
     // Throttled per IP, same reasoning as the auth routes above, though the
     // 8-char code space makes brute-forcing impractical either way.
-    Route::get('/track/{trackingCode}', [\App\Http\Controllers\Api\V1\JobOrderTrackingController::class, 'show'])->middleware('throttle:20,1,track');
+    Route::get('/track/{trackingCode}', [JobOrderTrackingController::class, 'show'])->middleware('throttle:20,1,track');
 
     // Public Catalog & Booking
-    Route::get('/catalog/{shop:slug}', [CatalogController::class, 'index']);
-    Route::get('/catalog/{shop:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
-    Route::get('/catalog/{shop:slug}/appointments', [PublicBookingController::class, 'getAppointments']);
+    Route::get('/catalog/{store:slug}', [CatalogController::class, 'index']);
+    Route::get('/catalog/{store:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
+    Route::get('/catalog/{store:slug}/appointments', [PublicBookingController::class, 'getAppointments']);
     // Rate limit: 10 bookings per minute per IP — high enough for a real
     // customer retrying after a validation error, low enough to slow a
-    // spam bot hitting every shop's /book endpoint.
-    Route::post('/catalog/{shop:slug}/book', [PublicBookingController::class, 'submit'])->middleware('throttle:10,1,book');
-    Route::get('/catalog/{shop:slug}/{catalog}', [CatalogController::class, 'show']);
-    Route::post('/catalog/{shop:slug}/{catalogItem}/view', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'incrementViews']);
+    // spam bot hitting every store's /book endpoint.
+    Route::post('/catalog/{store:slug}/book', [PublicBookingController::class, 'submit'])->middleware('throttle:10,1,book');
+    Route::get('/catalog/{store:slug}/{catalog}', [CatalogController::class, 'show']);
+    Route::post('/catalog/{store:slug}/{catalogItem}/view', [CatalogInteractionController::class, 'incrementViews']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
-        
+
         // System News — real commit history from both repos, not a
         // hardcoded changelog (see SystemNewsController for why).
-        Route::get('/system-news', [\App\Http\Controllers\Api\V1\SystemNewsController::class, 'index']);
+        Route::get('/system-news', [SystemNewsController::class, 'index']);
 
         // Notifications
         Route::get('/notifications', [NotificationController::class, 'index']);
@@ -91,68 +103,66 @@ Route::prefix('v1')->group(function () {
         Route::post('/notifications/{id}/unread', [NotificationController::class, 'markAsUnread']);
         Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
-        // Catalog Interactions (Any authenticated user) — {shop:slug}, not a
-        // bare {shop}: every customer-facing page only ever has the shop's
-        // SLUG in its URL/state (see shop/[shop_id]/page.tsx — that param is
-        // actually the slug), never its numeric id. A bare {shop} binds by
+        // Catalog Interactions (Any authenticated user) — {store:slug}, not a
+        // bare {store}: every customer-facing page only ever has the store's
+        // SLUG in its URL/state (see store/[store_id]/page.tsx — that param is
+        // actually the slug), never its numeric id. A bare {store} binds by
         // primary key, so calling any of these with a slug 404'd outright —
         // confirmed live (curl) before this fix. toggleSave/rate/report all
         // shared this bug; fixed together since they're the same call shape.
-        Route::post('/shops/{shop:slug}/catalog/{catalogItem}/save', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'toggleSave']);
-        Route::post('/shops/{shop:slug}/catalog/{catalogItem}/reviews', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'rate']);
-        Route::post('/shops/{shop:slug}/catalog/{catalogItem}/report', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'report']);
+        Route::post('/stores/{store:slug}/catalog/{catalogItem}/save', [CatalogInteractionController::class, 'toggleSave']);
+        Route::post('/stores/{store:slug}/catalog/{catalogItem}/reviews', [CatalogInteractionController::class, 'rate']);
+        Route::post('/stores/{store:slug}/catalog/{catalogItem}/report', [CatalogInteractionController::class, 'report']);
 
-        // Shop Interactions (Any authenticated user)
-        Route::get('/shops/{shop:slug}/my-review', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'myRating']);
-        Route::get('/shops/{shop}/my-review', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'myRating']);
-        Route::post('/shops/{shop:slug}/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'store']);
-        Route::post('/shops/{shop}/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'store']);
-        Route::delete('/shops/{shop:slug}/reviews/mine', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'unrate']);
-        Route::delete('/shops/{shop}/reviews/mine', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'unrate']);
-        Route::post('/shops/{shop:slug}/repair-requests', [\App\Http\Controllers\Api\V1\JobOrderController::class, 'customerRepairRequest']);
-        Route::post('/shops/{shop:slug}/bulk-orders', [\App\Http\Controllers\Api\V1\JobOrderController::class, 'customerBulkOrder']);
-        Route::post('/shops/{shop:slug}/made-to-order', [\App\Http\Controllers\Api\V1\JobOrderController::class, 'customerMadeToOrder']);
-        
-        // My Orders / My Appointments — cross-shop, for whoever is logged
+        // Service Ratings (Any authenticated user) — star-only, see ServiceReviewController.
+        Route::post('/stores/{store:slug}/services/{service}/reviews', [ServiceReviewController::class, 'rate']);
+        Route::get('/stores/{store:slug}/services/{service}/my-review', [ServiceReviewController::class, 'myRating']);
+
+        // Store Interactions (Any authenticated user)
+        Route::get('/stores/{store:slug}/my-review', [StoreReviewController::class, 'myRating']);
+        Route::get('/stores/{store}/my-review', [StoreReviewController::class, 'myRating']);
+        Route::post('/stores/{store:slug}/reviews', [StoreReviewController::class, 'store']);
+        Route::post('/stores/{store}/reviews', [StoreReviewController::class, 'store']);
+        Route::delete('/stores/{store:slug}/reviews/mine', [StoreReviewController::class, 'unrate']);
+        Route::delete('/stores/{store}/reviews/mine', [StoreReviewController::class, 'unrate']);
+        Route::post('/stores/{store:slug}/repair-requests', [JobOrderController::class, 'customerRepairRequest']);
+        Route::post('/stores/{store:slug}/bulk-orders', [JobOrderController::class, 'customerBulkOrder']);
+        Route::post('/stores/{store:slug}/made-to-order', [JobOrderController::class, 'customerMadeToOrder']);
+
+        // My Orders / My Appointments — cross-store, for whoever is logged
         // in (Objective 5: "customers monitor their order progress from
         // placement to pickup"). No role gate: filters by the authenticated
         // user's own id as customer_id, same as /auth/me isn't role-gated.
-        Route::get('/my-orders', [\App\Http\Controllers\Api\V1\JobOrderTrackingController::class, 'myOrders']);
-        Route::get('/my-orders/{jobOrder}', [\App\Http\Controllers\Api\V1\JobOrderTrackingController::class, 'myOrderDetail']);
+        Route::get('/my-orders', [JobOrderTrackingController::class, 'myOrders']);
+        Route::get('/my-orders/{jobOrder}', [JobOrderTrackingController::class, 'myOrderDetail']);
         Route::get('/my-appointments', [AppointmentController::class, 'myAppointments']);
         Route::get('/my-appointments/{appointment}', [AppointmentController::class, 'myAppointmentDetail']);
         // Self-service cancel — distinct from the owner/manager destroy()
         // below (no reason required, never sets rebooking_blocked). Lets a
-        // customer free up their one-active-appointment-per-shop slot
+        // customer free up their one-active-appointment-per-store slot
         // (PublicBookingController::submit()'s guard) to book a different
-        // date themselves instead of asking the shop to do it.
+        // date themselves instead of asking the store to do it.
         Route::delete('/my-appointments/{appointment}', [AppointmentController::class, 'cancelMine']);
-        Route::get('/my-measurements', [\App\Http\Controllers\Api\V1\MeasurementController::class, 'myMeasurements']);
-        // Standing body-measurement profile (height/weight + optional body
-        // metrics, all cm/kg) — cross-shop, unlike /my-measurements above
-        // which is per-shop fitting history. Backs the catalog item Size
-        // Guide's "Input size" flow.
-        Route::get('/my-size-profile', [\App\Http\Controllers\Api\V1\SizeProfileController::class, 'show']);
-        Route::put('/my-size-profile', [\App\Http\Controllers\Api\V1\SizeProfileController::class, 'update']);
-        Route::get('/my-catalog-reviews', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'myReviews']);
-        Route::get('/my-shop-reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'myReviews']);
-        Route::get('/my-recently-viewed', [\App\Http\Controllers\Api\V1\RecentlyViewedController::class, 'index']);
-        Route::post('/recently-viewed', [\App\Http\Controllers\Api\V1\RecentlyViewedController::class, 'store']);
+        Route::get('/my-measurements', [MeasurementController::class, 'myMeasurements']);
+        Route::get('/my-catalog-reviews', [CatalogInteractionController::class, 'myReviews']);
+        Route::get('/my-store-reviews', [StoreReviewController::class, 'myReviews']);
+        Route::get('/my-recently-viewed', [RecentlyViewedController::class, 'index']);
+        Route::post('/recently-viewed', [RecentlyViewedController::class, 'store']);
         Route::get('/my-tickets', [SupportTicketController::class, 'myTickets']);
         Route::get('/my-tickets/{ticket}', [SupportTicketController::class, 'myTicketShow']);
         Route::post('/my-tickets/{ticket}/reply', [SupportTicketController::class, 'myTicketReply']);
 
         // Profile Settings (Any authenticated user)
-        Route::put('/profile/personal', [\App\Http\Controllers\Api\V1\ProfileController::class, 'updatePersonal']);
-        Route::put('/profile/password', [\App\Http\Controllers\Api\V1\ProfileController::class, 'updatePassword']);
-        Route::put('/profile/availability', [\App\Http\Controllers\Api\V1\ProfileController::class, 'toggleAvailability']);
-        Route::post('/profile/upload', [\App\Http\Controllers\Api\V1\ProfileController::class, 'uploadImage']);
-        
-        // Shop Owner & Staff Routes
-        Route::prefix('shops/{shop}')->group(function () {
-            
+        Route::put('/profile/personal', [ProfileController::class, 'updatePersonal']);
+        Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+        Route::put('/profile/availability', [ProfileController::class, 'toggleAvailability']);
+        Route::post('/profile/upload', [ProfileController::class, 'uploadImage']);
+
+        // Store Owner & Staff Routes
+        Route::prefix('stores/{store}')->group(function () {
+
             // Shared Access (Owner, Manager, Staff)
-            Route::middleware('role:shop_owner,branch_manager,staff')->group(function () {
+            Route::middleware('role:store_owner,branch_manager,staff')->group(function () {
                 // Measurements
                 Route::get('/measurements', [MeasurementController::class, 'index']);
                 Route::get(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'show']);
@@ -183,16 +193,24 @@ Route::prefix('v1')->group(function () {
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
                 Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
-                Route::put('/appointments/{appointment}/verify-payment', [AppointmentController::class, 'verifyPayment']);
                 Route::post('/appointments/{appointment}/complete', [AppointmentController::class, 'complete']);
+                // Narrow operational follow-up — Staff may create a scheduled
+                // return visit (consultation/fitting/adjustment/pickup) without
+                // the full owner/manager booking form's fields (payment method,
+                // etc.). One endpoint, usable from either the Appointments
+                // dashboard or a Job's detail page (job_order_id optional,
+                // used to derive the customer when supplied).
+                // CUSTOMER-WORKFLOW.md §7.4, STAFF-WORKFLOW.md §17 — a
+                // deliberately narrower action than store() below, not a role
+                // addition to it.
+                Route::post('/appointments/follow-up', [AppointmentController::class, 'createFollowUp']);
 
-                // Ready-to-Wear Orders — front-of-house staff record walk-in sales and
-                // verify payment receipts day to day; this shouldn't require the owner.
-                Route::get('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'index']);
-                Route::post('/catalog-orders', [\App\Http\Controllers\CatalogOrderController::class, 'store']);
-                Route::match(['put', 'patch'], '/catalog-orders/{order}', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
-                Route::match(['put', 'patch'], '/catalog-orders/{order}/status', [\App\Http\Controllers\CatalogOrderController::class, 'update']);
-                Route::put('/catalog-orders/{order}/verify-payment', [\App\Http\Controllers\CatalogOrderController::class, 'verifyPayment']);
+                // Ready-to-Wear Orders — front-of-house staff record walk-in sales
+                // day to day; this shouldn't require the owner.
+                Route::get('/catalog-orders', [CatalogOrderController::class, 'index']);
+                Route::post('/catalog-orders', [CatalogOrderController::class, 'store']);
+                Route::match(['put', 'patch'], '/catalog-orders/{order}', [CatalogOrderController::class, 'update']);
+                Route::match(['put', 'patch'], '/catalog-orders/{order}/status', [CatalogOrderController::class, 'update']);
 
                 // Customers CRM — front-of-house staff look up/add customers day to
                 // day too; CustomerController's own authorization already permits
@@ -212,14 +230,14 @@ Route::prefix('v1')->group(function () {
                 // need to see the artisan roster, availability, and branch assignments.
                 Route::get('/staff', [StaffController::class, 'index']);
                 Route::get(STAFF_DETAIL_ROUTE, [StaffController::class, 'show']);
-                Route::get('/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'index']);
+                Route::get('/branches', [StoreBranchController::class, 'index']);
 
-                // Shop active subscription tier (read-only for feature gating)
-                Route::get('/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'current']);
+                // Store active subscription tier (read-only for feature gating)
+                Route::get('/subscription', [SubscriptionController::class, 'current']);
             });
 
             // Owner & Branch Manager Access
-            Route::middleware('role:shop_owner,branch_manager')->group(function () {
+            Route::middleware('role:store_owner,branch_manager')->group(function () {
                 // Job Orders (Owner/Manager specific actions)
                 Route::post('/jobs', [JobOrderController::class, 'store']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
@@ -233,12 +251,20 @@ Route::prefix('v1')->group(function () {
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
 
                 // Catalog Orders — discount decisions are a supervisory action,
-                // unlike the day-to-day create/update/verify-payment above.
-                Route::post('/catalog-orders/{order}/discount', [\App\Http\Controllers\CatalogOrderController::class, 'applyDiscount']);
+                // same as verify-payment below, unlike the day-to-day
+                // create/update Staff already has above.
+                Route::post('/catalog-orders/{order}/discount', [CatalogOrderController::class, 'applyDiscount']);
+                Route::put('/catalog-orders/{order}/verify-payment', [CatalogOrderController::class, 'verifyPayment']);
 
-                // Appointments — create and cancel (owner/manager only)
+                // Appointments — create, cancel, and payment verification
+                // (owner/manager only). Payment capture/verification is
+                // Owner/Branch-Manager-exclusive under the finalized target
+                // (PAYMENT-WORKFLOW.md Part B) — moved here from the shared
+                // Staff-accessible group above; Staff's role narrows to
+                // reading the resulting payment_status, never setting it.
                 Route::post('/appointments', [AppointmentController::class, 'store']);
                 Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy']);
+                Route::put('/appointments/{appointment}/verify-payment', [AppointmentController::class, 'verifyPayment']);
 
                 // Analytics
                 Route::get('/analytics', [AnalyticsController::class, 'index']);
@@ -248,13 +274,13 @@ Route::prefix('v1')->group(function () {
             });
 
             // Owner Only Access
-            Route::middleware('role:shop_owner')->group(function () {
-                // Staff Management (list/read is granted to all shop members above)
+            Route::middleware('role:store_owner')->group(function () {
+                // Staff Management (list/read is granted to all store members above)
                 Route::post('/staff', [StaffController::class, 'store']);
                 Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
                 Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
 
-                // Services (list/read is granted to shop_owner+branch_manager+staff above)
+                // Services (list/read is granted to store_owner+branch_manager+staff above)
                 Route::post('/services', [ServiceController::class, 'store']);
                 Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
@@ -262,16 +288,16 @@ Route::prefix('v1')->group(function () {
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
 
                 // Service Packages — bundles of 2+ existing services sold as one combo
-                Route::get('/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'index']);
-                Route::post('/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'store']);
-                Route::put('/service-packages/{servicePackage}', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'update']);
-                Route::delete('/service-packages/{servicePackage}', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'destroy']);
+                Route::get('/service-packages', [ServicePackageController::class, 'index']);
+                Route::post('/service-packages', [ServicePackageController::class, 'store']);
+                Route::put('/service-packages/{servicePackage}', [ServicePackageController::class, 'update']);
+                Route::delete('/service-packages/{servicePackage}', [ServicePackageController::class, 'destroy']);
 
                 // Temporary Special Hours & Announcements
-                Route::get('/special-hours', [ShopSpecialHourController::class, 'index']);
-                Route::post('/special-hours', [ShopSpecialHourController::class, 'store']);
-                Route::put('/special-hours/{specialHour}', [ShopSpecialHourController::class, 'update']);
-                Route::delete('/special-hours/{specialHour}', [ShopSpecialHourController::class, 'destroy']);
+                Route::get('/special-hours', [StoreSpecialHourController::class, 'index']);
+                Route::post('/special-hours', [StoreSpecialHourController::class, 'store']);
+                Route::put('/special-hours/{specialHour}', [StoreSpecialHourController::class, 'update']);
+                Route::delete('/special-hours/{specialHour}', [StoreSpecialHourController::class, 'destroy']);
 
                 // Audit Logs
                 Route::get('/audit-logs', [AuditLogController::class, 'index']);
@@ -288,30 +314,30 @@ Route::prefix('v1')->group(function () {
                 Route::get('/analytics/subscription', [AnalyticsController::class, 'subscriptionActivity']);
 
                 // Reviews Management
-                Route::get('/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'index']);
-                Route::put('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'update']);
-                Route::delete('/reviews/{review}', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'destroy']);
+                Route::get('/reviews', [StoreReviewController::class, 'index']);
+                Route::put('/reviews/{review}', [StoreReviewController::class, 'update']);
+                Route::delete('/reviews/{review}', [StoreReviewController::class, 'destroy']);
 
                 // Catalog Item Reviews — per-design-item reviews (e.g. a
                 // specific Barong/gown in the Design Catalog), distinct from
-                // the shop-level reviews above.
-                Route::get('/catalog-item-reviews', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'indexForShop']);
-                Route::put('/catalog-item-reviews/{review}', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'replyToReview']);
-                Route::delete('/catalog-item-reviews/{review}', [\App\Http\Controllers\Api\V1\CatalogInteractionController::class, 'destroyReview']);
+                // the store-level reviews above.
+                Route::get('/catalog-item-reviews', [CatalogInteractionController::class, 'indexForStore']);
+                Route::put('/catalog-item-reviews/{review}', [CatalogInteractionController::class, 'replyToReview']);
+                Route::delete('/catalog-item-reviews/{review}', [CatalogInteractionController::class, 'destroyReview']);
 
-                // Shop Posts — completed-work showcase the owner posts to their storefront
-                Route::get('/posts', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'index']);
-                Route::post('/posts', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'store']);
-                Route::put('/posts/{post}', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'update']);
-                Route::delete('/posts/{post}', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'destroy']);
+                // Store Posts — completed-work showcase the owner posts to their storefront
+                Route::get('/posts', [StorePostController::class, 'index']);
+                Route::post('/posts', [StorePostController::class, 'store']);
+                Route::put('/posts/{post}', [StorePostController::class, 'update']);
+                Route::delete('/posts/{post}', [StorePostController::class, 'destroy']);
 
                 // Catalog Management
                 Route::get('/catalog', [CatalogController::class, 'index']);
                 Route::post('/catalog', [CatalogController::class, 'store']);
                 Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
                 Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
-                
-                // Support Tickets (Shop Owner → Admin)
+
+                // Support Tickets (Store Owner → Admin)
                 Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
                 Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);
                 Route::get(TICKETS_DETAIL_ROUTE, [SupportTicketController::class, 'show']);
@@ -321,52 +347,57 @@ Route::prefix('v1')->group(function () {
             });
         });
 
-        // Shop Management (Owner Only)
-        Route::middleware('role:shop_owner')->group(function () {
-            Route::apiResource('shops', ShopController::class);
-            
-            // Branch Management (list/read is granted to shop_owner+branch_manager above)
-            Route::post('/shops/{shop}/branches', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'store']);
-            Route::put('/shops/{shop}/branches/{branch}', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'update']);
-            Route::put('/shops/{shop}/branches/{branch}/set-main', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'setMain']);
-            Route::delete('/shops/{shop}/branches/{branch}', [\App\Http\Controllers\Api\V1\ShopBranchController::class, 'destroy']);
+        // Store Management (Owner Only)
+        Route::middleware('role:store_owner')->group(function () {
+            Route::apiResource('stores', StoreController::class);
+
+            // Branch Management (list/read is granted to store_owner+branch_manager above)
+            Route::post('/stores/{store}/branches', [StoreBranchController::class, 'store']);
+            Route::put('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'update']);
+            Route::put('/stores/{store}/branches/{branch}/set-main', [StoreBranchController::class, 'setMain']);
+            Route::delete('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'destroy']);
 
             // Subscription Plan Billing
-            Route::get('/subscriptions/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'index']);
-            Route::post('/shops/{shop}/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'subscribe']);
-            Route::put('/shops/{shop}', [ShopController::class, 'update']);
+            Route::get('/subscriptions/plans', [SubscriptionController::class, 'index']);
+            Route::post('/stores/{store}/subscription', [SubscriptionController::class, 'subscribe']);
+            Route::put('/stores/{store}', [StoreController::class, 'update']);
         });
 
         // Admin Routes
         Route::prefix('admin')->middleware('role:admin')->group(function () {
-            Route::get('/shops', [AdminShopController::class, 'index']);
-            Route::put('/shops/{shop}/approve', [AdminShopController::class, 'approve']);
-            Route::put('/shops/{shop}/reject', [AdminShopController::class, 'reject']);
+            Route::get('/stores', [AdminStoreController::class, 'index']);
+            Route::put('/stores/{store}/approve', [AdminStoreController::class, 'approve']);
+            Route::put('/stores/{store}/reject', [AdminStoreController::class, 'reject']);
 
             Route::get('/subscription-plans', [SubscriptionPlanController::class, 'index']);
             Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store']);
 
             // Admin Support Ticket Management
-            Route::get(TICKETS_ROUTE, [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'index']);
-            Route::get(TICKETS_DETAIL_ROUTE, [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'show']);
-            Route::post('/tickets/{ticket}/reply', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'reply']);
-            Route::put('/tickets/{ticket}/status', [\App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController::class, 'updateStatus']);
+            Route::get(TICKETS_ROUTE, [SupportTicketAdminController::class, 'index']);
+            Route::get(TICKETS_DETAIL_ROUTE, [SupportTicketAdminController::class, 'show']);
+            Route::post('/tickets/{ticket}/reply', [SupportTicketAdminController::class, 'reply']);
+            Route::put('/tickets/{ticket}/status', [SupportTicketAdminController::class, 'updateStatus']);
         });
     });
 
-    // Public Catalog & Shop Profile
-    // Shop Discovery — search/filter/map feed (Objectives 3 & 4)
-    Route::get('/public/shops', [ShopController::class, 'publicIndex']);
-    // Cross-shop catalog showroom feed for the landing page's catalog grid
+    // Public Catalog & Store Profile
+    // Store Discovery — search/filter/map feed (Objectives 3 & 4)
+    Route::get('/public/stores', [StoreController::class, 'publicIndex']);
+    // Minimal public profile (name/avatar only) — used when a customer taps
+    // another reviewer's name/avatar on a catalog item's Ratings & Reviews
+    // page. Own-account viewing bypasses this entirely on the frontend and
+    // links straight to /account instead.
+    Route::get('/public/users/{id}', [ProfileController::class, 'publicShow']);
+    // Cross-store catalog showroom feed for the landing page's catalog grid
     Route::get('/public/catalog-items', [CatalogController::class, 'publicShowroom']);
-    Route::get('/public/services', [\App\Http\Controllers\Api\V1\ServiceController::class, 'publicShowroom']);
-    Route::get('/public/shops/{shop:slug}', [ShopController::class, 'publicProfile']);
-    Route::get('/public/shops/{shop:slug}/services', [ServiceController::class, 'publicIndex']);
-    Route::get('/public/shops/{shop:slug}/service-packages', [\App\Http\Controllers\Api\V1\ServicePackageController::class, 'publicIndex']);
-    Route::get('/public/shops/{shop:slug}/posts', [\App\Http\Controllers\Api\V1\ShopPostController::class, 'publicIndex']);
-    Route::get('/public/shops/{shop:slug}/reviews', [\App\Http\Controllers\Api\V1\ShopReviewController::class, 'publicIndex']);
-    Route::post('/public/shops/{shop:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
-    Route::post('/public/shops/{shop:slug}/upload-reference-image', [FileUploadController::class, 'uploadPublicReferenceImage']);
-    Route::get('/shops/{shop}/catalog', [CatalogController::class, 'index']);
-    Route::get('/shops/{shop}/catalog/{catalog}', [CatalogController::class, 'show']);
+    Route::get('/public/services', [ServiceController::class, 'publicShowroom']);
+    Route::get('/public/stores/{store:slug}', [StoreController::class, 'publicProfile']);
+    Route::get('/public/stores/{store:slug}/services', [ServiceController::class, 'publicIndex']);
+    Route::get('/public/stores/{store:slug}/service-packages', [ServicePackageController::class, 'publicIndex']);
+    Route::get('/public/stores/{store:slug}/posts', [StorePostController::class, 'publicIndex']);
+    Route::get('/public/stores/{store:slug}/reviews', [StoreReviewController::class, 'publicIndex']);
+    Route::post('/public/stores/{store:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
+    Route::post('/public/stores/{store:slug}/upload-reference-image', [FileUploadController::class, 'uploadPublicReferenceImage']);
+    Route::get('/stores/{store}/catalog', [CatalogController::class, 'index']);
+    Route::get('/stores/{store}/catalog/{catalog}', [CatalogController::class, 'show']);
 });

@@ -12,13 +12,13 @@ use Illuminate\Http\Request;
  * alone, no account needed (consumed by /track/[code]) — mirrors a
  * courier/delivery tracking page, the tracking_code itself is the
  * credential. myOrders() is the authenticated counterpart — a logged-in
- * customer's own cross-shop order list (consumed by /account/orders),
+ * customer's own cross-store order list (consumed by /account/orders),
  * scoped by their real customer_id instead of needing every code memorized.
  */
 class JobOrderTrackingController extends Controller
 {
     /**
-     * Cross-shop "My Orders" for whoever is logged in — the authenticated
+     * Cross-store "My Orders" for whoever is logged in — the authenticated
      * counterpart to show() above, same safe field subset (no staff
      * assignments/internal notes), just scoped by the real customer_id
      * instead of a guessable-free tracking code. No role gate: filters by
@@ -27,38 +27,38 @@ class JobOrderTrackingController extends Controller
     public function myOrders(Request $request): JsonResponse
     {
         $jobOrders = JobOrder::where('customer_id', $request->user()->id)
-            ->with(['shop:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name'])
+            ->with(['store:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name'])
             ->latest()
             ->paginate($request->input('per_page', 20));
 
         $jobOrders->getCollection()->transform(fn (JobOrder $jobOrder) => [
-            'id'                => $jobOrder->id,
-            'order_number'      => $jobOrder->order_number,
-            'tracking_code'     => $jobOrder->tracking_code,
-            'status'            => $jobOrder->status,
-            'garment_category'  => $jobOrder->garment_category,
+            'id' => $jobOrder->id,
+            'order_number' => $jobOrder->order_number,
+            'tracking_code' => $jobOrder->tracking_code,
+            'status' => $jobOrder->status,
+            'garment_category' => $jobOrder->garment_category,
             'catalog_item_name' => $jobOrder->catalogItem?->name,
-            'service_name'      => $jobOrder->service?->name,
-            'is_rush'           => (bool) $jobOrder->is_rush,
-            'due_date'          => $jobOrder->due_date,
-            'total_amount'      => (float) $jobOrder->total_amount,
-            'balance'           => (float) $jobOrder->balance,
-            'payment_status'    => $jobOrder->payment_status,
-            'created_at'        => $jobOrder->created_at,
-            'shop'              => $jobOrder->shop ? [
-                'name'      => $jobOrder->shop->name,
-                'slug'      => $jobOrder->shop->slug,
-                'logo_path' => $jobOrder->shop->logo_path,
+            'service_name' => $jobOrder->service?->name,
+            'is_rush' => (bool) $jobOrder->is_rush,
+            'due_date' => $jobOrder->due_date,
+            'total_amount' => (float) $jobOrder->total_amount,
+            'balance' => (float) $jobOrder->balance,
+            'payment_status' => $jobOrder->payment_status,
+            'created_at' => $jobOrder->created_at,
+            'store' => $jobOrder->store ? [
+                'name' => $jobOrder->store->name,
+                'slug' => $jobOrder->store->slug,
+                'logo_path' => $jobOrder->store->logo_path,
             ] : null,
         ]);
 
         return response()->json([
             'success' => true,
-            'data'    => $jobOrders->items(),
-            'meta'    => [
+            'data' => $jobOrders->items(),
+            'meta' => [
                 'current_page' => $jobOrders->currentPage(),
-                'last_page'    => $jobOrders->lastPage(),
-                'total'        => $jobOrders->total(),
+                'last_page' => $jobOrders->lastPage(),
+                'total' => $jobOrders->total(),
             ],
         ]);
     }
@@ -78,32 +78,69 @@ class JobOrderTrackingController extends Controller
             return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
         }
 
-        $jobOrder->load(['shop:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name', 'staffStages']);
+        $jobOrder->load(['store:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name', 'staffStages']);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'order_number'      => $jobOrder->order_number,
-                'tracking_code'     => $jobOrder->tracking_code,
-                'status'            => $jobOrder->status,
-                'garment_category'  => $jobOrder->garment_category,
+                'order_number' => $jobOrder->order_number,
+                'tracking_code' => $jobOrder->tracking_code,
+                'status' => $jobOrder->status,
+                'garment_category' => $jobOrder->garment_category,
                 'catalog_item_name' => $jobOrder->catalogItem?->name,
-                'service_name'      => $jobOrder->service?->name,
-                'is_rush'           => (bool) $jobOrder->is_rush,
-                'due_date'          => $jobOrder->due_date,
-                'total_amount'      => (float) $jobOrder->total_amount,
-                'balance'           => (float) $jobOrder->balance,
-                'payment_status'    => $jobOrder->payment_status,
-                'created_at'        => $jobOrder->created_at,
-                'progress_photos'   => $jobOrder->progress_photos,
-                'stage_timestamps'  => $this->buildStageTimestamps($jobOrder),
-                'shop'              => $jobOrder->shop ? [
-                    'name'      => $jobOrder->shop->name,
-                    'slug'      => $jobOrder->shop->slug,
-                    'logo_path' => $jobOrder->shop->logo_path,
+                'service_name' => $jobOrder->service?->name,
+                'is_rush' => (bool) $jobOrder->is_rush,
+                'due_date' => $jobOrder->due_date,
+                'estimated_ready_at' => $jobOrder->estimated_ready_at,
+                'total_amount' => (float) $jobOrder->total_amount,
+                'balance' => (float) $jobOrder->balance,
+                'payment_status' => $jobOrder->payment_status,
+                'created_at' => $jobOrder->created_at,
+                'updated_at' => $jobOrder->updated_at,
+                'repair_note' => $jobOrder->custom_order_data['repair_note'] ?? null,
+                'customer_material_status' => $jobOrder->customer_material_status,
+                'progress_photos' => $jobOrder->progress_photos,
+                'stage_timestamps' => $this->buildStageTimestamps($jobOrder),
+                'appointments' => $this->buildCustomerSafeAppointments($jobOrder),
+                'store' => $jobOrder->store ? [
+                    'name' => $jobOrder->store->name,
+                    'slug' => $jobOrder->store->slug,
+                    'logo_path' => $jobOrder->store->logo_path,
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * Appointments linked to this job order (job_order_id, set manually by
+     * staff/owner or automatically on ready_for_fitting — CUSTOMER-WORKFLOW.md
+     * §7.4), reduced to the same customer-safe field subset
+     * AppointmentController::myAppointments() already uses elsewhere — no
+     * staff assignment, no internal notes, no payment reference/receipt.
+     * Reuses the existing JobOrder::appointments() relationship; no new table.
+     */
+    private function buildCustomerSafeAppointments(JobOrder $jobOrder): array
+    {
+        return $jobOrder->appointments()
+            ->with(['service:id,name', 'branch:id,name,address,city'])
+            ->orderByDesc('scheduled_at')
+            ->get()
+            ->map(fn ($appointment) => [
+                'id' => $appointment->id,
+                'appointment_type' => $appointment->appointment_type,
+                'status' => $appointment->status,
+                'scheduled_at' => $appointment->scheduled_at,
+                'checked_in_at' => $appointment->checked_in_at,
+                'duration_minutes' => $appointment->duration_minutes,
+                'service_name' => $appointment->service?->name,
+                'branch' => $appointment->branch ? [
+                    'name' => $appointment->branch->name,
+                    'address' => $appointment->branch->address,
+                    'city' => $appointment->branch->city,
+                ] : null,
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -126,17 +163,17 @@ class JobOrderTrackingController extends Controller
             ->min();
 
         return [
-            'pending'               => $jobOrder->created_at,
-            'design'                => $stageStart('design'),
-            'pattern_making'        => $stageStart('pattern_making'),
+            'pending' => $jobOrder->created_at,
+            'design' => $stageStart('design'),
+            'pattern_making' => $stageStart('pattern_making'),
             'mass_cutting_printing' => null,
-            'cutting'               => $stageStart('cutting'),
-            'sewing'                => $stageStart('sewing'),
-            'ready_for_fitting'     => null,
-            'final_adjustments'     => $jobOrder->first_adjustment_at,
-            'qc_ironing'            => $stageStart('qc_ironing'),
-            'ready_for_pickup'      => $jobOrder->ready_for_pickup_at,
-            'completed'             => null,
+            'cutting' => $stageStart('cutting'),
+            'sewing' => $stageStart('sewing'),
+            'ready_for_fitting' => null,
+            'final_adjustments' => $jobOrder->first_adjustment_at,
+            'qc_ironing' => $stageStart('qc_ironing'),
+            'ready_for_pickup' => $jobOrder->ready_for_pickup_at,
+            'completed' => null,
         ];
     }
 
@@ -149,10 +186,10 @@ class JobOrderTrackingController extends Controller
             ->orWhereRaw("REPLACE(REPLACE(tracking_code, '-', ''), ' ', '') = ?", [$normalized])
             ->orWhere('order_number', $raw)
             ->orWhereRaw("REPLACE(REPLACE(order_number, '-', ''), ' ', '') = ?", [$normalized])
-            ->with(['shop:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name', 'staffStages'])
+            ->with(['store:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name', 'staffStages'])
             ->first();
 
-        if (!$jobOrder) {
+        if (! $jobOrder) {
             return response()->json([
                 'success' => false,
                 'message' => 'No order found for that tracking code or order number. Double-check the code and try again.',
@@ -162,24 +199,29 @@ class JobOrderTrackingController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'order_number'      => $jobOrder->order_number,
-                'tracking_code'     => $jobOrder->tracking_code,
-                'status'            => $jobOrder->status,
-                'garment_category'  => $jobOrder->garment_category,
+                'order_number' => $jobOrder->order_number,
+                'tracking_code' => $jobOrder->tracking_code,
+                'status' => $jobOrder->status,
+                'garment_category' => $jobOrder->garment_category,
                 'catalog_item_name' => $jobOrder->catalogItem?->name,
-                'service_name'      => $jobOrder->service?->name,
-                'is_rush'           => (bool) $jobOrder->is_rush,
-                'due_date'          => $jobOrder->due_date,
-                'total_amount'      => (float) $jobOrder->total_amount,
-                'balance'           => (float) $jobOrder->balance,
-                'payment_status'    => $jobOrder->payment_status,
-                'created_at'        => $jobOrder->created_at,
-                'progress_photos'   => $jobOrder->progress_photos,
-                'stage_timestamps'  => $this->buildStageTimestamps($jobOrder),
-                'shop'              => $jobOrder->shop ? [
-                    'name'      => $jobOrder->shop->name,
-                    'slug'      => $jobOrder->shop->slug,
-                    'logo_path' => $jobOrder->shop->logo_path,
+                'service_name' => $jobOrder->service?->name,
+                'is_rush' => (bool) $jobOrder->is_rush,
+                'due_date' => $jobOrder->due_date,
+                'estimated_ready_at' => $jobOrder->estimated_ready_at,
+                'total_amount' => (float) $jobOrder->total_amount,
+                'balance' => (float) $jobOrder->balance,
+                'payment_status' => $jobOrder->payment_status,
+                'created_at' => $jobOrder->created_at,
+                'updated_at' => $jobOrder->updated_at,
+                'repair_note' => $jobOrder->custom_order_data['repair_note'] ?? null,
+                'customer_material_status' => $jobOrder->customer_material_status,
+                'progress_photos' => $jobOrder->progress_photos,
+                'stage_timestamps' => $this->buildStageTimestamps($jobOrder),
+                'appointments' => $this->buildCustomerSafeAppointments($jobOrder),
+                'store' => $jobOrder->store ? [
+                    'name' => $jobOrder->store->name,
+                    'slug' => $jobOrder->store->slug,
+                    'logo_path' => $jobOrder->store->logo_path,
                 ] : null,
             ],
         ]);

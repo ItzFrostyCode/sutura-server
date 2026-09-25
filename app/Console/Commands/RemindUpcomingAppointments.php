@@ -2,15 +2,15 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
 use App\Models\Appointment;
 use App\Notifications\AppointmentReminderNotification;
+use Illuminate\Console\Command;
 
 class RemindUpcomingAppointments extends Command
 {
     protected $signature = 'app:remind-upcoming-appointments';
 
-    protected $description = 'Email/notify customers ~24h ahead of a still-pending/confirmed appointment — the "customer forgot their fitting" pain point named in tailoring-shop interview research.';
+    protected $description = 'Email/notify customers ~24h ahead of a still-pending/confirmed appointment — the "customer forgot their fitting" pain point named in tailoring-store interview research.';
 
     public function handle(): int
     {
@@ -25,12 +25,12 @@ class RemindUpcomingAppointments extends Command
         $appointments = Appointment::whereIn('status', ['pending', 'confirmed'])
             ->whereNull('reminder_sent_at')
             ->whereBetween('scheduled_at', [$windowStart, $windowEnd])
-            ->with('customer', 'shop')
+            ->with('customer', 'store')
             ->get();
 
         $sent = 0;
         foreach ($appointments as $appointment) {
-            if (!$appointment->customer) {
+            if (! $appointment->customer) {
                 continue;
             }
             $appointment->customer->notify(new AppointmentReminderNotification($appointment));
@@ -39,6 +39,7 @@ class RemindUpcomingAppointments extends Command
         }
 
         $this->info("Sent {$sent} appointment reminder(s).");
+
         return self::SUCCESS;
     }
 }

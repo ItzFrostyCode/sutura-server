@@ -3,15 +3,15 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Shop;
+use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AuditLogController extends Controller
 {
-    public function index(Shop $shop, Request $request): JsonResponse
+    public function index(Store $store, Request $request): JsonResponse
     {
-        $query = $shop->auditLogs()->with('user:id,name');
+        $query = $store->auditLogs()->with('user:id,name');
 
         if ($request->has('model_type')) {
             $query->where('model_type', $request->model_type);
@@ -23,7 +23,7 @@ class AuditLogController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $query->latest()->paginate($request->input('per_page', 20))
+            'data' => $query->latest()->paginate($request->input('per_page', 20)),
         ]);
     }
 }
