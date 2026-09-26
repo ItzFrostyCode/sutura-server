@@ -78,6 +78,7 @@ php artisan storage:link
 php artisan serve
 ```
 Leave this terminal running. It will output `Server running on [http://127.0.0.1:8000]`.
+*(Note: If port 8000 is occupied by another process, run `php artisan serve --port=8080` instead, and set `NEXT_PUBLIC_API_URL=http://127.0.0.1:8080/api/v1` in `sutura-client/.env.local`).*
 
 ### 5. Frontend Setup (Terminal 2 — new window)
 Open a second terminal in `sutura-client`:
