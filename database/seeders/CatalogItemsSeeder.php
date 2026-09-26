@@ -77,7 +77,7 @@ class CatalogItemsSeeder extends Seeder
             ]
         );
         CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_3->id, 'image_url' => '/catalog/Store Long Tail Wedding Gown.jpg'],
+            ['catalog_item_id' => $item_3->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_4 = CatalogItem::firstOrCreate(
@@ -858,10 +858,35 @@ class CatalogItemsSeeder extends Seeder
             ]);
         }
 
-        // Canonical Service mappings for Store 1
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [1, 2, 4, 5, 9, 12, 15, 23, 28, 41, 42, 44, 47, 49, 50])->update(['service_id' => 4]);
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [3, 6, 7, 8, 11, 17, 18, 20, 21, 22, 24, 29, 30, 31, 33, 35, 36, 38, 43, 46, 48])->update(['service_id' => 1]);
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [13, 14, 19, 25, 26, 27, 34, 39])->update(['service_id' => 2]);
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [16, 32, 37, 40, 45])->update(['service_id' => 3]);
+        // Canonical Service mappings for Store 1 (Dynamic Garment Type Mapping + Fallback IDs)
+        $bridalService = \App\Models\Service::where('store_id', $store->id)->where(function ($q) {
+            $q->where('name', 'like', '%Bridal%')->orWhere('name', 'like', '%Gown%');
+        })->first();
+        $sublimationService = \App\Models\Service::where('store_id', $store->id)->where(function ($q) {
+            $q->where('name', 'like', '%Sublimation%')->orWhere('name', 'like', '%Jersey%');
+        })->first();
+        $suitService = \App\Models\Service::where('store_id', $store->id)->where(function ($q) {
+            $q->where('name', 'like', '%Suit%')->orWhere('name', 'like', '%Tuxedo%');
+        })->first();
+        $barongService = \App\Models\Service::where('store_id', $store->id)->where('name', 'like', '%Barong%')->first();
+
+        if ($bridalService) {
+            CatalogItem::where('store_id', $store->id)->where('garment_type', 'gown')->update(['service_id' => $bridalService->id]);
+        }
+        if ($sublimationService) {
+            CatalogItem::where('store_id', $store->id)->where('garment_type', 'uniform')->update(['service_id' => $sublimationService->id]);
+        }
+        if ($suitService) {
+            CatalogItem::where('store_id', $store->id)->where('garment_type', 'suit')->update(['service_id' => $suitService->id]);
+        }
+        if ($barongService) {
+            CatalogItem::where('store_id', $store->id)->where('garment_type', 'barong')->update(['service_id' => $barongService->id]);
+        }
+
+        // Secondary fallback by explicit IDs
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [1, 2, 4, 5, 9, 12, 15, 23, 28, 41, 42, 44, 47, 49, 50])->update(['service_id' => $bridalService ? $bridalService->id : 4]);
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [3, 6, 7, 8, 11, 17, 18, 20, 21, 22, 24, 29, 30, 31, 33, 35, 36, 38, 43, 46, 48])->update(['service_id' => $sublimationService ? $sublimationService->id : 1]);
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [13, 14, 19, 25, 26, 27, 34, 39])->update(['service_id' => $suitService ? $suitService->id : 2]);
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [16, 32, 37, 40, 45])->update(['service_id' => $barongService ? $barongService->id : 3]);
     }
 }

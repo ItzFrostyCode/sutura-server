@@ -1,2 +1,8 @@
 *
 !.gitignore
+!logos/
+!logos/**
+!banners/
+!banners/**
+!catalog/
+!catalog/**
