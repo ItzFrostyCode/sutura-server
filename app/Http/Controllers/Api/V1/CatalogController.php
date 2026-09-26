@@ -193,14 +193,18 @@ class CatalogController extends Controller
             });
         }
 
-        // Real column (catalog_items.color), free-text on the owner's side
-        // (e.g. "Sky Blue"), so this matches by substring like `q` does
-        // rather than requiring an exact string — a "Blue" filter should
-        // still catch "Sky Blue". Sparse today (one seeded value exists),
-        // but a real, functional filter, not decorative.
+        // Real column (catalog_items.color), supports multiple comma-separated colors
+        // (e.g. "White,Ivory" or "Red,Crimson") matching with OR.
         if ($request->filled('color')) {
-            $color = strtolower((string) $request->string('color'));
-            $query->whereRaw('LOWER(color) LIKE ?', ['%'.$color.'%']);
+            $rawColor = (string) $request->string('color');
+            $colors = array_values(array_filter(array_map('trim', explode(',', $rawColor))));
+            if (!empty($colors)) {
+                $query->where(function ($sub) use ($colors) {
+                    foreach ($colors as $c) {
+                        $sub->orWhereRaw('LOWER(color) LIKE ?', ['%'.strtolower($c).'%']);
+                    }
+                });
+            }
         }
 
         if ($request->filled('min_price')) {

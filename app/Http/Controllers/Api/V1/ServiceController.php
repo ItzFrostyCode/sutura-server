@@ -118,7 +118,15 @@ class ServiceController extends Controller
             ->where('is_active', true)
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
-            ->with('pricing:id,service_id,label,amount')
+            ->with([
+                'pricing:id,service_id,label,amount',
+                // Individual reviews (star-only, no comment column on this
+                // table — see ServiceReview's own docblock) so the service
+                // detail page's "View All" ratings screen has something to
+                // list, the same way CatalogController::publicShowroom's
+                // sibling item-detail lookup already embeds catalog reviews.
+                'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest(),
+            ])
             ->get(['id', 'name', 'description', 'categories', 'service_types', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
             ->each(function (Service $service) {
                 // withAvg() returns a numeric string, not a float — round it

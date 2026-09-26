@@ -81,11 +81,11 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_4 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Mga Pretty Bridesmaid Dresses, Perfect Maid of Honor Gowns - Lunss'],
+            ['store_id' => $store->id, 'name' => 'Emerald Green Multiway Convertible Bridesmaid Gown'],
             [
                 'price' => 4500.0,
                 'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Mga Pretty Bridesmaid Dresses, Perfect Maid of Honor Gowns - Lunss made to order with custom sizing.',
+                'description' => 'Elegant bespoke emerald green multiway convertible bridesmaid gown tailored to order with custom sizing.',
                 'garment_type' => 'gown',
                 'listing_type' => 'made_to_order',
                 'features' => ['Premium Quality', 'SUTURA Guaranteed'],
@@ -801,33 +801,67 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
 
-        // Populate realistic fabric_image_url for all catalog items based on garment type & material
-        foreach (CatalogItem::whereNull('fabric_image_url')->get() as $item) {
+        // Populate realistic color & fabric_image_url for all catalog items based on garment type & material
+        foreach (CatalogItem::all() as $item) {
             $name = strtolower($item->name);
             $gt = strtolower($item->garment_type ?? '');
             $mat = strtolower($item->material ?? '');
 
             $fabric = '/catalog/fabrics/peach_twill_fabric.jpg';
+            $color = 'Ivory';
 
             if (str_contains($name, 'barong') || $gt === 'barong' || str_contains($mat, 'pina')) {
                 $fabric = '/catalog/fabrics/pina_cocoon_fabric.jpg';
-            } elseif (str_contains($name, 'green') || str_contains($name, 'greed') || str_contains($name, 'teal')) {
+                $color = 'Ivory';
+            } elseif (str_contains($name, 'andrea') || str_contains($name, 'sky blue') || str_contains($name, 'a1237')) {
+                $fabric = '/catalog/fabrics/sky_blue_chiffon_tulle_fabric.jpg';
+                $color = 'Sky Blue';
+            } elseif (str_contains($name, 'teal')) {
                 $fabric = '/catalog/fabrics/emerald_lace_fabric.jpg';
-            } elseif (str_contains($name, 'red') && (str_contains($name, 'satin') || str_contains($name, 'dress') || str_contains($name, 'gown'))) {
+                $color = 'Teal';
+            } elseif (str_contains($name, 'green') || str_contains($name, 'greed')) {
+                $fabric = '/catalog/fabrics/emerald_lace_fabric.jpg';
+                $color = 'Emerald';
+            } elseif (str_contains($name, 'red') || str_contains($name, 'crimson') || str_contains($name, 'bulls') || str_contains($name, 'arsenal')) {
                 $fabric = '/catalog/fabrics/crimson_satin_fabric.jpg';
-            } elseif (str_contains($name, 'satin') || str_contains($name, 'pink') || str_contains($name, 'maid') || str_contains($name, 'bridesmaid')) {
+                $color = 'Crimson';
+            } elseif (str_contains($name, 'pink') || str_contains($name, 'maid') || str_contains($name, 'bridesmaid')) {
                 $fabric = '/catalog/fabrics/satin_silk_fabric.jpg';
+                $color = str_contains($name, 'light pink') ? 'Pink' : 'Blush';
             } elseif ($gt === 'gown' || str_contains($name, 'gown') || str_contains($name, 'wedding') || str_contains($name, 'tulle') || str_contains($mat, 'chiffon')) {
                 $fabric = '/catalog/fabrics/bridal_chiffon_fabric.jpg';
+                $color = str_contains($name, 'champagne') ? 'Champagne' : 'White';
+            } elseif (str_contains($name, 'blue') || str_contains($name, 'navy') || str_contains($name, 'bears')) {
+                $fabric = ($gt === 'suit' || str_contains($name, 'suit') || str_contains($name, 'tuxedo'))
+                    ? '/catalog/fabrics/wool_twill_fabric.jpg'
+                    : '/catalog/fabrics/drifit_mesh_fabric.jpg';
+                $color = str_contains($name, 'navy') ? 'Navy' : 'Blue';
             } elseif ($gt === 'suit' || str_contains($name, 'suit') || str_contains($name, 'tuxedo') || str_contains($mat, 'wool')) {
                 $fabric = '/catalog/fabrics/wool_twill_fabric.jpg';
+                $color = str_contains($name, 'bespoke_suits2') ? 'Charcoal' : (str_contains($name, 'bespoke_suits') ? 'Gray' : 'Black');
+            } elseif (str_contains($name, 'kobe') || str_contains($name, 'lakers') || str_contains($name, 'lebron')) {
+                $fabric = '/catalog/fabrics/drifit_mesh_fabric.jpg';
+                $color = 'Gold';
             } elseif (str_contains($name, 'rashguard') || str_contains($name, 'riders')) {
                 $fabric = '/catalog/fabrics/compression_spandex_fabric.jpg';
+                $color = 'Black';
             } elseif ($gt === 'uniform' || str_contains($name, 'jersey') || str_contains($name, 'esport') || str_contains($name, 'volleyball') || str_contains($name, 'basketball') || str_contains($mat, 'drifit')) {
                 $fabric = '/catalog/fabrics/drifit_mesh_fabric.jpg';
+                $color = 'Blue';
+            } else {
+                $color = 'Peach';
             }
 
-            $item->update(['fabric_image_url' => $fabric]);
+            $item->update([
+                'fabric_image_url' => $fabric,
+                'color' => $color,
+            ]);
         }
+
+        // Canonical Service mappings for Store 1
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [1, 2, 4, 5, 9, 12, 15, 23, 28, 41, 42, 44, 47, 49, 50])->update(['service_id' => 4]);
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [3, 6, 7, 8, 11, 17, 18, 20, 21, 22, 24, 29, 30, 31, 33, 35, 36, 38, 43, 46, 48])->update(['service_id' => 1]);
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [13, 14, 19, 25, 26, 27, 34, 39])->update(['service_id' => 2]);
+        CatalogItem::where('store_id', $store->id)->whereIn('id', [16, 32, 37, 40, 45])->update(['service_id' => 3]);
     }
 }
