@@ -28,8 +28,15 @@ class ServicePackageController extends Controller
     {
         $packages = $store->servicePackages()
             ->where('is_active', true)
+            ->withCount('reviews')
+            ->withAvg('reviews', 'rating')
             ->with('services:id,name,base_price')
-            ->get(['id', 'store_id', 'name', 'description', 'bundle_price']);
+            ->get(['id', 'store_id', 'name', 'description', 'bundle_price'])
+            ->each(function (ServicePackage $package) {
+                $package->reviews_avg_rating = $package->reviews_avg_rating !== null
+                    ? round((float) $package->reviews_avg_rating, 1)
+                    : null;
+            });
 
         return response()->json([
             'success' => true,

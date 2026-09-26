@@ -130,7 +130,7 @@ class LocalTestSeeder extends Seeder
                 'latitude' => 7.0702,
                 'longitude' => 125.6077,
                 'contact_number' => '+63 917 100 0001',
-                'guide_image_url' => '/storage/banners/thread_needle_banner.jpg',
+                'guide_image_url' => Storage::url('banners/thread_needle_banner.jpg'),
                 'is_main' => true,
             ]
         );

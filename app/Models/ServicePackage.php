@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ServicePackage extends Model
 {
@@ -25,5 +26,10 @@ class ServicePackage extends Model
     public function services(): BelongsToMany
     {
         return $this->belongsToMany(Service::class, 'service_package_items', 'service_package_id', 'service_id');
+    }
+
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ServicePackageReview::class);
     }
 }
