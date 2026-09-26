@@ -58,3 +58,4 @@ For first-time setup, follow the instructions in [README.md](./README.md) in eac
 | Staff | `staff@sutura.com` | `password` |
 | Admin | `admin@sutura.com` | `password` |
 | Customer | `customer@sutura.com` | `password` |
+| Customer | `jose.rizal@gmail.com` | `password` |

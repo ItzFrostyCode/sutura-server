@@ -28,3 +28,5 @@ Homestead.yaml
 Thumbs.db
 /.worktrees
 *.sql
+*.sqlite*
+/sutura
