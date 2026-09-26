@@ -87,6 +87,11 @@ class Service extends Model
         return $this->hasMany(ServiceReview::class);
     }
 
+    public function catalogItems(): HasMany
+    {
+        return $this->hasMany(CatalogItem::class);
+    }
+
     /**
      * The price to actually suggest right now, respecting the optional sale
      * window.
