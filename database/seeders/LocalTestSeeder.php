@@ -1134,7 +1134,7 @@ class LocalTestSeeder extends Seeder
             ]
         );
         CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $gown2->id, 'image_url' => '/catalog/Store Long Tail Wedding Gown.jpg'],
+            ['catalog_item_id' => $gown2->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown.jpg'],
             ['view_angle' => 'front', 'is_primary' => true]
         );
 
@@ -1590,6 +1590,7 @@ class LocalTestSeeder extends Seeder
                 'longitude' => 125.6108,
                 'contact_number' => '+63 911 111 1111',
                 'is_main' => true,
+                'guide_image_url' => Storage::url('banners/bautista_tailors_banner.jpg'),
             ]
         );
 
@@ -1667,6 +1668,7 @@ class LocalTestSeeder extends Seeder
                 'longitude' => 125.6127,
                 'contact_number' => '+63 922 222 2222',
                 'is_main' => true,
+                'guide_image_url' => Storage::url('banners/villanueva_atelier_banner.jpg'),
             ]
         );
     }

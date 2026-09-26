@@ -86,6 +86,8 @@ class AdditionalStoresSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '09:00', 'close' => '14:00'],
                     'sunday' => ['is_open' => false, 'open' => '09:00', 'close' => '14:00'],
                 ],
+                'logo_path' => \Illuminate\Support\Facades\Storage::url('logos/bautista_tailors_logo.jpg'),
+                'banner_path' => \Illuminate\Support\Facades\Storage::url('banners/bautista_tailors_banner.jpg'),
             ]
         );
 
@@ -268,7 +270,7 @@ class AdditionalStoresSeeder extends Seeder
         // in sutura-client/public/catalog/), but as genuinely separate rows
         // scoped to THIS store, priced/named for a formal-wear specialty.
         $catalogSeed = [
-            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'image' => 'Tailor Made Suits London - The Bespoke Tailor UK.jpg'],
+            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'image' => 'tailor-made-suit-bespoke.jpg'],
             ['name' => 'Double-Breasted Pinstripe Suit', 'price' => 6500, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'image' => 'Custom Tuxedos for Memorable Events.jpeg'],
             ['name' => 'Barong Tagalog — Office Formal', 'price' => 3200, 'material' => 'Jusi Fabric', 'garment_type' => 'barong', 'image' => 'Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
             ['name' => 'Corporate Office Blazer', 'price' => 4200, 'material' => 'Poly-Wool Blend', 'garment_type' => 'suit', 'image' => 'Bespoke_Suits.png'],
@@ -347,6 +349,8 @@ class AdditionalStoresSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '08:00', 'close' => '18:00'],
                     'sunday' => ['is_open' => true, 'open' => '08:00', 'close' => '12:00'],
                 ],
+                'logo_path' => \Illuminate\Support\Facades\Storage::url('logos/villanueva_atelier_logo.jpg'),
+                'banner_path' => \Illuminate\Support\Facades\Storage::url('banners/villanueva_atelier_banner.jpg'),
             ]
         );
 
