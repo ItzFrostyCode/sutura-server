@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\RecentlyViewedController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\ServicePackageController;
+use App\Http\Controllers\Api\V1\ServicePackageReviewController;
 use App\Http\Controllers\Api\V1\ServiceReviewController;
 use App\Http\Controllers\Api\V1\StaffController;
 use App\Http\Controllers\Api\V1\StoreBranchController;
@@ -117,6 +118,10 @@ Route::prefix('v1')->group(function () {
         // Service Ratings (Any authenticated user) — star-only, see ServiceReviewController.
         Route::post('/stores/{store:slug}/services/{service}/reviews', [ServiceReviewController::class, 'rate']);
         Route::get('/stores/{store:slug}/services/{service}/my-review', [ServiceReviewController::class, 'myRating']);
+
+        // Service Package Ratings — separate from reviews of included services.
+        Route::post('/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'rate']);
+        Route::get('/stores/{store:slug}/service-packages/{servicePackage}/my-review', [ServicePackageReviewController::class, 'myRating']);
 
         // Store Interactions (Any authenticated user)
         Route::get('/stores/{store:slug}/my-review', [StoreReviewController::class, 'myRating']);
@@ -394,6 +399,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/stores/{store:slug}', [StoreController::class, 'publicProfile']);
     Route::get('/public/stores/{store:slug}/services', [ServiceController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/service-packages', [ServicePackageController::class, 'publicIndex']);
+    Route::get('/public/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/posts', [StorePostController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/reviews', [StoreReviewController::class, 'publicIndex']);
     Route::post('/public/stores/{store:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
