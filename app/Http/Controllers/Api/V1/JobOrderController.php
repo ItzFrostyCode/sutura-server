@@ -9,7 +9,6 @@ use App\Models\Appointment;
 use App\Models\CatalogItem;
 use App\Models\JobOrder;
 use App\Models\Measurement;
-use App\Models\OrderMaterial;
 use App\Models\Payment;
 use App\Models\Service;
 use App\Models\ServicePricing;
@@ -760,7 +759,7 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name', 'materials.loggedBy:id,name']);
+        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name']);
 
         // Repeat-customer context surfaced right on the job so the owner can
         // decide on a manual discount ("this is their 5th order") without
@@ -1489,61 +1488,6 @@ class JobOrderController extends Controller
             'message' => 'Progress photo removed.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
         ]);
-    }
-
-    /**
-     * Per-order fabric/trim consumption attribution — what was used on THIS
-     * job, not a store-wide stock ledger (staff-module/workroom/09, thesis
-     * Scope & Limitations Line 203 excludes inventory entirely). Typically
-     * logged by the cutter during the cutting stage.
-     */
-    public function addMaterial(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
-    {
-        if ($jobOrder->store_id !== $store->id) {
-            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
-        }
-
-        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
-            return $denied;
-        }
-
-        $validated = $request->validate([
-            'material_name' => 'required|string|max:255',
-            'quantity_used' => 'required|numeric|min:0.01',
-            'unit' => 'nullable|string|max:20',
-            'unit_cost' => 'nullable|numeric|min:0',
-        ]);
-
-        $unitCost = $validated['unit_cost'] ?? null;
-        $material = $jobOrder->materials()->create([
-            'material_name' => $validated['material_name'],
-            'quantity_used' => $validated['quantity_used'],
-            'unit' => $validated['unit'] ?? 'yard',
-            'unit_cost' => $unitCost,
-            'subtotal_cost' => $unitCost !== null ? round($validated['quantity_used'] * $unitCost, 2) : null,
-            'logged_by_staff_id' => $request->user()->id,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Material logged.',
-            'data' => $material->load('loggedBy:id,name'),
-        ], 201);
-    }
-
-    public function deleteMaterial(Request $request, Store $store, JobOrder $jobOrder, OrderMaterial $material): JsonResponse
-    {
-        if ($jobOrder->store_id !== $store->id || $material->job_order_id !== $jobOrder->id) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
-        }
-
-        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
-            return $denied;
-        }
-
-        $material->delete();
-
-        return response()->json(['success' => true, 'message' => 'Material entry removed.']);
     }
 
     /**

@@ -107,9 +107,6 @@ class StoreJobOrderRequest extends FormRequest
                 'nullable', 'integer',
                 Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
             ],
-            'is_outsourced' => ['nullable', 'boolean'],
-            'partner_store_name' => ['nullable', 'string', 'max:255'],
-            'outsourcing_cost' => ['nullable', 'numeric', 'min:0'],
             'appointment_id' => [
                 'nullable', 'integer',
                 Rule::exists('appointments', 'id')->where('store_id', $store?->id),

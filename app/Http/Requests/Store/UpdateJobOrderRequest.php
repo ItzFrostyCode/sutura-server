@@ -97,9 +97,6 @@ class UpdateJobOrderRequest extends FormRequest
                 'nullable', 'integer',
                 Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
             ],
-            'is_outsourced' => ['sometimes', 'boolean'],
-            'partner_store_name' => ['nullable', 'string', 'max:255'],
-            'outsourcing_cost' => ['nullable', 'numeric', 'min:0'],
             'is_rush' => ['sometimes', 'boolean'],
             'rush_fee' => ['sometimes', 'numeric', 'min:0'],
             'catalog_item_id' => [

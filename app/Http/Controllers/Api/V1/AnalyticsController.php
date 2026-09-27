@@ -247,18 +247,10 @@ class AnalyticsController extends Controller
                 'total_jobs' => $totalJobs,
                 'completed_jobs' => $completedJobs,
                 'completion_rate' => $totalJobs > 0 ? round(($completedJobs / $totalJobs) * 100, 1) : 0,
-                // Same discount fix as the store-wide/branch revenue figures —
-                // a completed job's total_amount alone still includes any
-                // discount, overstating what this staff member's work
-                // actually brought in. Also subtract balance, not just
-                // discount_amount: a completed job's balance is normally 0,
-                // but rejectPayment() can reopen it after the fact (a fraud
-                // catch on an already-completed job), and this figure must
-                // not keep counting that reversed amount as earned revenue —
-                // same formula as every other revenue figure in this file.
-                'total_revenue' => (float) (clone $jobsQuery)->where('status', 'completed')->sum('total_amount')
-                    - (float) (clone $jobsQuery)->where('status', 'completed')->sum('balance')
-                    - (float) (clone $jobsQuery)->where('status', 'completed')->sum('discount_amount'),
+                // Deliberately no per-staff revenue figure — money attributed
+                // to an individual reads as a commission/piece-rate basis,
+                // which drifts into payroll (excluded by the thesis scope).
+                // Work output only: job counts, completion rate, rework.
                 'avg_adjustments' => $avgAdjustments,
             ];
         })->sortByDesc('completed_jobs')->values();

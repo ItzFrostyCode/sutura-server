@@ -190,11 +190,6 @@ Route::prefix('v1')->group(function () {
                 // "staff at the workbench" reasoning as progress photos above.
                 Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
 
-                // Per-order material attribution (typically the cutter, during
-                // cutting) — same "staff at the workbench" reasoning as above.
-                Route::post('/jobs/{jobOrder}/materials', [JobOrderController::class, 'addMaterial']);
-                Route::delete('/jobs/{jobOrder}/materials/{material}', [JobOrderController::class, 'deleteMaterial']);
-
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
                 Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);

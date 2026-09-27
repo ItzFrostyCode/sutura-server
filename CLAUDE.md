@@ -59,6 +59,8 @@ Don't build these — they were deliberately excluded from the approved thesis s
 - Tax filing or business permit validation.
 - Logistics / courier / delivery management.
 - **Rental lifecycle** (available → rented → returned → inspection → cleaning) — this is in the interview research for "Fashion Shop" businesses but was never adopted into SUTURA's approved scope.
+- **Per-order material logging** (fabric quantity × unit cost) — an `order_materials` table/"Materials Used" card existed and was **removed** (2026-09-27) as too close to the excluded material-stock tracking. Customer-supplied fabric is recorded only as `material_source` + a free-text description, never quantities or costs.
+- **Per-staff revenue** — the staff productivity report shows work output only (jobs, completion rate, rework rounds). Money attributed to an individual reads as a commission/payroll basis; don't add it back. (Staff productivity itself IS in scope — thesis Scope line 181.)
 
 ## Job order tracking — the actual state machine
 
@@ -68,7 +70,7 @@ From `app/Models/JobOrder.php` and its migrations — this is ground truth, not 
 - `payment_status`: `unpaid → partial → paid`.
 - `JobOrder::STAFF_STAGES`: `design, pattern_making, cutting, sewing, qc_ironing` — the internal production stages staff progress through, distinct from the customer-facing `status`. Assigned via the `job_order_staff` pivot (`JobOrderStaff`) — **one row per stage**, so a staff member working multiple stages of the same job has multiple pivot rows. Any "how many jobs is this person on" count must `COUNT(DISTINCT job_order_id)`, not a raw row count — a raw-row version of this exact bug shipped and was caught/fixed in `StaffController::index`/`show`.
 - `JobOrder::STAGES_REQUIRING_DOWNPAYMENT` and `MATERIAL_SOURCES` (`shop_supplied`, `customer_supplied`) also live as constants on this model — check them before adding new business rules around payment gating or material handling. The 50% downpayment gate ("No DP, No Layout, No Cut") is enforced in `JobOrderController::update`.
-- `is_outsourced` and `is_rush` are boolean flags added after the initial schema — rush fee logic and outsourced-order courier stages.
+- `is_rush` is a boolean flag added after the initial schema (rush fee logic). The old `is_outsourced`/`partner_store_name`/`outsourcing_cost` fields were **removed** (2026-09-27) — subcontracting maps to no objective and edges into logistics/expense tracking.
 - `tracking_code` (unique 8-char string, server-generated in `JobOrderController::store`) lets a customer check order status without logging in, via the public `GET /track/{trackingCode}` route (`JobOrderTrackingController`, narrow safe field subset, no staff/internal data). **Backend/DB only — deliberately no frontend page for this yet**, don't build one unless asked.
 - `ready_for_pickup_at` (server-derived timestamp, stamped on transition into that status) drives the Reports page's "Unclaimed Pickups" list — orders sitting ready 14+ days, with a matching daily proactive notification (`app:notify-unclaimed-pickups`).
 - Completion photo upload (`completion_photo_url`) is available at QC time but **optional, not required** — a hard "no photo, no ready-for-pickup" gate was tried and explicitly reverted by the shop owner.

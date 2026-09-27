@@ -109,7 +109,7 @@ class JobOrder extends Model
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
-        'is_outsourced', 'partner_store_name', 'outsourcing_cost', 'is_rush', 'rush_fee', 'completion_photo_url',
+        'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source', 'garment_category',
         'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
         'estimated_ready_at', 'customer_material_status',
@@ -128,11 +128,9 @@ class JobOrder extends Model
         'estimated_ready_at' => 'datetime',
         'custom_order_data' => 'array',
         'reference_images' => 'array',
-        'is_outsourced' => 'boolean',
         'is_rush' => 'boolean',
         'rush_fee' => 'decimal:2',
         'discount_amount' => 'decimal:2',
-        'outsourcing_cost' => 'decimal:2',
         'first_adjustment_at' => 'datetime',
         'adjustment_count' => 'integer',
         'progress_photos' => 'array',
@@ -181,11 +179,6 @@ class JobOrder extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
-    }
-
-    public function materials(): HasMany
-    {
-        return $this->hasMany(OrderMaterial::class);
     }
 
     public function staffStages(): BelongsToMany
