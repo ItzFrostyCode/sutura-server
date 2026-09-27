@@ -214,6 +214,39 @@ class Appointment extends Model
     }
 
     /**
+     * Cross-shop physical-time-conflict guard — distinct from
+     * hasActiveAppointment()'s anti-spam purpose below. Booking two
+     * different stores isn't spam, but booking two overlapping *times*
+     * across two different stores is a real problem: the customer can't
+     * physically be in both places at once. Platform-wide by design (not
+     * scoped to $store), since the whole point is checking the customer's
+     * OTHER stores' appointments too.
+     */
+    public static function hasCustomerScheduleConflict(
+        int $customerId,
+        Carbon $scheduledAt,
+        int $durationMinutes,
+        ?int $excludeId = null
+    ): bool {
+        $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes);
+
+        $query = self::where('customer_id', $customerId)
+            ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+            ->where('scheduled_at', '<', $newEnd);
+
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        return $query->get(['scheduled_at', 'duration_minutes'])
+            ->contains(function (self $appointment) use ($scheduledAt): bool {
+                return $appointment->scheduled_at->copy()
+                    ->addMinutes($appointment->duration_minutes ?? 60)
+                    ->gt($scheduledAt);
+            });
+    }
+
+    /**
      * Anti-spam guard for the public booking form: a customer may only hold
      * one active (pending/confirmed) appointment at a given store at a time.
      * Scoped per-store, not platform-wide — a customer legitimately booking

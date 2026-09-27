@@ -229,6 +229,16 @@ class PublicBookingController extends Controller
             ], 409);
         }
 
+        // A customer can legitimately have appointments at several different
+        // stores, but not at overlapping times — they can't physically be in
+        // two shops at once. Checked platform-wide, not just against $store.
+        if (Appointment::hasCustomerScheduleConflict($customer->id, $scheduledAt, $durationMinutes)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This time overlaps with another appointment you already have at a different store. Please choose a different time.',
+            ], 409);
+        }
+
         // ── Associate customer with this store ─────────────────────────────────
         // Ensures public-booked customers appear in the store's customer
         // list / CRM (CustomerController::index reads store_customers).
