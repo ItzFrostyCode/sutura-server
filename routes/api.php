@@ -244,9 +244,9 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
+                Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment']);
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
-                Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
@@ -272,15 +272,21 @@ Route::prefix('v1')->group(function () {
 
                 // File Uploads
                 Route::post('/upload', [FileUploadController::class, 'store']);
+
+                // Staff Management (list/read is granted to all store members
+                // above) — a branch manager can hire/edit/deactivate staff too,
+                // routine headcount for their own branch, but
+                // StaffController::staffManagerCrudDenied() enforces the real
+                // scoping (their own branch only, never another branch
+                // manager, never a promotion to branch manager) since role
+                // middleware alone can't express "only your own branch."
+                Route::post('/staff', [StaffController::class, 'store']);
+                Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
+                Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
             });
 
             // Owner Only Access
             Route::middleware('role:store_owner')->group(function () {
-                // Staff Management (list/read is granted to all store members above)
-                Route::post('/staff', [StaffController::class, 'store']);
-                Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
-                Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
-
                 // Services (list/read is granted to store_owner+branch_manager+staff above)
                 Route::post('/services', [ServiceController::class, 'store']);
                 Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');

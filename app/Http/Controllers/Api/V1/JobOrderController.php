@@ -23,7 +23,6 @@ use App\Notifications\NewJobOrderNotification;
 use App\Notifications\OrderReadyNotification;
 use App\Notifications\PaymentReceivedNotification;
 use App\Notifications\PaymentRejectedNotification;
-use App\Notifications\StaffAssignedNotification;
 use App\Notifications\StoreActivityNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,30 +53,47 @@ class JobOrderController extends Controller
     }
 
     /**
-     * Notifies the store owner's own in-app bell whenever staff or a branch
-     * manager makes a change on their behalf — the owner performing the
-     * change themselves already knows what they just did, so this only
-     * fires for other actors, matching StaffAssignedNotification's own
-     * "only notify the party who didn't cause this" precedent.
+     * Notifies the store owner's own in-app bell — and, when the activity
+     * happened on a specific branch, that branch's own manager too, not just
+     * the owner — whenever staff or a branch manager makes a change on their
+     * behalf. The owner performing the change themselves already knows what
+     * they just did, so this only fires for other actors; the acting branch
+     * manager is likewise never notified of their own action.
      */
-    private function notifyOwnerOfActivity(Request $request, Store $store, array $payload): void
+    private function notifyOwnerOfActivity(Request $request, Store $store, array $payload, ?JobOrder $jobOrder = null): void
     {
-        if ($request->user()->hasRole('store_owner')) {
-            return;
+        $actor = $request->user();
+
+        if (! $actor->hasRole('store_owner')) {
+            $owner = $store->owner;
+            if ($owner) {
+                $owner->notify(new StoreActivityNotification(
+                    $payload['type'],
+                    $payload['title'],
+                    $payload['message'],
+                    $payload['url'],
+                    $payload['extra'] ?? []
+                ));
+            }
         }
 
-        $owner = $store->owner;
-        if (! $owner) {
-            return;
-        }
+        if ($jobOrder?->store_branch_id) {
+            $branchManagers = User::whereHas('staffProfile', function ($q) use ($store, $jobOrder) {
+                $q->where('store_id', $store->id)
+                    ->where('store_branch_id', $jobOrder->store_branch_id)
+                    ->where('is_branch_manager', true);
+            })->where('id', '!=', $actor->id)->get();
 
-        $owner->notify(new StoreActivityNotification(
-            $payload['type'],
-            $payload['title'],
-            $payload['message'],
-            $payload['url'],
-            $payload['extra'] ?? []
-        ));
+            foreach ($branchManagers as $manager) {
+                $manager->notify(new StoreActivityNotification(
+                    $payload['type'],
+                    $payload['title'],
+                    $payload['message'],
+                    $payload['url'],
+                    $payload['extra'] ?? []
+                ));
+            }
+        }
     }
 
     /**
@@ -569,43 +585,19 @@ class JobOrderController extends Controller
         $validated['tracking_code'] = $this->generateTrackingCode($store, $validated['order_number']);
         $validated['order_type'] = $validated['order_type'] ?? 'walk_in';
 
-        // staff_stages isn't a job_orders column — pull it out before create(),
-        // then derive assigned_staff_id from it (first assigned stage, in
-        // production order) so the staff portal / analytics reports — which
-        // still filter by assigned_staff_id — keep working without the owner
-        // having to separately pick a redundant "overall" staff member.
-        $staffStages = $validated['staff_stages'] ?? [];
-        unset($validated['staff_stages']);
-        if (empty($validated['assigned_staff_id']) && ! empty($staffStages)) {
-            $stageOrder = JobOrder::STAFF_STAGES;
-            $byStage = collect($staffStages)->keyBy('stage');
-            foreach ($stageOrder as $stage) {
-                if ($byStage->has($stage)) {
-                    $validated['assigned_staff_id'] = $byStage[$stage]['user_id'];
-                    break;
-                }
-            }
-        }
+        // assigned_staff_id is no longer accepted from the client at creation
+        // time — no more upfront "who's doing this" pre-assignment. It's
+        // purely server-derived now, auto-set the moment anyone actually
+        // moves the job into a production stage (see the auto-attribution
+        // block in update()), same job_order_staff table the Staff
+        // Productivity report already reads. Explicitly null, not unset —
+        // same "column exists but missing from the create response until
+        // re-fetched" bug class as quantity above: create()'s in-memory
+        // model never reports an attribute it was never given at all.
+        $validated['assigned_staff_id'] = null;
 
-        // Auto-assign branch when not explicitly set. The assigned staff's own
-        // branch is the stronger signal of where the work actually happens —
-        // without this, a branch manager creating a job and staffing it with
-        // someone from a different branch (e.g. borrowing a tailor) silently
-        // saved the job under the creator's own branch, not the staff's,
-        // producing a job whose branch and assigned staff disagreed with no
-        // warning. Falls back to the creator's own branch (staff/branch
-        // manager) when the assigned staff has no fixed branch (a floater).
-        if (empty($validated['store_branch_id'])) {
-            $assignedStaffId = $validated['assigned_staff_id'] ?? null;
-            if ($assignedStaffId) {
-                $assignedBranchId = StaffProfile::where('user_id', $assignedStaffId)
-                    ->where('store_id', $store->id)
-                    ->value('store_branch_id');
-                if ($assignedBranchId) {
-                    $validated['store_branch_id'] = $assignedBranchId;
-                }
-            }
-        }
+        // Auto-assign branch when not explicitly set, falling back to the
+        // creator's own branch (staff/branch manager).
         $staffProfile = $request->user()->staffProfile;
         if ($staffProfile && empty($validated['store_branch_id'])) {
             $validated['store_branch_id'] = $staffProfile->store_branch_id;
@@ -710,18 +702,6 @@ class JobOrderController extends Controller
         }
 
         $jobOrder = $store->jobOrders()->create($validated);
-
-        foreach ($staffStages as $assignment) {
-            $jobOrder->staffStages()->attach($assignment['user_id'], [
-                'stage' => $assignment['stage'],
-                'assigned_at' => now(),
-                'completed_at' => null,
-            ]);
-
-            // Owner → Staff link: every stage assigned at creation is "new".
-            $assignedUser = User::find($assignment['user_id']);
-            $assignedUser?->notify(new StaffAssignedNotification($jobOrder, $assignment['stage']));
-        }
 
         // Link back to the appointment now that the job exists
         if ($appointment) {
@@ -935,6 +915,61 @@ class JobOrderController extends Controller
 
         $jobOrder->update($validated);
 
+        // Auto-derived production attribution: replaces the old "owner
+        // manually pre-assigns a staff member to a stage before they can
+        // touch it" model. Any staff member at the matching branch could
+        // already update a job's status regardless of assignment (this
+        // endpoint never checked staffStages before allowing it) — this
+        // just makes that reality visible instead of requiring a separate
+        // supervisory step first. Whoever actually moves the job into a
+        // production stage is recorded as having worked that stage; whoever
+        // moves it back OUT of one closes that stage's completed_at. Same
+        // job_order_staff table and shape the Staff Productivity report
+        // already reads (JobOrderStaff/StaffController::index) — jobs
+        // touched, completion rate — nothing there needed to change, it's
+        // just populated automatically now instead of via assignStaff().
+        if ($newStatus && $newStatus !== $oldStatus) {
+            $stageFor = fn (?string $status) => $status === 'mass_cutting_printing' ? 'pattern_making' : $status;
+            $oldStage = $stageFor($oldStatus);
+            $newStage = $stageFor($newStatus);
+            $actorId = $request->user()->id;
+
+            if ($oldStage && in_array($oldStage, JobOrder::STAFF_STAGES, true)) {
+                DB::table('job_order_staff')
+                    ->where('job_order_id', $jobOrder->id)
+                    ->where('stage', $oldStage)
+                    ->whereNull('completed_at')
+                    ->update(['completed_at' => now()]);
+            }
+
+            if ($newStage && in_array($newStage, JobOrder::STAFF_STAGES, true)) {
+                $existingId = DB::table('job_order_staff')
+                    ->where('job_order_id', $jobOrder->id)
+                    ->where('stage', $newStage)
+                    ->value('id');
+
+                if ($existingId) {
+                    // completed_at reset to null too — covers a job re-entering
+                    // a stage it already finished once before (e.g. a revert
+                    // during final_adjustments rework), so a second real visit
+                    // to this stage isn't shown as already completed.
+                    DB::table('job_order_staff')->where('id', $existingId)->update(['user_id' => $actorId, 'completed_at' => null]);
+                } else {
+                    DB::table('job_order_staff')->insert([
+                        'job_order_id' => $jobOrder->id,
+                        'user_id' => $actorId,
+                        'stage' => $newStage,
+                        'assigned_at' => now(),
+                        'completed_at' => null,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
+            $jobOrder->update(['assigned_staff_id' => $actorId]);
+        }
+
         // Cancelling a job leaves its linked fitting appointment(s) dangling
         // otherwise — still 'pending'/'confirmed' on the calendar for a job
         // that no longer exists, which staff could show up for, and which
@@ -999,7 +1034,7 @@ class JobOrderController extends Controller
                 'message' => "{$jobOrder->order_number} ({$jobOrder->customer?->name}) is ready for pickup.",
                 'url' => '/dashboard/jobs/'.$jobOrder->id,
                 'extra' => ['job_order_id' => $jobOrder->id, 'order_number' => $jobOrder->order_number],
-            ]);
+            ], $jobOrder);
         }
 
         // Phase 3: "Ready for Fitting" auto-triggers a Fitting appointment for
@@ -1090,7 +1125,7 @@ class JobOrderController extends Controller
                 'message' => "{$jobOrder->order_number} ({$jobOrder->customer?->name}) moved to ".str_replace('_', ' ', $jobOrder->status).'.',
                 'url' => '/dashboard/jobs/'.$jobOrder->id,
                 'extra' => ['job_order_id' => $jobOrder->id, 'order_number' => $jobOrder->order_number],
-            ]);
+            ], $jobOrder);
         }
 
         return response()->json([
@@ -1114,10 +1149,29 @@ class JobOrderController extends Controller
             'payment_method' => 'sometimes|string|in:cash,gcash,paymaya',
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
-            'receipt_path' => 'nullable|string|max:2048',
+            // A GCash/PayMaya payment is the artifact being verified against —
+            // required, not optional, now that it actually gates something
+            // (see the pending-verification handling below). Cash needs no
+            // proof: the money is physically in hand at the counter.
+            'receipt_path' => ['required_if:payment_method,gcash,paymaya', 'nullable', 'string', 'max:2048'],
+            'cash_tendered' => ['required_if:payment_method,cash', 'nullable', 'numeric', 'min:0'],
         ]);
 
+        $paymentMethod = $validated['payment_method'] ?? 'cash';
         $paymentAmount = (float) $validated['amount'];
+
+        $cashTendered = null;
+        $changeAmount = null;
+        if ($paymentMethod === 'cash') {
+            $cashTendered = (float) $validated['cash_tendered'];
+            if ($cashTendered < $paymentAmount) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cash tendered cannot be less than the amount being paid.',
+                ], 422);
+            }
+            $changeAmount = round($cashTendered - $paymentAmount, 2);
+        }
 
         // A GCash/bank reference number reused across two different orders
         // is exactly what a reused-screenshot scam looks like — the same
@@ -1139,50 +1193,128 @@ class JobOrderController extends Controller
             }
         }
 
+        $isCash = $paymentMethod === 'cash';
+
         try {
             // Lock the row for the duration of the transaction so two payments
             // submitted at nearly the same time (e.g. two staff on the same job)
             // can't both read the same starting balance and overpay/double-count.
-            DB::transaction(function () use ($jobOrder, $paymentAmount, $validated, $request) {
+            DB::transaction(function () use ($jobOrder, $paymentAmount, $paymentMethod, $isCash, $cashTendered, $changeAmount, $validated, $request) {
                 $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
 
-                $currentBalance = (float) $locked->balance;
-                if ($paymentAmount > $currentBalance) {
-                    throw new \RuntimeException('Payment exceeds remaining balance');
+                // Cash is verified on the spot — the money is already in the
+                // till, so it applies to the balance immediately, same as
+                // before this change. GCash/PayMaya only ever prove a screenshot
+                // was uploaded, not that the money actually landed, so those
+                // stay unapplied (balance untouched) until an owner/branch
+                // manager calls verifyPayment() below.
+                if ($isCash) {
+                    $currentBalance = (float) $locked->balance;
+                    if ($paymentAmount > $currentBalance) {
+                        throw new \RuntimeException('Payment exceeds remaining balance');
+                    }
+
+                    $newBalance = round($currentBalance - $paymentAmount, 2);
+                    $locked->update([
+                        'balance' => $newBalance,
+                        'payment_status' => $newBalance <= 0 ? 'paid' : 'partial',
+                    ]);
+                } else {
+                    // Still has to fit under the current balance so a customer
+                    // can't "pay" more than what's owed even before verification.
+                    if ($paymentAmount > (float) $locked->balance) {
+                        throw new \RuntimeException('Payment exceeds remaining balance');
+                    }
                 }
-
-                $newBalance = round($currentBalance - $paymentAmount, 2);
-                $paymentStatus = $newBalance <= 0 ? 'paid' : 'partial';
-
-                $locked->update([
-                    'balance' => $newBalance,
-                    'payment_status' => $paymentStatus,
-                ]);
 
                 $locked->payments()->create([
                     'amount' => $paymentAmount,
-                    'payment_method' => $validated['payment_method'] ?? 'cash',
+                    'payment_method' => $paymentMethod,
                     'reference' => $validated['reference'] ?? null,
                     'recorded_by' => $request->user()->id,
                     'notes' => $validated['notes'] ?? null,
                     'receipt_path' => $validated['receipt_path'] ?? null,
+                    'cash_tendered' => $cashTendered,
+                    'change_amount' => $changeAmount,
+                    'verified_at' => $isCash ? now() : null,
+                    'verified_by' => $isCash ? $request->user()->id : null,
                 ]);
             });
         } catch (\RuntimeException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
         }
 
-        // Notify store owner of the payment
+        // Notify store owner of the payment — a GCash/PayMaya one still needs
+        // their (or a branch manager's) action to verify it, so the message
+        // makes that explicit instead of reading like a done deal.
         $storeOwner = $store->owner;
         if ($storeOwner) {
-            $storeOwner->notify(new PaymentReceivedNotification($jobOrder, $paymentAmount));
+            $storeOwner->notify(new PaymentReceivedNotification($jobOrder, $paymentAmount, ! $isCash));
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Payment logged successfully',
+            'message' => $isCash ? 'Payment logged successfully' : 'Payment submitted — pending verification before it applies to the balance.',
             'warning' => $duplicateReferenceWarning,
-            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages']),
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'payments.verifiedBy:id,name', 'staffStages']),
+        ]);
+    }
+
+    /**
+     * Owner/branch-manager-only confirmation that a GCash/PayMaya payment
+     * actually landed (the counterpart to cash, which auto-verifies at
+     * creation since the money is already in hand). Only once this fires
+     * does the payment apply to the job's balance/payment_status — mirrors
+     * pay()'s own locked-transaction math, just deferred.
+     */
+    public function verifyPayment(Request $request, Store $store, JobOrder $jobOrder, Payment $payment): JsonResponse
+    {
+        if ($jobOrder->store_id !== $store->id || $payment->job_order_id !== $jobOrder->id) {
+            return response()->json(['success' => false, 'message' => 'Payment not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        try {
+            DB::transaction(function () use ($jobOrder, $payment, $request) {
+                $lockedPayment = Payment::where('id', $payment->id)->lockForUpdate()->firstOrFail();
+
+                if ($lockedPayment->rejected_at !== null) {
+                    throw new \RuntimeException('This payment was already rejected and can no longer be verified.');
+                }
+                if ($lockedPayment->verified_at !== null) {
+                    throw new \RuntimeException('This payment is already verified.');
+                }
+
+                $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
+
+                $currentBalance = (float) $locked->balance;
+                $amount = (float) $lockedPayment->amount;
+                if ($amount > $currentBalance) {
+                    throw new \RuntimeException('This payment amount no longer fits the remaining balance — it may have been overtaken by another payment since it was submitted.');
+                }
+
+                $newBalance = round($currentBalance - $amount, 2);
+                $locked->update([
+                    'balance' => $newBalance,
+                    'payment_status' => $newBalance <= 0 ? 'paid' : 'partial',
+                ]);
+
+                $lockedPayment->update([
+                    'verified_at' => now(),
+                    'verified_by' => $request->user()->id,
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment verified.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'payments.verifiedBy:id,name', 'staffStages']),
         ]);
     }
 
@@ -1334,19 +1466,27 @@ class JobOrderController extends Controller
                     throw new \RuntimeException('This payment has already been rejected.');
                 }
 
-                $newBalance = round((float) $locked->balance + (float) $lockedPayment->amount, 2);
-                $hasOtherConfirmedPayments = $locked->payments()
-                    ->whereNull('rejected_at')
-                    ->where('id', '!=', $lockedPayment->id)
-                    ->exists();
-                $newPaymentStatus = $newBalance <= 0
-                    ? 'paid'
-                    : ($hasOtherConfirmedPayments ? 'partial' : 'unpaid');
+                // A payment still pending verification (an unconfirmed GCash/
+                // PayMaya screenshot) was never applied to the balance in the
+                // first place — pay() left it untouched on purpose. Reversing
+                // it here too would double-credit the balance for money that
+                // was never actually counted as received.
+                if ($lockedPayment->verified_at !== null) {
+                    $newBalance = round((float) $locked->balance + (float) $lockedPayment->amount, 2);
+                    $hasOtherConfirmedPayments = $locked->payments()
+                        ->whereNull('rejected_at')
+                        ->whereNotNull('verified_at')
+                        ->where('id', '!=', $lockedPayment->id)
+                        ->exists();
+                    $newPaymentStatus = $newBalance <= 0
+                        ? 'paid'
+                        : ($hasOtherConfirmedPayments ? 'partial' : 'unpaid');
 
-                $locked->update([
-                    'balance' => $newBalance,
-                    'payment_status' => $newPaymentStatus,
-                ]);
+                    $locked->update([
+                        'balance' => $newBalance,
+                        'payment_status' => $newPaymentStatus,
+                    ]);
+                }
 
                 $lockedPayment->update([
                     'rejected_at' => now(),
@@ -1568,97 +1708,6 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
-        ]);
-    }
-
-    public function assignStaff(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
-    {
-        if ($jobOrder->store_id !== $store->id) {
-            return response()->json(['message' => 'Job order not found'], 404);
-        }
-
-        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
-            return $denied;
-        }
-
-        // "present" (not "required") on purpose — an empty array is a valid,
-        // deliberate request: every stage was left/set to Unassigned, which
-        // should clear existing assignments rather than fail. "required"
-        // treats an empty array as missing entirely, which was rejecting
-        // exactly that case with a 422.
-        $validated = $request->validate([
-            'assignments' => 'present|array',
-            'assignments.*.user_id' => [
-                'required',
-                Rule::exists('staff_profiles', 'user_id')->where('store_id', $store->id),
-                function ($attribute, $value, $fail) use ($store, $jobOrder) {
-                    if (! $jobOrder->store_branch_id) {
-                        return;
-                    }
-                    $staffBranchId = StaffProfile::where('user_id', $value)
-                        ->where('store_id', $store->id)
-                        ->value('store_branch_id');
-                    if ($staffBranchId && (int) $staffBranchId !== (int) $jobOrder->store_branch_id) {
-                        $fail('This staff member belongs to a different branch than this job order.');
-                    }
-                },
-            ],
-            'assignments.*.stage' => ['required', Rule::in(JobOrder::STAFF_STAGES)],
-        ]);
-
-        // Capture existing completion timestamps before replacing the pivot rows —
-        // a blind detach+reattach previously wiped completed_at even for stages
-        // whose assigned staff wasn't changing, which silently flipped their
-        // "Completed" badge back to "In Progress" every time assignments were
-        // re-saved (e.g. just to add one more stage).
-        $existing = $jobOrder->staffStages()->get()->keyBy(fn ($staff) => $staff->pivot->stage);
-
-        $jobOrder->staffStages()->detach();
-
-        foreach ($validated['assignments'] as $assignment) {
-            $previous = $existing->get($assignment['stage']);
-            $samePersonAsBefore = $previous && (int) $previous->id === (int) $assignment['user_id'];
-
-            $jobOrder->staffStages()->attach($assignment['user_id'], [
-                'stage' => $assignment['stage'],
-                'assigned_at' => $samePersonAsBefore ? $previous->pivot->assigned_at : now(),
-                'completed_at' => $samePersonAsBefore ? $previous->pivot->completed_at : null,
-            ]);
-
-            // Owner → Staff link: only for a stage that's newly filled or
-            // handed to a different person — re-saving the same assignment
-            // shouldn't spam a notification.
-            if (! $samePersonAsBefore) {
-                $assignedUser = User::find($assignment['user_id']);
-                $assignedUser?->notify(new StaffAssignedNotification($jobOrder, $assignment['stage']));
-            }
-        }
-
-        // Same derivation store() does at creation time (first assigned stage,
-        // in production order) — without this, assigning staff here (the only
-        // way to assign/reassign staff on an already-created job) left
-        // assigned_staff_id stale. Staff Productivity analytics already works
-        // around that via a staffStages fallback, but the Kanban card and Job
-        // Detail page's "Assigned Staff" field read assigned_staff_id
-        // directly, so they kept showing "Unassigned" even for a job with a
-        // real staff member actively working a stage. Confirmed live: staff
-        // assigned to Cutting via this exact endpoint, board still said
-        // Unassigned.
-        $stageOrder = JobOrder::STAFF_STAGES;
-        $byStage = collect($validated['assignments'])->keyBy('stage');
-        $derivedStaffId = null;
-        foreach ($stageOrder as $stage) {
-            if ($byStage->has($stage)) {
-                $derivedStaffId = $byStage[$stage]['user_id'];
-                break;
-            }
-        }
-        $jobOrder->update(['assigned_staff_id' => $derivedStaffId]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Staff assigned to stages successfully',
-            'data' => $jobOrder->fresh(['staffStages', 'assignedStaff:id,name']),
         ]);
     }
 

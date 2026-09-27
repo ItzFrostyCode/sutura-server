@@ -31,7 +31,6 @@ use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\JobStatusUpdatedNotification;
 use App\Notifications\NewJobOrderNotification;
 use App\Notifications\PaymentReceivedNotification;
-use App\Notifications\StaffAssignedNotification;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -1428,8 +1427,8 @@ class LocalTestSeeder extends Seeder
         // generate a real stream of in-app notifications, but every one of
         // those rows above was created by writing straight to Eloquent,
         // bypassing the controllers where notification-firing actually
-        // lives (JobOrderController@store/@assignStaff, the payment/
-        // appointment endpoints, etc.) — so the notifications table stayed
+        // lives (JobOrderController@store, the payment/appointment
+        // endpoints, etc.) — so the notifications table stayed
         // empty even on a freshly reseeded "realistic" demo store, which
         // looked like a bug but was really just missing seed coverage.
         // Fire the real Notification classes against already-seeded data
@@ -1449,10 +1448,11 @@ class LocalTestSeeder extends Seeder
         $owner->notify(new PaymentReceivedNotification($jo4, 3250.00));
         $owner->notify(new PaymentReceivedNotification($jo2, 3250.00));
 
-        $staffUsers[0]->notify(new StaffAssignedNotification($jo1, 'sewing'));
-        $lanangStaff->notify(new StaffAssignedNotification($jo10, 'sewing'));
-        $matinaStaff->notify(new StaffAssignedNotification($jo8, 'qc_ironing'));
-
+        // Staff no longer get a dedicated "you've been assigned" notification
+        // — that whole manual pre-assignment step was removed in favor of
+        // auto-attribution from real status updates (JobOrderController::
+        // update()), and there's nothing analogous to seed here; staff just
+        // see the job sitting in their branch's queue.
         $seededAppointments = Appointment::where('store_id', $store->id)->latest()->take(3)->get();
         foreach ($seededAppointments as $appt) {
             $owner->notify(new AppointmentBookedNotification($appt));

@@ -10,7 +10,9 @@ class UpdateStaffRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->hasRole('store_owner');
+        // Coarse role check only — see StoreStaffRequest::authorize()'s
+        // matching note.
+        return $this->user()->hasRole('store_owner') || $this->user()->hasRole('branch_manager');
     }
 
     public function rules(): array

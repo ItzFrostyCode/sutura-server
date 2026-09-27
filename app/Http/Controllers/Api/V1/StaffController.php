@@ -39,14 +39,59 @@ class StaffController extends Controller
         }
     }
 
-    public function index(Store $store): JsonResponse
+    /**
+     * A branch manager can create/edit/deactivate staff — that's routine
+     * headcount management, not something that should always have to route
+     * through the owner — but strictly within their own branch, and never
+     * touching the branch-manager tier itself: promoting someone to
+     * (or editing/removing an existing) branch manager stays owner-only,
+     * same as the store owner never being editable through this controller.
+     * Returns a 403 JsonResponse to short-circuit on, or null to proceed.
+     */
+    private function staffManagerCrudDenied(Request $request, int $targetBranchId, bool $wantsBranchManager, ?StaffProfile $existingTarget = null): ?JsonResponse
     {
+        $user = $request->user();
+        if ($user->hasRole('store_owner')) {
+            return null;
+        }
+
+        if ($wantsBranchManager) {
+            return response()->json(['success' => false, 'message' => 'Only the shop owner can promote a staff member to branch manager.'], 403);
+        }
+
+        if ($existingTarget && $existingTarget->is_branch_manager) {
+            return response()->json(['success' => false, 'message' => 'Only the shop owner can edit or remove another branch manager.'], 403);
+        }
+
+        $callerBranchId = $user->staffProfile?->store_branch_id ?? null;
+        if (! $callerBranchId || (int) $callerBranchId !== $targetBranchId) {
+            return response()->json(['success' => false, 'message' => 'You can only manage staff within your own branch.'], 403);
+        }
+
+        return null;
+    }
+
+    public function index(Request $request, Store $store): JsonResponse
+    {
+        // A branch manager or staff account pinned to a branch only ever sees
+        // that branch's own roster — matches the same per-action branch check
+        // already enforced on job orders (JobOrderController::branchAccessDenied)
+        // and its list-scoping (JobOrderController::index). Previously this
+        // returned every branch's staff regardless of who was asking. Filtered
+        // after the cache read/write below (not baked into the cache key) so
+        // store()/update()/destroy()'s single forget() call still invalidates
+        // every caller's view correctly.
+        $user = $request->user();
+        $scopedBranchId = ! $user->hasRole('store_owner') ? ($user->staffProfile?->store_branch_id ?? null) : null;
+
         $cacheKey = "store_staff_{$store->id}";
-        if (! app()->environment('testing')) {
-            $cached = Cache::driver('file')->get($cacheKey);
-            if (is_array($cached) && isset($cached['data']) && is_array($cached['data'])) {
-                return response()->json($cached);
-            }
+        $cached = app()->environment('testing') ? null : Cache::driver('file')->get($cacheKey);
+        if (is_array($cached) && isset($cached['data']) && is_array($cached['data'])) {
+            $data = $scopedBranchId
+                ? array_values(array_filter($cached['data'], fn ($s) => (int) ($s['store_branch_id'] ?? 0) === (int) $scopedBranchId))
+                : $cached['data'];
+
+            return response()->json(['success' => true, 'data' => $data]);
         }
 
         $staff = $store->staff()->with(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])->get();
@@ -82,22 +127,30 @@ class StaffController extends Controller
             return $s;
         });
 
-        $payload = [
-            'success' => true,
-            'data' => $staff->values()->toArray(),
-        ];
+        $fullData = $staff->values()->toArray();
+        $payload = ['success' => true, 'data' => $fullData];
 
         if (! app()->environment('testing')) {
             Cache::driver('file')->put($cacheKey, $payload, 30);
         }
 
-        return response()->json($payload);
+        $data = $scopedBranchId
+            ? array_values(array_filter($fullData, fn ($s) => (int) ($s['store_branch_id'] ?? 0) === (int) $scopedBranchId))
+            : $fullData;
+
+        return response()->json(['success' => true, 'data' => $data]);
     }
 
-    public function show(Store $store, StaffProfile $staff): JsonResponse
+    public function show(Request $request, Store $store, StaffProfile $staff): JsonResponse
     {
         if ($staff->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $user = $request->user();
+        $scopedBranchId = ! $user->hasRole('store_owner') ? ($user->staffProfile?->store_branch_id ?? null) : null;
+        if ($scopedBranchId && $staff->store_branch_id && (int) $scopedBranchId !== (int) $staff->store_branch_id) {
+            return response()->json(['success' => false, 'message' => 'This staff member belongs to a different branch.'], 403);
         }
 
         // Work-history log: every job this staff was assigned to (assigned vs completed).
@@ -139,6 +192,16 @@ class StaffController extends Controller
 
     public function store(StoreStaffRequest $request, Store $store): JsonResponse
     {
+        // A branch manager can hire/manage staff — day-to-day headcount is
+        // their call, not something that should have to route through the
+        // owner every time — but only within their own branch, and they can
+        // never mint another branch manager (that's a supervisory promotion,
+        // owner-only, same reasoning as StaffProfile::is_branch_manager
+        // being owner-gated everywhere else it's touched).
+        if ($denied = $this->staffManagerCrudDenied($request, (int) $request->store_branch_id, $request->boolean('is_branch_manager'))) {
+            return $denied;
+        }
+
         // SubscriptionPlan::max_staff is configurable per plan (unlike the
         // branch limit, which is a flat premium-only gate) but was never
         // actually checked here — a store on the cheapest plan could hire an
@@ -239,6 +302,11 @@ class StaffController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
+        $targetBranchId = $request->has('store_branch_id') ? (int) $request->store_branch_id : $staff->store_branch_id;
+        if ($denied = $this->staffManagerCrudDenied($request, $targetBranchId, $request->boolean('is_branch_manager'), $staff)) {
+            return $denied;
+        }
+
         // Update the associated User
         $user = $staff->user;
         if ($user) {
@@ -268,6 +336,10 @@ class StaffController extends Controller
     {
         if ($staff->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        if ($denied = $this->staffManagerCrudDenied($request, (int) $staff->store_branch_id, false, $staff)) {
+            return $denied;
         }
 
         // Only remove the StaffProfile — the roster entry — and leave the

@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Store;
 
 use App\Models\JobOrder;
-use App\Models\StaffProfile;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -23,26 +22,10 @@ class UpdateJobOrderRequest extends FormRequest
             // Store pickup only — the approved thesis explicitly excludes
             // logistics/courier/delivery management from the system's scope.
             'fulfillment_type' => ['sometimes', 'in:pickup'],
-            'assigned_staff_id' => [
-                'nullable', 'integer',
-                Rule::exists('staff_profiles', 'user_id')->where('store_id', $store?->id),
-                function ($attribute, $value, $fail) use ($store) {
-                    if (! $value) {
-                        return;
-                    }
-                    $jobOrder = $this->route('jobOrder');
-                    $targetBranchId = $this->input('store_branch_id') ?? $jobOrder?->store_branch_id;
-                    if (! $targetBranchId) {
-                        return;
-                    }
-                    $staffBranchId = StaffProfile::where('user_id', $value)
-                        ->where('store_id', $store?->id)
-                        ->value('store_branch_id');
-                    if ($staffBranchId && (int) $staffBranchId !== (int) $targetBranchId) {
-                        $fail('This staff member belongs to a different branch than this job order.');
-                    }
-                },
-            ],
+            // assigned_staff_id is not client-settable here — it's
+            // server-derived, auto-set to whoever actually moves the job's
+            // status forward (see JobOrderController::update()'s
+            // auto-attribution block), never picked directly.
             'measurement_id' => [
                 'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('store_id', $store?->id),

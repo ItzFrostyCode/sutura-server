@@ -10,7 +10,12 @@ class StoreStaffRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->hasRole('store_owner');
+        // Coarse role check only — the real "your own branch, never another
+        // branch manager, never a promotion" scoping for a branch_manager
+        // caller lives in StaffController::staffManagerCrudDenied(), which
+        // needs the route-bound Store/StaffProfile this request class
+        // doesn't have access to at authorization time.
+        return $this->user()->hasRole('store_owner') || $this->user()->hasRole('branch_manager');
     }
 
     public function rules(): array
