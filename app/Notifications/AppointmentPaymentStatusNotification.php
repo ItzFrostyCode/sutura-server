@@ -29,14 +29,11 @@ class AppointmentPaymentStatusNotification extends Notification implements Shoul
         $this->status = $status;
     }
 
+    // In-app/database only — same reasoning as AppointmentStatusNotification:
+    // per-payment-status email was too noisy for how minor most of these are.
     public function via(object $notifiable): array
     {
-        $channels = ['database'];
-        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
-            $channels[] = 'mail';
-        }
-
-        return $channels;
+        return ['database'];
     }
 
     private function scheduledLabel(): string

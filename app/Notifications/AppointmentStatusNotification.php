@@ -35,17 +35,17 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
     }
 
     /**
-     * Delivery channels — database + mail, unless this is a synthetic walk-in
-     * placeholder address (no real customer inbox to deliver to).
+     * Delivery channels — in-app/database only for now. This used to also
+     * mail the customer on every status change, but per-appointment email
+     * for every pending/confirmed/rescheduled/etc. update was too noisy in
+     * practice (real inbox spam during testing) for how minor most of these
+     * are — the in-app bell is the one that actually matters here. toMail()
+     * below is left in place, unused, in case email comes back for specific
+     * statuses later rather than all of them.
      */
     public function via(object $notifiable): array
     {
-        $channels = ['database'];
-        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
-            $channels[] = 'mail';
-        }
-
-        return $channels;
+        return ['database'];
     }
 
     private function titles(): array
