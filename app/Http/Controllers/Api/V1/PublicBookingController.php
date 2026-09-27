@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
 use App\Notifications\AppointmentBookedNotification;
+use App\Notifications\AppointmentStatusNotification;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -286,6 +287,12 @@ class PublicBookingController extends Controller
         if ($storeOwner) {
             $storeOwner->notify(new AppointmentBookedNotification($appointment));
         }
+
+        // Also notify the customer themselves — a record of what they just
+        // booked (when + why), in-app and by email, so if they forget the
+        // details later they have something to check back against instead
+        // of only the store owner knowing.
+        $customer->notify(new AppointmentStatusNotification($appointment, 'submitted'));
 
         return response()->json([
             'success' => true,

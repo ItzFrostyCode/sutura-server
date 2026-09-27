@@ -51,6 +51,7 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
     private function titles(): array
     {
         return [
+            'submitted' => 'Appointment Request Sent',
             'confirmed' => 'Appointment Confirmed',
             'rescheduled' => 'Appointment Rescheduled',
             'cancelled' => 'Appointment Cancelled',
@@ -61,6 +62,9 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
         ];
     }
 
+    // Every message below names both the WHEN (scheduledAt) and the WHY
+    // (purpose) — a customer who forgets what they booked should be able to
+    // tell from the notification alone, without having to reopen the app.
     private function messages(): array
     {
         if ($this->customMessage) {
@@ -73,14 +77,21 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
             ? Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
             : 'N/A';
 
+        $purpose = $this->appointment->appointment_type
+            ? str_replace('_', ' ', $this->appointment->appointment_type)
+            : 'store';
+
+        $storeName = $this->appointment->store?->name ?? 'the store';
+
         return [
-            'confirmed' => 'Your appointment for '.$scheduledAt.' has been confirmed by the store.',
-            'rescheduled' => 'Your appointment has been rescheduled to '.$scheduledAt.'.',
-            'cancelled' => 'Your appointment for '.$scheduledAt.' has been cancelled.',
-            'completed' => 'Your fitting/consultation appointment on '.$scheduledAt.' is now marked as completed.',
-            'in_progress' => 'Your appointment is now in progress.',
-            'no_show' => 'You were marked as a no-show for your appointment at '.$scheduledAt.'.',
-            'walk_in_preempted' => 'Your requested appointment slot for '.$scheduledAt.' was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot.',
+            'submitted' => 'Your '.$purpose.' appointment request with '.$storeName.' for '.$scheduledAt.' has been sent. You\'ll be notified once the store responds.',
+            'confirmed' => 'Your '.$purpose.' appointment with '.$storeName.' for '.$scheduledAt.' has been confirmed by the store.',
+            'rescheduled' => 'Your '.$purpose.' appointment with '.$storeName.' has been rescheduled to '.$scheduledAt.'.',
+            'cancelled' => 'Your '.$purpose.' appointment with '.$storeName.' for '.$scheduledAt.' has been cancelled.',
+            'completed' => 'Your '.$purpose.' appointment with '.$storeName.' on '.$scheduledAt.' is now marked as completed.',
+            'in_progress' => 'Your '.$purpose.' appointment with '.$storeName.' is now in progress.',
+            'no_show' => 'You were marked as a no-show for your '.$purpose.' appointment with '.$storeName.' at '.$scheduledAt.'.',
+            'walk_in_preempted' => 'Your requested '.$purpose.' appointment slot with '.$storeName.' for '.$scheduledAt.' was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot.',
         ];
     }
 
