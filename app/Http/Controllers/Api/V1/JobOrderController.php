@@ -145,7 +145,7 @@ class JobOrderController extends Controller
         $prefix = self::generateStorePrefix($store);
         $charset = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 
-        do {
+        while (true) {
             $suffix = '';
             for ($i = 0; $i < 4; $i++) {
                 $suffix .= $charset[random_int(0, strlen($charset) - 1)];
@@ -155,9 +155,10 @@ class JobOrderController extends Controller
                 continue;
             }
             $code = "{$prefix}{$suffix}";
-        } while (JobOrder::withTrashed()->where('tracking_code', $code)->exists());
-
-        return $code;
+            if (! JobOrder::withTrashed()->where('tracking_code', $code)->exists()) {
+                return $code;
+            }
+        }
     }
 
     /**

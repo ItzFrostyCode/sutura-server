@@ -415,7 +415,7 @@ class CatalogController extends Controller
             // Whether this item can be Bulk Ordered depends entirely on
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.
-            'service:id,name,service_types,min_order_qty',
+            'service:id,name,service_types,min_order_qty,roster_fields',
         ];
 
         if ($this->belongsToStore($request, $store)) {
