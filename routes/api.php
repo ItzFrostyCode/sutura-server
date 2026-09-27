@@ -363,6 +363,7 @@ Route::prefix('v1')->group(function () {
             Route::put('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'update']);
             Route::put('/stores/{store}/branches/{branch}/set-main', [StoreBranchController::class, 'setMain']);
             Route::delete('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'destroy']);
+            Route::post('/stores/{store}/branches/resolve-maps-link', [StoreBranchController::class, 'resolveMapsLink']);
 
             // Subscription Plan Billing
             Route::get('/subscriptions/plans', [SubscriptionController::class, 'index']);

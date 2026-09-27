@@ -7,6 +7,8 @@ use App\Models\Role;
 use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Models\StoreBranch;
+use App\Services\GoogleMapsLinkResolver;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -241,5 +243,31 @@ class StoreBranchController extends Controller
         $branch->delete();
 
         return response()->json(['success' => true, 'message' => 'Branch deleted successfully.']);
+    }
+
+    /**
+     * Lets an owner/branch manager paste whatever Google Maps' own "Share"
+     * button gives them (a short maps.app.goo.gl link, or the full URL
+     * copied straight from the address bar) instead of having to go hunt
+     * down raw latitude/longitude themselves. Manual lat/lng entry (and the
+     * existing click-to-pin map picker) both stay available — this is an
+     * additional, easier path to the same two numbers, not a replacement.
+     */
+    public function resolveMapsLink(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'url' => ['required', 'string', 'max:2048'],
+        ]);
+
+        $coords = GoogleMapsLinkResolver::resolve($validated['url']);
+
+        if (! $coords) {
+            return response()->json([
+                'success' => false,
+                'message' => "Couldn't find a location in that link. Make sure it's copied from Google Maps' Share button, or enter the coordinates manually below.",
+            ], 422);
+        }
+
+        return response()->json(['success' => true, 'data' => $coords]);
     }
 }
