@@ -219,6 +219,24 @@ class JobOrder extends Model
      * remains a Staff/Owner operational decision (docs/REPAIR-WORKFLOW.md §5,
      * docs/STAFF-WORKFLOW.md §8, cross-role dependency).
      */
+    /**
+     * Whether moving into $status needs the 50% downpayment first. Repairs
+     * only need it when the shop opted in (repair_requires_downpayment) —
+     * many shops charge repairs at pickup. Everything else always does.
+     */
+    public function requiresDownpaymentFor(string $status): bool
+    {
+        if (! in_array($status, self::STAGES_REQUIRING_DOWNPAYMENT, true)) {
+            return false;
+        }
+
+        if ($this->isRepairOnly()) {
+            return (bool) $this->store?->repair_requires_downpayment;
+        }
+
+        return true;
+    }
+
     public function isRepairOnly(): bool
     {
         if ($this->garment_category === 'alteration_repair') {

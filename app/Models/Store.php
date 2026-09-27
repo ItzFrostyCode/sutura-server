@@ -20,7 +20,7 @@ class Store extends Model
         'logo_path', 'banner_path', 'gallery_images', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
-        'fitting_fee', 'fitting_limit',
+        'fitting_fee', 'fitting_limit', 'repair_requires_downpayment',
         'specializations', 'is_featured', 'is_hidden',
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
         'gcash_qr_path', 'bank_qr_path',
@@ -62,6 +62,7 @@ class Store extends Model
         'is_featured' => 'boolean',
         'is_hidden' => 'boolean',
         'fitting_fee' => 'float',
+        'repair_requires_downpayment' => 'boolean',
         'max_appointments_per_day' => 'integer',
     ];
 

@@ -828,14 +828,20 @@ class JobOrderController extends Controller
         // not just in one frontend component.
         if ($newStatus && $newStatus !== $oldStatus) {
             $totalAmount = (float) $jobOrder->total_amount;
-            $paidSoFar = $totalAmount - (float) $jobOrder->balance;
+            // A discount lowers balance, not total, so it must be subtracted
+            // here too — otherwise a discount counts as cash paid and a
+            // discounted job can pass the 50% gate without enough payment.
+            $discount = (float) $jobOrder->discount_amount;
+            $paidSoFar = $totalAmount - (float) $jobOrder->balance - $discount;
+            $amountDue = $totalAmount - $discount;
 
             // "No DP, No Layout, No Cut": matches the 50% downpayment policy
             // shown on the Job Detail page and Kanban board. 'pending' and
             // 'design' are deliberately excluded — no fabric or material is
             // committed yet at those stages, only once Pattern Making (or
             // its Bulk Order Override, Mass Cutting & Printing) starts.
-            if (in_array($newStatus, JobOrder::STAGES_REQUIRING_DOWNPAYMENT, true) && $totalAmount > 0 && $paidSoFar < ($totalAmount * 0.5)) {
+            // Repairs skip this unless the shop opted in (requiresDownpaymentFor).
+            if ($jobOrder->requiresDownpaymentFor($newStatus) && $amountDue > 0 && $paidSoFar < ($amountDue * 0.5)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'A 50% downpayment must be collected before production can start on this job.',
