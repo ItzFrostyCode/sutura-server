@@ -27,7 +27,15 @@ class JobOrderTrackingController extends Controller
     public function myOrders(Request $request): JsonResponse
     {
         $jobOrders = JobOrder::where('customer_id', $request->user()->id)
-            ->with(['store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name'])
+            ->with([
+                'store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name',
+                // Only the still-unverified GCash/PayMaya rows — these never
+                // touched balance/payment_status (JobOrderController::pay()),
+                // so without this the customer sees no acknowledgement at
+                // all that their payment was received while it waits on the
+                // shop to confirm it.
+                'payments' => fn ($q) => $q->whereNull('verified_at')->whereNull('rejected_at'),
+            ])
             ->latest()
             ->paginate($request->input('per_page', 20));
 
@@ -45,6 +53,7 @@ class JobOrderTrackingController extends Controller
             'total_amount' => (float) $jobOrder->total_amount,
             'balance' => (float) $jobOrder->balance,
             'payment_status' => $jobOrder->payment_status,
+            'pending_payment_amount' => (float) $jobOrder->payments->sum('amount'),
             'created_at' => $jobOrder->created_at,
             'store' => $jobOrder->store ? [
                 'name' => $jobOrder->store->name,
@@ -79,7 +88,10 @@ class JobOrderTrackingController extends Controller
             return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
         }
 
-        $jobOrder->load(['store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name', 'staffStages']);
+        $jobOrder->load([
+            'store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name', 'staffStages',
+            'payments' => fn ($q) => $q->whereNull('verified_at')->whereNull('rejected_at'),
+        ]);
 
         return response()->json([
             'success' => true,
@@ -98,6 +110,7 @@ class JobOrderTrackingController extends Controller
                 'total_amount' => (float) $jobOrder->total_amount,
                 'balance' => (float) $jobOrder->balance,
                 'payment_status' => $jobOrder->payment_status,
+                'pending_payment_amount' => (float) $jobOrder->payments->sum('amount'),
                 'created_at' => $jobOrder->created_at,
                 'updated_at' => $jobOrder->updated_at,
                 'repair_note' => $jobOrder->custom_order_data['repair_note'] ?? null,
