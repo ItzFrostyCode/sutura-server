@@ -508,6 +508,12 @@ class JobOrderController extends Controller
     public function store(StoreJobOrderRequest $request, Store $store): JsonResponse
     {
         $validated = $request->validated();
+        // Set explicitly rather than relying on the DB column default — an
+        // Eloquent model just-created from an array without this key never
+        // gets it back until the row is re-fetched, so the create response
+        // would silently omit "quantity": 1 even though that's what the row
+        // actually holds.
+        $validated['quantity'] = $validated['quantity'] ?? 1;
 
         // Server-side enforcement of service-type rules — the frontend already
         // checks these, but a client can't be trusted for money/liability-sensitive
@@ -525,6 +531,17 @@ class JobOrderController extends Controller
             if ($bulkQty === 0) {
                 $bulkQty = (int) ($validated['custom_order_data']['total_quantity'] ?? 0);
             }
+
+            // `quantity` (several identical pieces for one person) is a
+            // different concept from a bulk order's roster (different
+            // people). Force it to 1 for a bulk order regardless of what a
+            // client sent — the frontend already guards this, but the
+            // server shouldn't trust it, same reasoning as every other
+            // check in this block.
+            if ($service->hasType(Service::TYPE_BULK_SUBLIMATION)) {
+                $validated['quantity'] = 1;
+            }
+
             if (
                 $service->hasType(Service::TYPE_BULK_SUBLIMATION)
                 && $service->min_order_qty > 1

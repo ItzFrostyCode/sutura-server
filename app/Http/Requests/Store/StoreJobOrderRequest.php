@@ -70,6 +70,7 @@ class StoreJobOrderRequest extends FormRequest
                 'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('store_id', $store?->id),
             ],
+            'quantity' => ['nullable', 'integer', 'min:1'],
             'total_amount' => ['required', 'numeric', 'min:0'],
             'balance' => ['required', 'numeric', 'min:0', 'lte:total_amount'],
             'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya'],

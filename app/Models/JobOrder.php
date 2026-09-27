@@ -106,7 +106,7 @@ class JobOrder extends Model
 
     protected $fillable = [
         'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id',
-        'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'total_amount',
+        'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'quantity', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
         'is_rush', 'rush_fee', 'completion_photo_url',
@@ -116,6 +116,7 @@ class JobOrder extends Model
     ];
 
     protected $casts = [
+        'quantity' => 'integer',
         'total_amount' => 'decimal:2',
         'balance' => 'decimal:2',
         // Explicit Y-m-d — a bare 'date' cast still round-trips through
