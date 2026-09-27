@@ -49,8 +49,11 @@ class Store extends Model
         });
     }
 
+    // admin_hidden_at/admin_hidden_reason are deliberately NOT fillable —
+    // only Admin\ModerationController may set them, via forceFill().
     protected $casts = [
         'approved_at' => 'datetime',
+        'admin_hidden_at' => 'datetime',
         'booking_questions' => 'array',
         'social_links' => 'array',
         'gallery_images' => 'array',

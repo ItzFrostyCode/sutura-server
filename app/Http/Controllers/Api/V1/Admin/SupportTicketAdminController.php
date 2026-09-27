@@ -18,6 +18,9 @@ class SupportTicketAdminController extends Controller
     {
         $query = SupportTicket::with([
             'store:id,name,slug',
+            // A product_report ticket's reported item, so the admin can act on
+            // it directly (Admin\ModerationController) — null for other types.
+            'catalogItem:id,store_id,name,admin_hidden_at',
             'submittedBy:id,name,email',
             'assignedTo:id,name',
         ])->orderByDesc('created_at');
@@ -45,6 +48,9 @@ class SupportTicketAdminController extends Controller
     {
         $ticket = SupportTicket::with([
             'store:id,name,slug',
+            // A product_report ticket's reported item, so the admin can act on
+            // it directly (Admin\ModerationController) — null for other types.
+            'catalogItem:id,store_id,name,admin_hidden_at',
             'submittedBy:id,name,email',
             'replies.user:id,name,email',
             'assignedTo:id,name',

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\StoreController as AdminStoreController;
+use App\Http\Controllers\Api\V1\Admin\ModerationController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController;
 use App\Http\Controllers\Api\V1\AnalyticsController;
@@ -368,6 +369,14 @@ Route::prefix('v1')->group(function () {
             Route::get('/stores', [AdminStoreController::class, 'index']);
             Route::put('/stores/{store}/approve', [AdminStoreController::class, 'approve']);
             Route::put('/stores/{store}/reject', [AdminStoreController::class, 'reject']);
+
+            // Post-moderation (acts on "Report this product" tickets): warn →
+            // hide one catalog design → hide the whole shop. Manual only.
+            Route::post('/catalog-items/{catalogItem}/warn', [ModerationController::class, 'warnCatalogItem']);
+            Route::put('/catalog-items/{catalogItem}/hide', [ModerationController::class, 'hideCatalogItem']);
+            Route::put('/catalog-items/{catalogItem}/unhide', [ModerationController::class, 'unhideCatalogItem']);
+            Route::put('/stores/{store}/hide', [ModerationController::class, 'hideStore']);
+            Route::put('/stores/{store}/unhide', [ModerationController::class, 'unhideStore']);
 
             Route::get('/subscription-plans', [SubscriptionPlanController::class, 'index']);
             Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store']);

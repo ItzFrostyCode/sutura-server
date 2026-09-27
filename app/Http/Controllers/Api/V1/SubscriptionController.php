@@ -134,7 +134,9 @@ class SubscriptionController extends Controller
         // system hid for a lapsed subscription should come back the moment
         // the owner renews, not stay hidden until they separately notice and
         // flip the visibility toggle themselves.
-        Store::where('id', $storeId)->update(['is_hidden' => false]);
+        // ...unless an admin took the store down — renewing a plan must not
+        // lift a moderation takedown.
+        Store::where('id', $storeId)->whereNull('admin_hidden_at')->update(['is_hidden' => false]);
 
         // Objective 7's "subscription activity" reporting needs a real
         // event log, not just the latest StoreSubscription row (which only

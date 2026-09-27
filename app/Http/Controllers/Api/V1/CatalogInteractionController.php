@@ -92,6 +92,7 @@ class CatalogInteractionController extends Controller
             'subject' => 'Product Report: '.$catalogItem->name,
             'message' => $message,
             'type' => 'product_report',
+            'catalog_item_id' => $catalogItem->id,
             'priority' => 'medium',
             'status' => 'open',
         ]);

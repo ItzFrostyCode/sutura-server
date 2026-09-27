@@ -516,6 +516,14 @@ class CatalogController extends Controller
             'recommendations.*.type' => 'nullable|string',
         ]);
 
+        // Same admin-takedown lock as StoreController::update. Silently held
+        // rather than rejected: the edit form resends is_active on every save,
+        // and the owner must still be able to save the fix (e.g. a replaced
+        // image) — they just can't republish it; an admin reviews and unhides.
+        if ($catalog->admin_hidden_at) {
+            $validated['is_active'] = false;
+        }
+
         $catalog->update([
             'name' => $validated['name'] ?? $catalog->name,
             'price' => $validated['price'] ?? $catalog->price,

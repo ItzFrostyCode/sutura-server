@@ -13,13 +13,18 @@ class SupportTicket extends Model
 
     protected $fillable = [
         'store_id', 'user_id', 'subject', 'message', 'attachments',
-        'type', 'priority', 'status', 'assigned_to', 'resolved_at',
+        'type', 'priority', 'status', 'assigned_to', 'resolved_at', 'catalog_item_id',
     ];
 
     protected $casts = [
         'resolved_at' => 'datetime',
         'attachments' => 'array',
     ];
+
+    public function catalogItem(): BelongsTo
+    {
+        return $this->belongsTo(CatalogItem::class);
+    }
 
     public function store(): BelongsTo
     {

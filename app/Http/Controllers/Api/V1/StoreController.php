@@ -384,6 +384,13 @@ class StoreController extends Controller
     {
         $validated = $request->validated();
 
+        // An admin takedown can only be lifted by an admin — without this the
+        // owner could flip their own visibility toggle back on. Held silently
+        // (not rejected) so the rest of a settings save still goes through.
+        if ($store->admin_hidden_at) {
+            $validated['is_hidden'] = true;
+        }
+
         // "Featured Store Visibility (Top Placement)" is a real Premium-plan
         // perk per the seeded plan data (SubscriptionPlanSeeder) — it was
         // documented there but never actually enforced anywhere until now.

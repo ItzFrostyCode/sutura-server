@@ -14,7 +14,10 @@ class CatalogItem extends Model
         'is_active',
     ];
 
+    // admin_hidden_at/admin_hidden_reason are deliberately NOT fillable —
+    // only Admin\ModerationController may set them, via forceFill().
     protected $casts = [
+        'admin_hidden_at' => 'datetime',
         'size_chart_columns' => 'array',
         'size_chart_rows' => 'array',
         'features' => 'array',
