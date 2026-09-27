@@ -347,7 +347,10 @@ class StoreController extends Controller
         // route middleware to populate $request->user()) lets a Bearer token
         // still identify the owner without forcing auth on everyone else.
         $viewer = auth('sanctum')->user();
-        if ($store->is_hidden && (! $viewer || $viewer->id !== $store->owner_id)) {
+        // Pending/rejected stores are also private — only admin-approved
+        // stores may appear publicly, same rule publicIndex() applies.
+        $isPubliclyVisible = ! $store->is_hidden && $store->status === 'approved';
+        if (! $isPubliclyVisible && (! $viewer || $viewer->id !== $store->owner_id)) {
             return response()->json(['success' => false, 'message' => 'Store not found'], 404);
         }
 
