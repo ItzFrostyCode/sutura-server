@@ -27,7 +27,7 @@ class JobOrderTrackingController extends Controller
     public function myOrders(Request $request): JsonResponse
     {
         $jobOrders = JobOrder::where('customer_id', $request->user()->id)
-            ->with(['store:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name'])
+            ->with(['store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name'])
             ->latest()
             ->paginate($request->input('per_page', 20));
 
@@ -78,7 +78,7 @@ class JobOrderTrackingController extends Controller
             return response()->json(['success' => false, 'message' => 'Order not found.'], 404);
         }
 
-        $jobOrder->load(['store:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name', 'staffStages']);
+        $jobOrder->load(['store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name', 'staffStages']);
 
         return response()->json([
             'success' => true,
@@ -92,6 +92,7 @@ class JobOrderTrackingController extends Controller
                 'is_rush' => (bool) $jobOrder->is_rush,
                 'due_date' => $jobOrder->due_date,
                 'estimated_ready_at' => $jobOrder->estimated_ready_at,
+                'pipeline' => $this->pipelineFor($jobOrder),
                 'total_amount' => (float) $jobOrder->total_amount,
                 'balance' => (float) $jobOrder->balance,
                 'payment_status' => $jobOrder->payment_status,
@@ -122,7 +123,7 @@ class JobOrderTrackingController extends Controller
     private function buildCustomerSafeAppointments(JobOrder $jobOrder): array
     {
         return $jobOrder->appointments()
-            ->with(['service:id,name', 'branch:id,name,address,city'])
+            ->with(['service:id,name,service_types', 'branch:id,name,address,city'])
             ->orderByDesc('scheduled_at')
             ->get()
             ->map(fn ($appointment) => [
@@ -186,7 +187,7 @@ class JobOrderTrackingController extends Controller
             ->orWhereRaw("REPLACE(REPLACE(tracking_code, '-', ''), ' ', '') = ?", [$normalized])
             ->orWhere('order_number', $raw)
             ->orWhereRaw("REPLACE(REPLACE(order_number, '-', ''), ' ', '') = ?", [$normalized])
-            ->with(['store:id,name,slug,logo_path', 'service:id,name', 'catalogItem:id,name', 'staffStages'])
+            ->with(['store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name', 'staffStages'])
             ->first();
 
         if (! $jobOrder) {
@@ -208,6 +209,7 @@ class JobOrderTrackingController extends Controller
                 'is_rush' => (bool) $jobOrder->is_rush,
                 'due_date' => $jobOrder->due_date,
                 'estimated_ready_at' => $jobOrder->estimated_ready_at,
+                'pipeline' => $this->pipelineFor($jobOrder),
                 'total_amount' => (float) $jobOrder->total_amount,
                 'balance' => (float) $jobOrder->balance,
                 'payment_status' => $jobOrder->payment_status,
@@ -225,5 +227,21 @@ class JobOrderTrackingController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * Which production pipeline the customer's stepper should draw — the
+     * same isRepairOnly()/isBulkOrder() signals the shop's own Kanban uses,
+     * so both sides agree. Without it the stepper always drew the full
+     * custom-tailoring stages: a repair (queued/in_repair/qc_check) matched
+     * no step at all, and a bulk order showed fitting steps it never has.
+     */
+    private function pipelineFor(JobOrder $jobOrder): string
+    {
+        if ($jobOrder->isRepairOnly()) {
+            return 'repair';
+        }
+
+        return $jobOrder->isBulkOrder() ? 'bulk' : 'custom';
     }
 }
