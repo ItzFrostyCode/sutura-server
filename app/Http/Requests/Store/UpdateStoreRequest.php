@@ -49,6 +49,7 @@ class UpdateStoreRequest extends FormRequest
             // fitting-count enforcement. Not a rental concept.
             'fitting_fee' => ['nullable', 'numeric'],
             'fitting_limit' => ['nullable', 'integer', 'min:1'],
+            'fitting_limit_policy' => ['sometimes', 'in:fee,block'],
             'repair_requires_downpayment' => ['sometimes', 'boolean'],
             'specializations' => ['nullable', 'array'],
             'specializations.*' => ['string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],

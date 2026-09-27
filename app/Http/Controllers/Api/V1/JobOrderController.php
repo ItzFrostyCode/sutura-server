@@ -872,6 +872,22 @@ class JobOrderController extends Controller
                     'message' => 'Use the dedicated reject endpoint to decline a pending order.',
                 ], 422);
             }
+
+            // Fitting limit, 'block' policy — the counterpart to the 'fee'
+            // policy's charge below (Phase 3 block, after save). Checked
+            // pre-save, same style as the DP gate above, so a blocked
+            // transition never partially applies. 'fee' policy (default)
+            // is unaffected here; it's still handled after save, where the
+            // auto-fitting appointment actually gets created.
+            if ($newStatus === 'ready_for_fitting' && $oldStatus !== 'ready_for_fitting' && $store->fitting_limit_policy === 'block') {
+                $priorFittingCount = $jobOrder->appointments()->where('appointment_type', 'fitting')->count();
+                if ($store->fitting_limit && $priorFittingCount >= $store->fitting_limit) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "This job has already used its {$store->fitting_limit} included fitting session(s), and this shop does not allow additional fittings beyond the limit. Move it to QC/Ironing or Ready for Pickup instead, or contact the customer directly.",
+                    ], 422);
+                }
+            }
         }
 
         // Measurement snapshot lock — mirrors the "No DP, No Cut" boundary
@@ -991,13 +1007,16 @@ class JobOrderController extends Controller
 
                 if (! $hasOpenFitting) {
                     // Fitting session limit — the store's fitting_limit is how many
-                    // fitting appointments a job gets before fitting_fee kicks in
-                    // (see UpdateStoreRequest/SettingsBusinessType; not a rental
-                    // concept — every prior fitting counts toward it, completed or
-                    // not, since a no-show/cancelled session still used the store's
-                    // time). A job cycling ready_for_fitting → final_adjustments →
-                    // ready_for_fitting again is exactly the real scenario this
-                    // exists for: a second fitting round after adjustments.
+                    // fitting appointments a job gets before fitting_limit_policy
+                    // kicks in: 'fee' (default, handled below) or 'block' (the
+                    // pre-save gate above already rejected the transition, so this
+                    // code only ever runs here under the 'fee' policy — not a
+                    // rental concept; every prior fitting counts toward it,
+                    // completed or not, since a no-show/cancelled session still
+                    // used the store's time). A job cycling ready_for_fitting →
+                    // final_adjustments → ready_for_fitting again is exactly the
+                    // real scenario this exists for: a second fitting round after
+                    // adjustments.
                     $priorFittingCount = $jobOrder->appointments()->where('appointment_type', 'fitting')->count();
                     $overFittingLimit = $store->fitting_limit && $priorFittingCount >= $store->fitting_limit;
 
