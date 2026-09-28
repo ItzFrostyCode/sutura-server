@@ -314,6 +314,15 @@ Route::prefix('v1')->group(function () {
                 Route::post('/catalog', [CatalogController::class, 'store']);
                 Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
                 Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
+
+                // Branch Management — editing an existing branch's own info
+                // (hours, contact, location). StoreBranchController::
+                // branchManagerCrudDenied() enforces "their own branch only,
+                // never touching manager_id" since role middleware alone
+                // can't express that; store()/setMain()/destroy() stay
+                // owner-only above (bigger structural decisions).
+                Route::put('/branches/{branch}', [StoreBranchController::class, 'update']);
+                Route::post('/branches/resolve-maps-link', [StoreBranchController::class, 'resolveMapsLink']);
             });
 
             // Owner Only Access
@@ -379,12 +388,14 @@ Route::prefix('v1')->group(function () {
         Route::middleware('role:store_owner')->group(function () {
             Route::apiResource('stores', StoreController::class);
 
-            // Branch Management (list/read is granted to store_owner+branch_manager above)
+            // Branch Management (list/read is granted to store_owner+branch_manager
+            // above). Adding/deleting a whole physical location and designating
+            // the main branch stay owner-only — see branchManagerCrudDenied()'s
+            // own docblock for why update()/resolveMapsLink() moved out to the
+            // store_owner,branch_manager group below instead.
             Route::post('/stores/{store}/branches', [StoreBranchController::class, 'store']);
-            Route::put('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'update']);
             Route::put('/stores/{store}/branches/{branch}/set-main', [StoreBranchController::class, 'setMain']);
             Route::delete('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'destroy']);
-            Route::post('/stores/{store}/branches/resolve-maps-link', [StoreBranchController::class, 'resolveMapsLink']);
 
             // Subscription Plan Billing
             Route::get('/subscriptions/plans', [SubscriptionController::class, 'index']);

@@ -14,6 +14,36 @@ use Illuminate\Support\Str;
 
 class StoreBranchController extends Controller
 {
+    /**
+     * A branch manager may update their own branch's day-to-day info
+     * (hours, contact, location) — matches the dashboard sidebar already
+     * showing them "Branches" — but never another branch's, and never the
+     * manager_id field itself: reassigning who manages a branch is a
+     * promotion/demotion action, the same "never lets them promote anyone
+     * to branch manager" rule StaffController::staffManagerCrudDenied()
+     * already enforces for staff. store()/setMain()/destroy() (adding,
+     * designating, or removing a whole physical location) stay owner-only
+     * entirely — bigger structural decisions than editing an existing one.
+     */
+    private function branchManagerCrudDenied(Request $request, StoreBranch $branch, bool $wantsManagerChange): ?JsonResponse
+    {
+        $user = $request->user();
+        if ($user->hasRole('store_owner')) {
+            return null;
+        }
+
+        $userBranchId = $user->staffProfile->store_branch_id ?? null;
+        if ((int) $userBranchId !== (int) $branch->id) {
+            return response()->json(['success' => false, 'message' => 'You can only manage your own branch.'], 403);
+        }
+
+        if ($wantsManagerChange) {
+            return response()->json(['success' => false, 'message' => 'Only the store owner can reassign a branch\'s manager.'], 403);
+        }
+
+        return null;
+    }
+
     public function index($storeId)
     {
         $branches = StoreBranch::where('store_id', $storeId)
@@ -110,6 +140,10 @@ class StoreBranchController extends Controller
     {
         if ($branch->store_id != $storeId) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        if ($denied = $this->branchManagerCrudDenied($request, $branch, $request->has('manager_id'))) {
+            return $denied;
         }
 
         $request->validate([
