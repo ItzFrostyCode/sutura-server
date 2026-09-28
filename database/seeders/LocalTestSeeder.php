@@ -1184,7 +1184,7 @@ class LocalTestSeeder extends Seeder
 
         // Link seeded job orders to catalog items to show earnings/performance data
         $item1 = CatalogItem::where('name', 'Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown')->first();
-        $item2 = CatalogItem::where('name', 'Cycling_Jerseys_1')->first();
+        $item2 = CatalogItem::where('name', 'Pro-Fit Cycling Jersey - Team Kit')->first();
 
         if ($item1 && isset($jo1)) {
             $jo1->update(['catalog_item_id' => $item1->id]);

@@ -19,7 +19,7 @@ class CatalogItemsSeeder extends Seeder
         $item_0 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown'],
             [
-                'price' => 4500.0,
+                'price' => 4700.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -36,7 +36,7 @@ class CatalogItemsSeeder extends Seeder
         $item_1 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor'],
             [
-                'price' => 4500.0,
+                'price' => 4300.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -51,9 +51,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_2 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Cycling_Jerseys_1'],
+            ['store_id' => $store->id, 'name' => 'Pro-Fit Cycling Jersey - Team Kit'],
             [
-                'price' => 650.0,
+                'price' => 620.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Cycling_Jerseys_1 designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -70,7 +70,7 @@ class CatalogItemsSeeder extends Seeder
         $item_3 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Store Long Tail Wedding Gown'],
             [
-                'price' => 4500.0,
+                'price' => 5200.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer Store Long Tail Wedding Gown made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -87,7 +87,7 @@ class CatalogItemsSeeder extends Seeder
         $item_4 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Emerald Green Multiway Convertible Bridesmaid Gown'],
             [
-                'price' => 4500.0,
+                'price' => 4100.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant bespoke emerald green multiway convertible bridesmaid gown tailored to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -102,9 +102,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_5 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'esport tshirt blue'],
+            ['store_id' => $store->id, 'name' => 'Esports Team Jersey - Royal Blue'],
             [
-                'price' => 650.0,
+                'price' => 680.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear esport tshirt blue designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -136,9 +136,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_7 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Bulls-Basketball-Jersey'],
+            ['store_id' => $store->id, 'name' => 'Custom Basketball Jersey - Away Kit'],
             [
-                'price' => 650.0,
+                'price' => 700.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Bulls-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -155,7 +155,7 @@ class CatalogItemsSeeder extends Seeder
         $item_8 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns'],
             [
-                'price' => 4500.0,
+                'price' => 4600.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -170,9 +170,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_9 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'images'],
+            ['store_id' => $store->id, 'name' => 'Custom Tailored Piece - Made to Order'],
             [
-                'price' => 1500.0,
+                'price' => 1400.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom images tailored to perfection.',
                 'listing_type' => 'made_to_order',
@@ -185,9 +185,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_10 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'KobeBryant-Basketball-Jersey'],
+            ['store_id' => $store->id, 'name' => 'Retro Basketball Jersey - Purple & Gold'],
             [
-                'price' => 650.0,
+                'price' => 700.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear KobeBryant-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -204,7 +204,7 @@ class CatalogItemsSeeder extends Seeder
         $item_11 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora'],
             [
-                'price' => 1500.0,
+                'price' => 1650.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'gown',
@@ -236,9 +236,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_13 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Bespoke_Suits2'],
+            ['store_id' => $store->id, 'name' => 'Bespoke Two-Piece Suit - Charcoal Wool'],
             [
-                'price' => 12000.0,
+                'price' => 11500.0,
                 'material' => 'Premium Wool',
                 'description' => 'Bespoke premium Bespoke_Suits2 crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
@@ -272,7 +272,7 @@ class CatalogItemsSeeder extends Seeder
         $item_15 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Traditional Ivory Color Barong Tagalog - Formal Fit'],
             [
-                'price' => 4500.0,
+                'price' => 3800.0,
                 'material' => 'Pina Cocoon',
                 'description' => 'Traditional Filipino Traditional Ivory Color Barong Tagalog - Formal Fit featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
@@ -287,9 +287,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_16 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Riders_Long_Sleeves'],
+            ['store_id' => $store->id, 'name' => 'Motorcycle Riders Long-Sleeve Jersey'],
             [
-                'price' => 1500.0,
+                'price' => 1400.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
                 'garment_type' => 'jersey',
@@ -321,9 +321,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_18 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'mens-custom-tuxedos-its-all-about-the-fit'],
+            ['store_id' => $store->id, 'name' => "Men's Custom Tuxedo - Classic Peak Lapel"],
             [
-                'price' => 12000.0,
+                'price' => 12500.0,
                 'material' => 'Premium Wool',
                 'description' => 'Bespoke premium mens-custom-tuxedos-its-all-about-the-fit crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
@@ -338,9 +338,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_19 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Volleyball Jersey_2'],
+            ['store_id' => $store->id, 'name' => 'Volleyball Team Jersey - Sleeveless Set'],
             [
-                'price' => 650.0,
+                'price' => 600.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Volleyball Jersey_2 designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -355,9 +355,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_20 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Cycling_Jerseys_3'],
+            ['store_id' => $store->id, 'name' => 'Long-Sleeve Cycling Jersey - Aero Fit'],
             [
-                'price' => 650.0,
+                'price' => 670.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Cycling_Jerseys_3 designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -372,9 +372,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_21 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Riders_Long_Sleeves_2'],
+            ['store_id' => $store->id, 'name' => 'Riders Club Long-Sleeve Jersey V2'],
             [
-                'price' => 1500.0,
+                'price' => 1450.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Riders_Long_Sleeves_2 tailored to perfection.',
                 'garment_type' => 'jersey',
@@ -391,7 +391,7 @@ class CatalogItemsSeeder extends Seeder
         $item_22 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI'],
             [
-                'price' => 4500.0,
+                'price' => 4400.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -406,9 +406,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_23 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Cycling_Jerseys_2'],
+            ['store_id' => $store->id, 'name' => 'Cycling Jersey - Sublimated Print'],
             [
-                'price' => 650.0,
+                'price' => 640.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Cycling_Jerseys_2 designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -423,9 +423,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_24 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Bespoke_Suits'],
+            ['store_id' => $store->id, 'name' => 'Bespoke Three-Piece Suit - Navy Wool'],
             [
-                'price' => 12000.0,
+                'price' => 11800.0,
                 'material' => 'Premium Wool',
                 'description' => 'Bespoke premium Bespoke_Suits crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
@@ -442,7 +442,7 @@ class CatalogItemsSeeder extends Seeder
         $item_25 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Tailor Made Suits London - The Bespoke Tailor UK'],
             [
-                'price' => 12000.0,
+                'price' => 11900.0,
                 'material' => 'Premium Wool',
                 'description' => 'Bespoke premium Tailor Made Suits London - The Bespoke Tailor UK crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
@@ -457,9 +457,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_26 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Custom_Tuxedos_men'],
+            ['store_id' => $store->id, 'name' => "Men's Classic Black Tuxedo"],
             [
-                'price' => 12000.0,
+                'price' => 12200.0,
                 'material' => 'Premium Wool',
                 'description' => 'Bespoke premium Custom_Tuxedos_men crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
@@ -474,9 +474,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_27 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Luxury_Bridal_Gowns_Long_Tail'],
+            ['store_id' => $store->id, 'name' => 'Luxury Long-Train Bridal Gown'],
             [
-                'price' => 4500.0,
+                'price' => 4800.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer Luxury_Bridal_Gowns_Long_Tail made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -491,9 +491,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_28 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Bears-Basketball-Jersey'],
+            ['store_id' => $store->id, 'name' => 'Custom Basketball Jersey - Home Kit'],
             [
-                'price' => 650.0,
+                'price' => 660.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Bears-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -508,9 +508,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_29 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'rashguard_1'],
+            ['store_id' => $store->id, 'name' => 'Compression Rash Guard - Long Sleeve'],
             [
-                'price' => 650.0,
+                'price' => 580.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear rashguard_1 designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -525,9 +525,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_30 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Lebron James-Lakers-Basketball-Jersey'],
+            ['store_id' => $store->id, 'name' => 'Retro Basketball Jersey - Gold Edition'],
             [
-                'price' => 650.0,
+                'price' => 710.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Lebron James-Lakers-Basketball-Jersey designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -559,9 +559,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_32 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Esports-Jersey-women'],
+            ['store_id' => $store->id, 'name' => "Women's Esports Jersey - Custom Print"],
             [
-                'price' => 650.0,
+                'price' => 660.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Esports-Jersey-women designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -576,9 +576,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_33 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Custom Tuxedos for Memorable Events'],
+            ['store_id' => $store->id, 'name' => 'Custom Groom Tuxedo - Event Package'],
             [
-                'price' => 12000.0,
+                'price' => 12800.0,
                 'material' => 'Premium Wool',
                 'description' => 'Bespoke premium Custom Tuxedos for Memorable Events crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
@@ -593,9 +593,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_34 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'rashguard_3'],
+            ['store_id' => $store->id, 'name' => 'Compression Rash Guard - Short Sleeve'],
             [
-                'price' => 650.0,
+                'price' => 590.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear rashguard_3 designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -610,9 +610,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_35 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Arsenal-Jersey'],
+            ['store_id' => $store->id, 'name' => 'Football Club Jersey - Custom Print'],
             [
-                'price' => 650.0,
+                'price' => 690.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear Arsenal-Jersey designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -629,7 +629,7 @@ class CatalogItemsSeeder extends Seeder
         $item_36 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Traditional Barong Tagalog Polo Shirt for Men'],
             [
-                'price' => 4500.0,
+                'price' => 3200.0,
                 'material' => 'Pina Cocoon',
                 'description' => 'Traditional Filipino Traditional Barong Tagalog Polo Shirt for Men featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
@@ -644,9 +644,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_37 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'esport tshirt'],
+            ['store_id' => $store->id, 'name' => 'Esports Team Jersey - Classic Cut'],
             [
-                'price' => 650.0,
+                'price' => 630.0,
                 'material' => 'Drifit Mesh',
                 'description' => 'Custom sublimation activewear esport tshirt designed for maximum breathability.',
                 'garment_type' => 'jersey',
@@ -661,9 +661,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_38 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Blue Tuxedo Belt Tuxedo Blue Suit Brown Belt Core Navy'],
+            ['store_id' => $store->id, 'name' => 'Navy Blue Tuxedo with Contrast Belt'],
             [
-                'price' => 12000.0,
+                'price' => 12400.0,
                 'material' => 'Premium Wool',
                 'description' => 'Bespoke premium Blue Tuxedo Belt Tuxedo Blue Suit Brown Belt Core Navy crafted for formal attire and weddings.',
                 'garment_type' => 'suit',
@@ -680,7 +680,7 @@ class CatalogItemsSeeder extends Seeder
         $item_39 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining'],
             [
-                'price' => 4500.0,
+                'price' => 4200.0,
                 'material' => 'Pina Cocoon',
                 'description' => 'Traditional Filipino Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
@@ -697,7 +697,7 @@ class CatalogItemsSeeder extends Seeder
         $item_40 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => '9 Luxury Designer Bridesmaid Dresses for the Bridal Crew'],
             [
-                'price' => 4500.0,
+                'price' => 5500.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer 9 Luxury Designer Bridesmaid Dresses for the Bridal Crew made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -714,7 +714,7 @@ class CatalogItemsSeeder extends Seeder
         $item_41 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora'],
             [
-                'price' => 1500.0,
+                'price' => 1750.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'gown',
@@ -748,7 +748,7 @@ class CatalogItemsSeeder extends Seeder
         $item_43 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora'],
             [
-                'price' => 1500.0,
+                'price' => 1600.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
                 'garment_type' => 'gown',
@@ -765,7 +765,7 @@ class CatalogItemsSeeder extends Seeder
         $item_44 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Barong Tagalog Cloth- Traditional and Elegant Fabrics'],
             [
-                'price' => 4500.0,
+                'price' => 3600.0,
                 'material' => 'Pina Cocoon',
                 'description' => 'Traditional Filipino Barong Tagalog Cloth- Traditional and Elegant Fabrics featuring delicate hand embroidery.',
                 'garment_type' => 'barong',
@@ -780,9 +780,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_45 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'volleyballroundneckSET'],
+            ['store_id' => $store->id, 'name' => 'Volleyball Round-Neck Jersey Set'],
             [
-                'price' => 1500.0,
+                'price' => 1300.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom volleyballroundneckSET tailored to perfection.',
                 'garment_type' => 'jersey',
@@ -799,7 +799,7 @@ class CatalogItemsSeeder extends Seeder
         $item_46 = CatalogItem::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown'],
             [
-                'price' => 4500.0,
+                'price' => 5800.0,
                 'material' => 'Chiffon & Tulle',
                 'description' => 'Elegant designer Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown made to order with custom sizing.',
                 'garment_type' => 'gown',
@@ -814,9 +814,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_47 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Riders_Long_Sleeves'],
+            ['store_id' => $store->id, 'name' => 'Riders Club Long-Sleeve Jersey'],
             [
-                'price' => 1500.0,
+                'price' => 1450.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
                 'garment_type' => 'jersey',
@@ -831,9 +831,9 @@ class CatalogItemsSeeder extends Seeder
             ['view_angle' => 'front', 'is_primary' => true]
         );
         $item_48 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'VBALL_PRE-2001_800x800'],
+            ['store_id' => $store->id, 'name' => 'Volleyball Pre-Order Jersey Set'],
             [
-                'price' => 1500.0,
+                'price' => 1350.0,
                 'material' => 'Premium Fabric',
                 'description' => 'High-quality custom VBALL_PRE-2001_800x800 tailored to perfection.',
                 'garment_type' => 'jersey',

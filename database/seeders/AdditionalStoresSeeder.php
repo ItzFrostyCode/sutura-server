@@ -270,17 +270,18 @@ class AdditionalStoresSeeder extends Seeder
         // in sutura-client/public/catalog/), but as genuinely separate rows
         // scoped to THIS store, priced/named for a formal-wear specialty.
         $catalogSeed = [
-            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'image' => 'tailor-made-suit-bespoke.jpg'],
-            ['name' => 'Double-Breasted Pinstripe Suit', 'price' => 6500, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'image' => 'Custom Tuxedos for Memorable Events.jpeg'],
-            ['name' => 'Barong Tagalog — Office Formal', 'price' => 3200, 'material' => 'Jusi Fabric', 'garment_type' => 'barong', 'image' => 'Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
-            ['name' => 'Corporate Office Blazer', 'price' => 4200, 'material' => 'Poly-Wool Blend', 'garment_type' => 'suit', 'image' => 'Bespoke_Suits.png'],
-            ['name' => 'Standard Office Uniform Set', 'price' => 900, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'image' => 'Esports-Jersey-women.jpg'],
+            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'department' => 'men', 'image' => 'tailor-made-suit-bespoke.jpg'],
+            ['name' => 'Double-Breasted Pinstripe Suit', 'price' => 6500, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'department' => 'men', 'image' => 'Custom Tuxedos for Memorable Events.jpeg'],
+            ['name' => 'Barong Tagalog — Office Formal', 'price' => 3200, 'material' => 'Jusi Fabric', 'garment_type' => 'barong', 'department' => 'men', 'image' => 'Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
+            ['name' => 'Corporate Office Blazer', 'price' => 4200, 'material' => 'Poly-Wool Blend', 'garment_type' => 'suit', 'department' => 'office', 'image' => 'Bespoke_Suits.png'],
+            ['name' => 'Standard Office Uniform Set', 'price' => 900, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'Esports-Jersey-women.jpg'],
         ];
         foreach ($catalogSeed as $c) {
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
                     'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
+                    'department' => $c['department'],
                     'estimated_days' => 10, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order, tailored to your measurements.',
                 ]
@@ -461,15 +462,19 @@ class AdditionalStoresSeeder extends Seeder
         );
 
         $catalogSeed = [
-            ['name' => 'Elementary Uniform Set', 'price' => 450, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'image' => 'VBALL_PRE-2001_800x800.webp'],
-            ['name' => 'High School PE Uniform', 'price' => 650, 'material' => 'Drifit Mesh', 'garment_type' => 'uniform', 'image' => 'volleyballroundneckSET.webp'],
-            ['name' => 'Simple Alteration Reference — Hemline', 'price' => 150, 'material' => 'N/A', 'garment_type' => 'other', 'image' => 'Riders_Long_Sleeves.jpg'],
+            ['name' => 'Elementary Uniform Set', 'price' => 450, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'VBALL_PRE-2001_800x800.webp'],
+            ['name' => 'High School PE Uniform', 'price' => 650, 'material' => 'Drifit Mesh', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'volleyballroundneckSET.webp'],
+            // 'other' wasn't a valid CatalogItem::GARMENT_CATEGORIES value —
+            // this is a real alteration/repair reference item, which the
+            // enum already covers.
+            ['name' => 'Simple Alteration Reference — Hemline', 'price' => 150, 'material' => 'N/A', 'garment_type' => 'alteration_repair', 'department' => null, 'image' => 'Riders_Long_Sleeves.jpg'],
         ];
         foreach ($catalogSeed as $c) {
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
                     'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
+                    'department' => $c['department'],
                     'estimated_days' => 5, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order.',
                 ]
