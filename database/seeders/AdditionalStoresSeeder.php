@@ -41,11 +41,12 @@ class AdditionalStoresSeeder extends Seeder
     {
         $ownerRole = Role::where('name', 'store_owner')->first();
         $staffRole = Role::where('name', 'staff')->first();
+        $branchManagerRole = Role::where('name', 'branch_manager')->first();
         $customerRole = Role::where('name', 'customer')->first();
         $premiumPlan = SubscriptionPlan::where('slug', 'premium')->first();
         $basicPlan = SubscriptionPlan::where('slug', 'basic')->first();
 
-        $this->seedStoreTwo($ownerRole, $staffRole, $customerRole, $basicPlan);
+        $this->seedStoreTwo($ownerRole, $staffRole, $branchManagerRole, $customerRole, $basicPlan);
         $this->seedStoreThree($ownerRole, $staffRole, $customerRole, $premiumPlan);
     }
 
@@ -54,7 +55,7 @@ class AdditionalStoresSeeder extends Seeder
      * corporate specialty, Basic plan (deliberately different tier than store
      * #1's Premium, to exercise tier-gating with a real non-Premium tenant).
      */
-    private function seedStoreTwo($ownerRole, $staffRole, $customerRole, $basicPlan): void
+    private function seedStoreTwo($ownerRole, $staffRole, $branchManagerRole, $customerRole, $basicPlan): void
     {
         $owner = User::firstOrCreate(
             ['email' => 'ricardo@sutura.com'],
@@ -127,12 +128,21 @@ class AdditionalStoresSeeder extends Seeder
         );
 
         // Staff — 2, each tied to a different branch of THIS store only.
+        // Lito Cruz is this seed dataset's ONLY Branch Manager test account —
+        // this was previously the single biggest gap in defense readiness:
+        // he was given is_branch_manager=true on his StaffProfile but was
+        // attached to the plain 'staff' platform Role instead of
+        // 'branch_manager', so logging in as him showed the narrow Staff
+        // dashboard, not Branch Manager permissions — every role check in
+        // this app (route:branch_manager middleware, frontend isBranchManager
+        // gates) reads $user->roles, never StaffProfile.is_branch_manager
+        // directly. Fixed to attach the correct platform role.
         $staff1 = User::firstOrCreate(
             ['email' => 'lito.cruz@davaoformalwear.com'],
             ['name' => 'Lito Cruz', 'password' => Hash::make('password'), 'email_verified_at' => now()]
         );
-        if (! $staff1->roles()->where('role_id', $staffRole->id)->exists()) {
-            $staff1->roles()->attach($staffRole->id);
+        if ($branchManagerRole && ! $staff1->roles()->where('role_id', $branchManagerRole->id)->exists()) {
+            $staff1->roles()->attach($branchManagerRole->id);
         }
         if (! $staff1->staffProfile()->exists()) {
             StaffProfile::create([

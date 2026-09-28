@@ -1236,13 +1236,18 @@ class LocalTestSeeder extends Seeder
                 ]
             );
 
-            // 3. Still being prepped
+            // 3. Still being prepped, GCash payment awaiting owner verification.
+            // 'partial' isn't a real CatalogOrder payment_status value — that's
+            // a JobOrder-only concept (unpaid/partial/paid); CatalogOrderController
+            // only ever validates pending/paid/rejected for this model. A seeder
+            // writing 'partial' here bypassed that validation and produced a
+            // state the real app can never create through any endpoint.
             CatalogOrder::updateOrCreate(
                 ['store_id' => $store->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'pending'],
                 [
                     'type' => 'walkin',
                     'total_amount' => 4500.00,
-                    'payment_status' => 'partial',
+                    'payment_status' => 'pending',
                     'payment_method' => 'gcash',
                     'intake_channel' => 'walk_in',
                     'fulfillment_type' => 'pickup',
