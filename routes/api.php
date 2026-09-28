@@ -290,22 +290,38 @@ Route::prefix('v1')->group(function () {
                 Route::post('/staff', [StaffController::class, 'store']);
                 Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
                 Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
-            });
 
-            // Owner Only Access
-            Route::middleware('role:store_owner')->group(function () {
-                // Services (list/read is granted to store_owner+branch_manager+staff above)
+                // Services + Catalog Management write actions — the dashboard
+                // sidebar has always shown "Services" and "Catalog Designs" to
+                // both store_owner and branch_manager (isStoreOwner ||
+                // isBranchManager gates in dashboard/layout.tsx), but these
+                // write routes were store_owner-only until now, so a branch
+                // manager clicking Add Service/Add Catalog Item got a 403 the
+                // nav never warned them about. Moved here to match what the
+                // nav already promises — these are store-wide resources (no
+                // store_branch_id column), not scoped to the manager's own
+                // branch the way Staff/Jobs/Appointments are above.
                 Route::post('/services', [ServiceController::class, 'store']);
                 Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
                 Route::put('/services/{service}/sale', [ServiceController::class, 'updateSale']);
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
 
-                // Service Packages — bundles of 2+ existing services sold as one combo
-                Route::get('/service-packages', [ServicePackageController::class, 'index']);
                 Route::post('/service-packages', [ServicePackageController::class, 'store']);
                 Route::put('/service-packages/{servicePackage}', [ServicePackageController::class, 'update']);
                 Route::delete('/service-packages/{servicePackage}', [ServicePackageController::class, 'destroy']);
+
+                Route::post('/catalog', [CatalogController::class, 'store']);
+                Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
+                Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
+            });
+
+            // Owner Only Access
+            Route::middleware('role:store_owner')->group(function () {
+                // Service Packages — bundles of 2+ existing services sold as one
+                // combo. Write actions moved to the store_owner,branch_manager
+                // group above (see the comment there); list/read stays here.
+                Route::get('/service-packages', [ServicePackageController::class, 'index']);
 
                 // Temporary Special Hours & Announcements
                 Route::get('/special-hours', [StoreSpecialHourController::class, 'index']);
@@ -345,11 +361,9 @@ Route::prefix('v1')->group(function () {
                 Route::put('/posts/{post}', [StorePostController::class, 'update']);
                 Route::delete('/posts/{post}', [StorePostController::class, 'destroy']);
 
-                // Catalog Management
+                // Catalog Management — write actions moved to the
+                // store_owner,branch_manager group above; list/read stays here.
                 Route::get('/catalog', [CatalogController::class, 'index']);
-                Route::post('/catalog', [CatalogController::class, 'store']);
-                Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
-                Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
 
                 // Support Tickets (Store Owner → Admin)
                 Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
