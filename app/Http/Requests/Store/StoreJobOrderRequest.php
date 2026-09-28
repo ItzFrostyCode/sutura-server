@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Store;
 
 use App\Models\JobOrder;
-use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
@@ -49,27 +48,16 @@ class StoreJobOrderRequest extends FormRequest
                 'required', 'integer',
                 Rule::exists('services', 'id')->where('store_id', $store?->id),
             ],
-            'assigned_staff_id' => [
-                'nullable', 'integer',
-                Rule::exists('staff_profiles', 'user_id')->where('store_id', $store?->id),
-                $this->staffBranchMatchesRule($store),
-            ],
-            // Same stage model as JobOrderController@assignStaff — settable
-            // at creation time too, instead of only via the single
-            // assigned_staff_id field (which is now derived from this, not
-            // chosen directly, so Create and the Job Detail page share one
-            // staffing concept).
-            'staff_stages' => ['nullable', 'array'],
-            'staff_stages.*.user_id' => [
-                'required', 'integer',
-                Rule::exists('staff_profiles', 'user_id')->where('store_id', $store?->id),
-                $this->staffBranchMatchesRule($store),
-            ],
-            'staff_stages.*.stage' => ['required', Rule::in(JobOrder::STAFF_STAGES)],
+            // assigned_staff_id is not accepted here at all anymore — no more
+            // upfront "who's doing this" pre-assignment at creation. It's
+            // purely server-derived, set automatically the moment anyone
+            // actually moves the job into a production stage (see
+            // JobOrderController::update()'s auto-attribution block).
             'measurement_id' => [
                 'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('store_id', $store?->id),
             ],
+            'quantity' => ['nullable', 'integer', 'min:1'],
             'total_amount' => ['required', 'numeric', 'min:0'],
             'balance' => ['required', 'numeric', 'min:0', 'lte:total_amount'],
             'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya'],
@@ -107,9 +95,6 @@ class StoreJobOrderRequest extends FormRequest
                 'nullable', 'integer',
                 Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
             ],
-            'is_outsourced' => ['nullable', 'boolean'],
-            'partner_store_name' => ['nullable', 'string', 'max:255'],
-            'outsourcing_cost' => ['nullable', 'numeric', 'min:0'],
             'appointment_id' => [
                 'nullable', 'integer',
                 Rule::exists('appointments', 'id')->where('store_id', $store?->id),
@@ -131,28 +116,5 @@ class StoreJobOrderRequest extends FormRequest
             ],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
         ];
-    }
-
-    /**
-     * Only fires when store_branch_id is explicitly present in the request —
-     * when it's omitted, JobOrderController@store derives it afterward
-     * (creator's own branch, or the store's main branch), which this
-     * FormRequest can't see yet. Staff with no fixed branch (store_branch_id
-     * null on their staff_profiles row) are floaters and always pass.
-     */
-    private function staffBranchMatchesRule(?Store $store): \Closure
-    {
-        return function ($attribute, $value, $fail) use ($store) {
-            $targetBranchId = $this->input('store_branch_id');
-            if (! $targetBranchId || ! $value) {
-                return;
-            }
-            $staffBranchId = StaffProfile::where('user_id', $value)
-                ->where('store_id', $store?->id)
-                ->value('store_branch_id');
-            if ($staffBranchId && (int) $staffBranchId !== (int) $targetBranchId) {
-                $fail('This staff member belongs to a different branch than the one selected.');
-            }
-        };
     }
 }

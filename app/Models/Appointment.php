@@ -33,6 +33,24 @@ class Appointment extends Model
     public const STATUSES = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'];
 
     /**
+     * Minimum gap a customer needs between the END of one appointment and
+     * the START of their next one, platform-wide — a customer physically
+     * cannot teleport from one shop's counter to another's. Applied on top
+     * of (not instead of) the plain overlap check in
+     * hasCustomerScheduleConflict(): appointment duration and travel buffer
+     * are two different things (thesis feedback, 2026-09-28) — two
+     * back-to-back appointments with zero gap between them are just as
+     * unrealistic as two that literally overlap in time.
+     */
+    public const CUSTOMER_TRAVEL_BUFFER_MINUTES = 30;
+
+    /** Valid arrival statuses — how the customer's actual arrival compared to scheduled_at. */
+    public const ARRIVAL_STATUSES = ['on_time', 'early', 'late', 'no_show'];
+
+    /** Valid early-arrival accommodation decisions. */
+    public const EARLY_ARRIVAL_DECISIONS = ['waiting', 'accommodated', 'declined'];
+
+    /**
      * Types that require a service_id to be set.
      * "Pickup" must also have a linked order — handled at controller level.
      */
@@ -83,6 +101,14 @@ class Appointment extends Model
         // read arrival state once that Staff endpoint exists. On-time/Late
         // is derived from this vs scheduled_at, never its own status value.
         'checked_in_at',
+        // Early-arrival accommodation workflow (2026-09-28) — see
+        // Appointment::ARRIVAL_STATUSES/EARLY_ARRIVAL_DECISIONS. scheduled_at
+        // itself is NEVER overwritten by any of this; these are the actual
+        // event fields recorded alongside it.
+        'arrival_status',
+        'early_arrival_decision',
+        'actual_service_start_at',
+        'accommodated_by_id',
     ];
 
     protected $casts = [
@@ -93,6 +119,7 @@ class Appointment extends Model
         'reminder_sent_at' => 'datetime',
         'rebooking_blocked' => 'boolean',
         'checked_in_at' => 'datetime',
+        'actual_service_start_at' => 'datetime',
     ];
 
     // ─── Relationships ────────────────────────────────────────────────────────
@@ -125,6 +152,11 @@ class Appointment extends Model
     public function assignedStaff(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_staff_id');
+    }
+
+    public function accommodatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'accommodated_by_id');
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -210,6 +242,54 @@ class Appointment extends Model
                 return $appointment->scheduled_at->copy()
                     ->addMinutes($appointment->duration_minutes ?? 60)
                     ->gt($scheduledAt);
+            });
+    }
+
+    /**
+     * Cross-shop physical-time-conflict guard — distinct from
+     * hasActiveAppointment()'s anti-spam purpose below. Booking two
+     * different stores isn't spam, but booking two times too close
+     * together across two different stores is a real problem: the customer
+     * can't physically be in both places at once, and can't teleport
+     * between them either. Platform-wide by design (not scoped to $store),
+     * since the whole point is checking the customer's OTHER stores'
+     * appointments too. Branch/shop/service never factor in here — a
+     * customer's own schedule is what's being protected, not any one
+     * store's catalog (thesis feedback, 2026-09-28): booking two DIFFERENT
+     * services at two DIFFERENT shops is exactly as blocked by a too-tight
+     * gap as booking the same service twice.
+     *
+     * A straight overlap check isn't enough on its own — 1:30-2:30 PM at
+     * Shop A followed immediately by 2:30 PM at Shop B doesn't overlap, but
+     * is still physically impossible. CUSTOMER_TRAVEL_BUFFER_MINUTES is
+     * added on both sides of the new slot so back-to-back bookings with no
+     * travel time between them are blocked too: the new appointment's
+     * [start - buffer, end + buffer] window must not touch any existing
+     * active appointment's [start, end] window.
+     */
+    public static function hasCustomerScheduleConflict(
+        int $customerId,
+        Carbon $scheduledAt,
+        int $durationMinutes,
+        ?int $excludeId = null
+    ): bool {
+        $buffer = self::CUSTOMER_TRAVEL_BUFFER_MINUTES;
+        $newStart = $scheduledAt->copy()->subMinutes($buffer);
+        $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes)->addMinutes($buffer);
+
+        $query = self::where('customer_id', $customerId)
+            ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+            ->where('scheduled_at', '<', $newEnd);
+
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        return $query->get(['scheduled_at', 'duration_minutes'])
+            ->contains(function (self $appointment) use ($newStart): bool {
+                return $appointment->scheduled_at->copy()
+                    ->addMinutes($appointment->duration_minutes ?? 60)
+                    ->gt($newStart);
             });
     }
 

@@ -347,7 +347,10 @@ class StoreController extends Controller
         // route middleware to populate $request->user()) lets a Bearer token
         // still identify the owner without forcing auth on everyone else.
         $viewer = auth('sanctum')->user();
-        if ($store->is_hidden && (! $viewer || $viewer->id !== $store->owner_id)) {
+        // Pending/rejected stores are also private — only admin-approved
+        // stores may appear publicly, same rule publicIndex() applies.
+        $isPubliclyVisible = ! $store->is_hidden && $store->status === 'approved';
+        if (! $isPubliclyVisible && (! $viewer || $viewer->id !== $store->owner_id)) {
             return response()->json(['success' => false, 'message' => 'Store not found'], 404);
         }
 
@@ -383,6 +386,13 @@ class StoreController extends Controller
     public function update(UpdateStoreRequest $request, Store $store): JsonResponse
     {
         $validated = $request->validated();
+
+        // An admin takedown can only be lifted by an admin — without this the
+        // owner could flip their own visibility toggle back on. Held silently
+        // (not rejected) so the rest of a settings save still goes through.
+        if ($store->admin_hidden_at) {
+            $validated['is_hidden'] = true;
+        }
 
         // "Featured Store Visibility (Top Placement)" is a real Premium-plan
         // perk per the seeded plan data (SubscriptionPlanSeeder) — it was

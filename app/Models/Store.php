@@ -20,7 +20,7 @@ class Store extends Model
         'logo_path', 'banner_path', 'gallery_images', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
-        'fitting_fee', 'fitting_limit',
+        'fitting_fee', 'fitting_limit', 'fitting_limit_policy', 'repair_requires_downpayment',
         'specializations', 'is_featured', 'is_hidden',
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
         'gcash_qr_path', 'bank_qr_path',
@@ -49,8 +49,11 @@ class Store extends Model
         });
     }
 
+    // admin_hidden_at/admin_hidden_reason are deliberately NOT fillable —
+    // only Admin\ModerationController may set them, via forceFill().
     protected $casts = [
         'approved_at' => 'datetime',
+        'admin_hidden_at' => 'datetime',
         'booking_questions' => 'array',
         'social_links' => 'array',
         'gallery_images' => 'array',
@@ -59,6 +62,7 @@ class Store extends Model
         'is_featured' => 'boolean',
         'is_hidden' => 'boolean',
         'fitting_fee' => 'float',
+        'repair_requires_downpayment' => 'boolean',
         'max_appointments_per_day' => 'integer',
     ];
 

@@ -10,7 +10,12 @@ class StoreStaffRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->hasRole('store_owner');
+        // Coarse role check only — the real "your own branch, never another
+        // branch manager, never a promotion" scoping for a branch_manager
+        // caller lives in StaffController::staffManagerCrudDenied(), which
+        // needs the route-bound Store/StaffProfile this request class
+        // doesn't have access to at authorization time.
+        return $this->user()->hasRole('store_owner') || $this->user()->hasRole('branch_manager');
     }
 
     public function rules(): array
@@ -35,6 +40,13 @@ class StoreStaffRequest extends FormRequest
             'specialization.*' => ['string', 'max:100'],
             'hired_at' => ['nullable', 'date'],
             'store_branch_id' => [
+                // A branch manager scoped to no branch would functionally
+                // act with no branch restriction at all — every
+                // branch-scoping check in this codebase (JobOrderController,
+                // StaffController) reads staffProfile->store_branch_id, and
+                // null there means "sees everything," the same as an owner.
+                // Granting manager authority must pin them to one branch.
+                Rule::requiredIf(fn () => $this->boolean('is_branch_manager')),
                 'nullable',
                 Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
             ],

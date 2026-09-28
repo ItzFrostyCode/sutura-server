@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\ApproveStoreRequest;
 use App\Models\Store;
+use App\Notifications\StoreApplicationStatusNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -41,6 +42,8 @@ class StoreController extends Controller
             'approved_by' => $request->user()->id,
         ]);
 
+        $store->owner?->notify(new StoreApplicationStatusNotification($store, 'approved'));
+
         return response()->json([
             'success' => true,
             'message' => 'Store approved successfully.',
@@ -56,6 +59,8 @@ class StoreController extends Controller
             'status' => 'rejected',
             'rejection_reason' => $request->rejection_reason,
         ]);
+
+        $store->owner?->notify(new StoreApplicationStatusNotification($store, 'rejected'));
 
         return response()->json([
             'success' => true,

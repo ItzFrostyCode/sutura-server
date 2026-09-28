@@ -41,11 +41,12 @@ class AdditionalStoresSeeder extends Seeder
     {
         $ownerRole = Role::where('name', 'store_owner')->first();
         $staffRole = Role::where('name', 'staff')->first();
+        $branchManagerRole = Role::where('name', 'branch_manager')->first();
         $customerRole = Role::where('name', 'customer')->first();
         $premiumPlan = SubscriptionPlan::where('slug', 'premium')->first();
         $basicPlan = SubscriptionPlan::where('slug', 'basic')->first();
 
-        $this->seedStoreTwo($ownerRole, $staffRole, $customerRole, $basicPlan);
+        $this->seedStoreTwo($ownerRole, $staffRole, $branchManagerRole, $customerRole, $basicPlan);
         $this->seedStoreThree($ownerRole, $staffRole, $customerRole, $premiumPlan);
     }
 
@@ -54,7 +55,7 @@ class AdditionalStoresSeeder extends Seeder
      * corporate specialty, Basic plan (deliberately different tier than store
      * #1's Premium, to exercise tier-gating with a real non-Premium tenant).
      */
-    private function seedStoreTwo($ownerRole, $staffRole, $customerRole, $basicPlan): void
+    private function seedStoreTwo($ownerRole, $staffRole, $branchManagerRole, $customerRole, $basicPlan): void
     {
         $owner = User::firstOrCreate(
             ['email' => 'ricardo@sutura.com'],
@@ -127,12 +128,21 @@ class AdditionalStoresSeeder extends Seeder
         );
 
         // Staff — 2, each tied to a different branch of THIS store only.
+        // Lito Cruz is this seed dataset's ONLY Branch Manager test account —
+        // this was previously the single biggest gap in defense readiness:
+        // he was given is_branch_manager=true on his StaffProfile but was
+        // attached to the plain 'staff' platform Role instead of
+        // 'branch_manager', so logging in as him showed the narrow Staff
+        // dashboard, not Branch Manager permissions — every role check in
+        // this app (route:branch_manager middleware, frontend isBranchManager
+        // gates) reads $user->roles, never StaffProfile.is_branch_manager
+        // directly. Fixed to attach the correct platform role.
         $staff1 = User::firstOrCreate(
             ['email' => 'lito.cruz@davaoformalwear.com'],
             ['name' => 'Lito Cruz', 'password' => Hash::make('password'), 'email_verified_at' => now()]
         );
-        if (! $staff1->roles()->where('role_id', $staffRole->id)->exists()) {
-            $staff1->roles()->attach($staffRole->id);
+        if ($branchManagerRole && ! $staff1->roles()->where('role_id', $branchManagerRole->id)->exists()) {
+            $staff1->roles()->attach($branchManagerRole->id);
         }
         if (! $staff1->staffProfile()->exists()) {
             StaffProfile::create([
@@ -270,17 +280,18 @@ class AdditionalStoresSeeder extends Seeder
         // in sutura-client/public/catalog/), but as genuinely separate rows
         // scoped to THIS store, priced/named for a formal-wear specialty.
         $catalogSeed = [
-            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'image' => 'tailor-made-suit-bespoke.jpg'],
-            ['name' => 'Double-Breasted Pinstripe Suit', 'price' => 6500, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'image' => 'Custom Tuxedos for Memorable Events.jpeg'],
-            ['name' => 'Barong Tagalog — Office Formal', 'price' => 3200, 'material' => 'Jusi Fabric', 'garment_type' => 'barong', 'image' => 'Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
-            ['name' => 'Corporate Office Blazer', 'price' => 4200, 'material' => 'Poly-Wool Blend', 'garment_type' => 'suit', 'image' => 'Bespoke_Suits.png'],
-            ['name' => 'Standard Office Uniform Set', 'price' => 900, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'image' => 'Esports-Jersey-women.jpg'],
+            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'department' => 'men', 'image' => 'tailor-made-suit-bespoke.jpg'],
+            ['name' => 'Double-Breasted Pinstripe Suit', 'price' => 6500, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'department' => 'men', 'image' => 'Custom Tuxedos for Memorable Events.jpeg'],
+            ['name' => 'Barong Tagalog — Office Formal', 'price' => 3200, 'material' => 'Jusi Fabric', 'garment_type' => 'barong', 'department' => 'men', 'image' => 'Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
+            ['name' => 'Corporate Office Blazer', 'price' => 4200, 'material' => 'Poly-Wool Blend', 'garment_type' => 'suit', 'department' => 'office', 'image' => 'Bespoke_Suits.png'],
+            ['name' => 'Standard Office Uniform Set', 'price' => 900, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'Esports-Jersey-women.jpg'],
         ];
         foreach ($catalogSeed as $c) {
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
                     'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
+                    'department' => $c['department'],
                     'estimated_days' => 10, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order, tailored to your measurements.',
                 ]
@@ -349,8 +360,14 @@ class AdditionalStoresSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '08:00', 'close' => '18:00'],
                     'sunday' => ['is_open' => true, 'open' => '08:00', 'close' => '12:00'],
                 ],
-                'logo_path' => \Illuminate\Support\Facades\Storage::url('logos/villanueva_atelier_logo.jpg'),
-                'banner_path' => \Illuminate\Support\Facades\Storage::url('banners/villanueva_atelier_banner.jpg'),
+                // Deliberately no logo_path/banner_path — this was previously
+                // copy-pasted from LocalTestSeeder's unrelated "Villanueva
+                // Bespoke Atelier" store (villanueva_atelier_logo.jpg), a
+                // mismatch that would have shown Fely's storefront with
+                // another store's branding. Leaving these null instead
+                // exercises the "no logo uploaded yet" empty state, which
+                // fits this store's own intent as "deliberately the smallest
+                // tenant."
             ]
         );
 
@@ -461,15 +478,19 @@ class AdditionalStoresSeeder extends Seeder
         );
 
         $catalogSeed = [
-            ['name' => 'Elementary Uniform Set', 'price' => 450, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'image' => 'VBALL_PRE-2001_800x800.webp'],
-            ['name' => 'High School PE Uniform', 'price' => 650, 'material' => 'Drifit Mesh', 'garment_type' => 'uniform', 'image' => 'volleyballroundneckSET.webp'],
-            ['name' => 'Simple Alteration Reference — Hemline', 'price' => 150, 'material' => 'N/A', 'garment_type' => 'other', 'image' => 'Riders_Long_Sleeves.jpg'],
+            ['name' => 'Elementary Uniform Set', 'price' => 450, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'VBALL_PRE-2001_800x800.webp'],
+            ['name' => 'High School PE Uniform', 'price' => 650, 'material' => 'Drifit Mesh', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'volleyballroundneckSET.webp'],
+            // 'other' wasn't a valid CatalogItem::GARMENT_CATEGORIES value —
+            // this is a real alteration/repair reference item, which the
+            // enum already covers.
+            ['name' => 'Simple Alteration Reference — Hemline', 'price' => 150, 'material' => 'N/A', 'garment_type' => 'alteration_repair', 'department' => null, 'image' => 'Riders_Long_Sleeves.jpg'],
         ];
         foreach ($catalogSeed as $c) {
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
                     'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
+                    'department' => $c['department'],
                     'estimated_days' => 5, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order.',
                 ]

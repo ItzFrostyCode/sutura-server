@@ -557,6 +557,65 @@ class AppointmentController extends Controller
                 }
             }
 
+            // ── Arrival tracking (auto-derive, never trust the client) ───────────
+            // Whenever staff writes checked_in_at (the existing Check-In
+            // action), classify it against scheduled_at server-side —
+            // arrival_status is never itself submitted by the client. A
+            // 5-minute grace window either side of scheduled_at counts as
+            // on_time so normal clock drift/rounding doesn't read as early
+            // or late.
+            if (! $error && ! empty($data['checked_in_at']) && $appointment->scheduled_at) {
+                $checkedInAt = Carbon::parse($data['checked_in_at']);
+                $graceMinutes = 5;
+                if ($checkedInAt->lt($appointment->scheduled_at->copy()->subMinutes($graceMinutes))) {
+                    $data['arrival_status'] = 'early';
+                } elseif ($checkedInAt->gt($appointment->scheduled_at->copy()->addMinutes($graceMinutes))) {
+                    $data['arrival_status'] = 'late';
+                } else {
+                    $data['arrival_status'] = 'on_time';
+                }
+            }
+
+            // ── Early-Arrival Accommodation ───────────────────────────────────────
+            // Staff may only accommodate an early arrival if the branch
+            // actually has capacity right now — an early customer can never
+            // automatically displace another confirmed appointment (rule 11).
+            // Capacity is checked the same way a normal booking would be:
+            // is there another active appointment already occupying this
+            // branch between "now" and this appointment's own scheduled
+            // start? If so, decline the shortcut here and let staff choose
+            // to keep the customer waiting instead.
+            if (! $error && ($data['early_arrival_decision'] ?? null) === 'accommodated') {
+                if (($appointment->arrival_status ?? null) !== 'early') {
+                    $error = 'This appointment is not marked as an early arrival.';
+                    $status = 422;
+                } else {
+                    $now = Carbon::now();
+                    $minutesUntilScheduled = max(1, $now->diffInMinutes($appointment->scheduled_at, false));
+
+                    if (Appointment::hasSchedulingConflict($store, $appointment->store_branch_id, $now, (int) $minutesUntilScheduled, $appointment->id, false)) {
+                        $error = 'Another confirmed appointment currently occupies this branch — this customer cannot be accommodated early right now.';
+                        $status = 409;
+                    } else {
+                        $data['actual_service_start_at'] = $now;
+                        $data['accommodated_by_id'] = $user->id;
+
+                        $store->auditLogs()->create([
+                            'user_id' => $user->id,
+                            'action' => 'appointment_early_arrival_accommodated',
+                            'model_type' => Appointment::class,
+                            'model_id' => $appointment->id,
+                            'payload' => [
+                                'scheduled_at' => $appointment->scheduled_at->format('Y-m-d H:i:s'),
+                                'checked_in_at' => $appointment->checked_in_at?->format('Y-m-d H:i:s'),
+                                'actual_service_start_at' => $now->format('Y-m-d H:i:s'),
+                            ],
+                            'ip_address' => $request->ip(),
+                        ]);
+                    }
+                }
+            }
+
             // ── Confirm-time conflict re-check ────────────────────────────────────
             // hasSchedulingConflict() only blocks against already-CONFIRMED
             // appointments, so two customers can each hold a *pending* booking

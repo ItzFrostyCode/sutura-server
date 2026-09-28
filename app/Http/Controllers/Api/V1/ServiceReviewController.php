@@ -67,6 +67,91 @@ class ServiceReviewController extends Controller
     }
 
     /**
+     * Heart/save a Service — mirrors CatalogInteractionController::
+     * toggleSave() exactly (same table shape, same toggle-on-repeat-call
+     * behavior). Services never had a save/heart equivalent before this;
+     * only catalog items (CatalogItemSave) did.
+     */
+    public function toggleSave(Request $request, Store $store, Service $service): JsonResponse
+    {
+        if ($service->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
+        }
+
+        $user = $request->user();
+
+        $existingSave = $service->saves()->where('user_id', $user->id)->first();
+
+        if ($existingSave) {
+            $existingSave->delete();
+            $status = 'unsaved';
+        } else {
+            $service->saves()->create(['user_id' => $user->id]);
+            $status = 'saved';
+        }
+
+        return response()->json([
+            'success' => true,
+            'status' => $status,
+            'saves_count' => $service->saves()->count(),
+        ]);
+    }
+
+    /**
+     * Whether the authenticated user has already saved this service — same
+     * as CatalogInteractionController::mySave.
+     */
+    public function mySave(Request $request, Store $store, Service $service): JsonResponse
+    {
+        if ($service->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
+        }
+
+        $isSaved = $service->saves()->where('user_id', $request->user()->id)->exists();
+
+        return response()->json([
+            'success' => true,
+            'is_saved' => $isSaved,
+            'saves_count' => $service->saves()->count(),
+        ]);
+    }
+
+    /**
+     * Cross-store "My Saved Items" list, Services tab — mirrors
+     * CatalogInteractionController::mySavedItems() exactly. Customer-scoped,
+     * no role gate, same as /my-orders, /my-appointments, /my-measurements.
+     */
+    public function mySavedServices(Request $request): JsonResponse
+    {
+        $saves = \App\Models\ServiceSave::where('user_id', $request->user()->id)
+            ->with(['service.store:id,name,slug'])
+            ->latest()
+            ->get()
+            ->filter(fn ($s) => $s->service !== null)
+            ->map(function ($s) {
+                $service = $s->service;
+                $service->loadCount(['reviews', 'jobOrders']);
+                $service->loadAvg('reviews', 'rating');
+
+                return [
+                    'saved_at' => $s->created_at,
+                    'id' => $service->id,
+                    'name' => $service->name,
+                    'description' => $service->description,
+                    'base_price' => $service->base_price,
+                    'estimated_days' => $service->estimated_days,
+                    'image_url' => $service->image_url,
+                    'reviews_count' => $service->reviews_count,
+                    'reviews_avg_rating' => $service->reviews_avg_rating !== null ? round((float) $service->reviews_avg_rating, 1) : null,
+                    'store' => $service->store ? ['id' => $service->store->id, 'name' => $service->store->name, 'slug' => $service->store->slug] : null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $saves]);
+    }
+
+    /**
      * The authenticated user's current rating for this service, to pre-fill
      * a star picker if they've already rated it.
      */

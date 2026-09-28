@@ -35,22 +35,23 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
     }
 
     /**
-     * Delivery channels — database + mail, unless this is a synthetic walk-in
-     * placeholder address (no real customer inbox to deliver to).
+     * Delivery channels — in-app/database only for now. This used to also
+     * mail the customer on every status change, but per-appointment email
+     * for every pending/confirmed/rescheduled/etc. update was too noisy in
+     * practice (real inbox spam during testing) for how minor most of these
+     * are — the in-app bell is the one that actually matters here. toMail()
+     * below is left in place, unused, in case email comes back for specific
+     * statuses later rather than all of them.
      */
     public function via(object $notifiable): array
     {
-        $channels = ['database'];
-        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
-            $channels[] = 'mail';
-        }
-
-        return $channels;
+        return ['database'];
     }
 
     private function titles(): array
     {
         return [
+            'submitted' => 'Appointment Request Sent',
             'confirmed' => 'Appointment Confirmed',
             'rescheduled' => 'Appointment Rescheduled',
             'cancelled' => 'Appointment Cancelled',
@@ -61,6 +62,9 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
         ];
     }
 
+    // Every message below names both the WHEN (scheduledAt) and the WHY
+    // (purpose) — a customer who forgets what they booked should be able to
+    // tell from the notification alone, without having to reopen the app.
     private function messages(): array
     {
         if ($this->customMessage) {
@@ -73,14 +77,21 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
             ? Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
             : 'N/A';
 
+        $purpose = $this->appointment->appointment_type
+            ? str_replace('_', ' ', $this->appointment->appointment_type)
+            : 'store';
+
+        $storeName = $this->appointment->store?->name ?? 'the store';
+
         return [
-            'confirmed' => 'Your appointment for '.$scheduledAt.' has been confirmed by the store.',
-            'rescheduled' => 'Your appointment has been rescheduled to '.$scheduledAt.'.',
-            'cancelled' => 'Your appointment for '.$scheduledAt.' has been cancelled.',
-            'completed' => 'Your fitting/consultation appointment on '.$scheduledAt.' is now marked as completed.',
-            'in_progress' => 'Your appointment is now in progress.',
-            'no_show' => 'You were marked as a no-show for your appointment at '.$scheduledAt.'.',
-            'walk_in_preempted' => 'Your requested appointment slot for '.$scheduledAt.' was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot.',
+            'submitted' => 'Your '.$purpose.' appointment request with '.$storeName.' for '.$scheduledAt.' has been sent. You\'ll be notified once the store responds.',
+            'confirmed' => 'Your '.$purpose.' appointment with '.$storeName.' for '.$scheduledAt.' has been confirmed by the store.',
+            'rescheduled' => 'Your '.$purpose.' appointment with '.$storeName.' has been rescheduled to '.$scheduledAt.'.',
+            'cancelled' => 'Your '.$purpose.' appointment with '.$storeName.' for '.$scheduledAt.' has been cancelled.',
+            'completed' => 'Your '.$purpose.' appointment with '.$storeName.' on '.$scheduledAt.' is now marked as completed.',
+            'in_progress' => 'Your '.$purpose.' appointment with '.$storeName.' is now in progress.',
+            'no_show' => 'You were marked as a no-show for your '.$purpose.' appointment with '.$storeName.' at '.$scheduledAt.'.',
+            'walk_in_preempted' => 'Your requested '.$purpose.' appointment slot with '.$storeName.' for '.$scheduledAt.' was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot.',
         ];
     }
 

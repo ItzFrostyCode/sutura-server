@@ -15,10 +15,13 @@ class PaymentReceivedNotification extends Notification implements ShouldQueue
 
     public float $amount;
 
-    public function __construct(JobOrder $jobOrder, float $amount)
+    public bool $pendingVerification;
+
+    public function __construct(JobOrder $jobOrder, float $amount, bool $pendingVerification = false)
     {
         $this->jobOrder = $jobOrder;
         $this->amount = $amount;
+        $this->pendingVerification = $pendingVerification;
     }
 
     /**
@@ -36,12 +39,15 @@ class PaymentReceivedNotification extends Notification implements ShouldQueue
     {
         return [
             'type' => 'payment_received',
-            'title' => 'Payment Received',
-            'message' => '₱'.number_format($this->amount, 2).' payment received for order '.$this->jobOrder->order_number.'.',
+            'title' => $this->pendingVerification ? 'Payment Needs Verification' : 'Payment Received',
+            'message' => $this->pendingVerification
+                ? '₱'.number_format($this->amount, 2).' payment submitted for order '.$this->jobOrder->order_number.' — verify it before it counts toward the balance.'
+                : '₱'.number_format($this->amount, 2).' payment received for order '.$this->jobOrder->order_number.'.',
             'action_url' => '/dashboard/jobs/'.$this->jobOrder->id,
             'job_order_id' => $this->jobOrder->id,
             'order_number' => $this->jobOrder->order_number,
             'amount' => $this->amount,
+            'pending_verification' => $this->pendingVerification,
             'customer_name' => $this->jobOrder->customer?->name,
         ];
     }

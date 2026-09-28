@@ -13,15 +13,34 @@ class ServiceController extends Controller
 {
     public function index(Request $request, Store $store): JsonResponse
     {
-        $query = $store->services()->with('pricing');
+        $query = $store->services()->with('pricing')
+            ->withCount(['reviews', 'jobOrders', 'saves'])
+            ->withAvg('reviews', 'rating')
+            // Discount-aware, same formula as CatalogController::index()'s
+            // own total_revenue (discount_amount reduces balance, not
+            // total_amount, so it has to be netted out separately —
+            // otherwise a discounted job silently counts as full revenue).
+            // Only a service's own directly-linked job orders count here;
+            // a catalog item's orders are that item's own revenue even
+            // when the item links back to this service, so summing both
+            // would double-count the same money under two different names.
+            ->withSum('jobOrders as job_revenue', 'total_amount')
+            ->withSum('jobOrders as job_balance_sum', 'balance')
+            ->withSum('jobOrders as job_discount_sum', 'discount_amount');
 
         if ($request->boolean('trashed')) {
             $query->onlyTrashed();
         }
 
+        $services = $query->get();
+        $services->each(function ($service) {
+            $service->reviews_avg_rating = $service->reviews_avg_rating !== null ? round((float) $service->reviews_avg_rating, 1) : null;
+            $service->total_revenue = (float) $service->job_revenue - (float) $service->job_balance_sum - (float) $service->job_discount_sum;
+        });
+
         return response()->json([
             'success' => true,
-            'data' => $query->get(),
+            'data' => $services,
         ]);
     }
 
@@ -63,6 +82,12 @@ class ServiceController extends Controller
             $query->whereHas('store.branches', function ($bq) use ($district) {
                 $bq->where('district', $district)->where('status', 'active');
             });
+        }
+
+        // Same men/women/wedding/office axis as CatalogController's own
+        // publicShowroom() — see CatalogItem::DEPARTMENTS.
+        if ($request->filled('department')) {
+            $query->whereRaw('LOWER(department) = ?', [strtolower($request->string('department'))]);
         }
 
         match ($request->string('sort_by')->toString()) {
@@ -116,7 +141,7 @@ class ServiceController extends Controller
         // guessed flat amount) to build the request form.
         $services = $store->services()
             ->where('is_active', true)
-            ->withCount('reviews')
+            ->withCount(['reviews', 'saves'])
             ->withAvg('reviews', 'rating')
             ->with([
                 'pricing:id,service_id,label,amount',

@@ -7,11 +7,43 @@ use App\Models\Role;
 use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Models\StoreBranch;
+use App\Services\GoogleMapsLinkResolver;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class StoreBranchController extends Controller
 {
+    /**
+     * A branch manager may update their own branch's day-to-day info
+     * (hours, contact, location) — matches the dashboard sidebar already
+     * showing them "Branches" — but never another branch's, and never the
+     * manager_id field itself: reassigning who manages a branch is a
+     * promotion/demotion action, the same "never lets them promote anyone
+     * to branch manager" rule StaffController::staffManagerCrudDenied()
+     * already enforces for staff. store()/setMain()/destroy() (adding,
+     * designating, or removing a whole physical location) stay owner-only
+     * entirely — bigger structural decisions than editing an existing one.
+     */
+    private function branchManagerCrudDenied(Request $request, StoreBranch $branch, bool $wantsManagerChange): ?JsonResponse
+    {
+        $user = $request->user();
+        if ($user->hasRole('store_owner')) {
+            return null;
+        }
+
+        $userBranchId = $user->staffProfile->store_branch_id ?? null;
+        if ((int) $userBranchId !== (int) $branch->id) {
+            return response()->json(['success' => false, 'message' => 'You can only manage your own branch.'], 403);
+        }
+
+        if ($wantsManagerChange) {
+            return response()->json(['success' => false, 'message' => 'Only the store owner can reassign a branch\'s manager.'], 403);
+        }
+
+        return null;
+    }
+
     public function index($storeId)
     {
         $branches = StoreBranch::where('store_id', $storeId)
@@ -108,6 +140,10 @@ class StoreBranchController extends Controller
     {
         if ($branch->store_id != $storeId) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        if ($denied = $this->branchManagerCrudDenied($request, $branch, $request->has('manager_id'))) {
+            return $denied;
         }
 
         $request->validate([
@@ -241,5 +277,31 @@ class StoreBranchController extends Controller
         $branch->delete();
 
         return response()->json(['success' => true, 'message' => 'Branch deleted successfully.']);
+    }
+
+    /**
+     * Lets an owner/branch manager paste whatever Google Maps' own "Share"
+     * button gives them (a short maps.app.goo.gl link, or the full URL
+     * copied straight from the address bar) instead of having to go hunt
+     * down raw latitude/longitude themselves. Manual lat/lng entry (and the
+     * existing click-to-pin map picker) both stay available — this is an
+     * additional, easier path to the same two numbers, not a replacement.
+     */
+    public function resolveMapsLink(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'url' => ['required', 'string', 'max:2048'],
+        ]);
+
+        $coords = GoogleMapsLinkResolver::resolve($validated['url']);
+
+        if (! $coords) {
+            return response()->json([
+                'success' => false,
+                'message' => "Couldn't find a location in that link. Make sure it's copied from Google Maps' Share button, or enter the coordinates manually below.",
+            ], 422);
+        }
+
+        return response()->json(['success' => true, 'data' => $coords]);
     }
 }

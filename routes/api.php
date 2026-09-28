@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\StoreController as AdminStoreController;
+use App\Http\Controllers\Api\V1\Admin\ModerationController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Api\V1\Admin\SupportTicketAdminController;
 use App\Http\Controllers\Api\V1\AnalyticsController;
@@ -112,12 +113,17 @@ Route::prefix('v1')->group(function () {
         // confirmed live (curl) before this fix. toggleSave/rate/report all
         // shared this bug; fixed together since they're the same call shape.
         Route::post('/stores/{store:slug}/catalog/{catalogItem}/save', [CatalogInteractionController::class, 'toggleSave']);
+        Route::get('/stores/{store:slug}/catalog/{catalogItem}/my-save', [CatalogInteractionController::class, 'mySave']);
         Route::post('/stores/{store:slug}/catalog/{catalogItem}/reviews', [CatalogInteractionController::class, 'rate']);
         Route::post('/stores/{store:slug}/catalog/{catalogItem}/report', [CatalogInteractionController::class, 'report']);
 
         // Service Ratings (Any authenticated user) — star-only, see ServiceReviewController.
         Route::post('/stores/{store:slug}/services/{service}/reviews', [ServiceReviewController::class, 'rate']);
         Route::get('/stores/{store:slug}/services/{service}/my-review', [ServiceReviewController::class, 'myRating']);
+        // Service Saves/Hearts — parity with catalog items above, services
+        // never had a save/heart equivalent before this.
+        Route::post('/stores/{store:slug}/services/{service}/save', [ServiceReviewController::class, 'toggleSave']);
+        Route::get('/stores/{store:slug}/services/{service}/my-save', [ServiceReviewController::class, 'mySave']);
 
         // Service Package Ratings — separate from reviews of included services.
         Route::post('/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'rate']);
@@ -151,6 +157,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/my-measurements', [MeasurementController::class, 'myMeasurements']);
         Route::get('/my-catalog-reviews', [CatalogInteractionController::class, 'myReviews']);
         Route::get('/my-store-reviews', [StoreReviewController::class, 'myReviews']);
+        Route::get('/my-saved-catalog-items', [CatalogInteractionController::class, 'mySavedItems']);
+        Route::get('/my-saved-services', [ServiceReviewController::class, 'mySavedServices']);
         Route::get('/my-recently-viewed', [RecentlyViewedController::class, 'index']);
         Route::post('/recently-viewed', [RecentlyViewedController::class, 'store']);
         Route::get('/my-tickets', [SupportTicketController::class, 'myTickets']);
@@ -190,11 +198,6 @@ Route::prefix('v1')->group(function () {
                 // "staff at the workbench" reasoning as progress photos above.
                 Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
 
-                // Per-order material attribution (typically the cutter, during
-                // cutting) — same "staff at the workbench" reasoning as above.
-                Route::post('/jobs/{jobOrder}/materials', [JobOrderController::class, 'addMaterial']);
-                Route::delete('/jobs/{jobOrder}/materials/{material}', [JobOrderController::class, 'deleteMaterial']);
-
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
                 Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
@@ -231,6 +234,17 @@ Route::prefix('v1')->group(function () {
                 // managing services (create/update/delete) stays owner-only below.
                 Route::get('/services', [ServiceController::class, 'index']);
 
+                // Service Packages (read-only) — this used to sit in the
+                // store_owner-only group below even though its own write
+                // actions (store/update/destroy) already moved to
+                // store_owner,branch_manager, and even though the Services nav
+                // (with its Packages tab) is shown to branch_manager AND
+                // plain staff. A branch manager or staff account opening the
+                // Packages tab got a 403 just listing packages, despite
+                // managers being able to create/edit/delete them. Matches
+                // Services' own read gate immediately above.
+                Route::get('/service-packages', [ServicePackageController::class, 'index']);
+
                 // Staff & Branch directory (read-only) — staff, managers, and owners
                 // need to see the artisan roster, availability, and branch assignments.
                 Route::get('/staff', [StaffController::class, 'index']);
@@ -248,9 +262,9 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
+                Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment']);
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
-                Route::post('/jobs/{jobOrder}/staff', [JobOrderController::class, 'assignStaff']);
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
@@ -276,28 +290,62 @@ Route::prefix('v1')->group(function () {
 
                 // File Uploads
                 Route::post('/upload', [FileUploadController::class, 'store']);
-            });
 
-            // Owner Only Access
-            Route::middleware('role:store_owner')->group(function () {
-                // Staff Management (list/read is granted to all store members above)
+                // Staff Management (list/read is granted to all store members
+                // above) — a branch manager can hire/edit/deactivate staff too,
+                // routine headcount for their own branch, but
+                // StaffController::staffManagerCrudDenied() enforces the real
+                // scoping (their own branch only, never another branch
+                // manager, never a promotion to branch manager) since role
+                // middleware alone can't express "only your own branch."
                 Route::post('/staff', [StaffController::class, 'store']);
                 Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
                 Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
 
-                // Services (list/read is granted to store_owner+branch_manager+staff above)
+                // Services + Catalog Management write actions — the dashboard
+                // sidebar has always shown "Services" and "Catalog Designs" to
+                // both store_owner and branch_manager (isStoreOwner ||
+                // isBranchManager gates in dashboard/layout.tsx), but these
+                // write routes were store_owner-only until now, so a branch
+                // manager clicking Add Service/Add Catalog Item got a 403 the
+                // nav never warned them about. Moved here to match what the
+                // nav already promises — these are store-wide resources (no
+                // store_branch_id column), not scoped to the manager's own
+                // branch the way Staff/Jobs/Appointments are above.
                 Route::post('/services', [ServiceController::class, 'store']);
                 Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
                 Route::put('/services/{service}/sale', [ServiceController::class, 'updateSale']);
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
 
-                // Service Packages — bundles of 2+ existing services sold as one combo
-                Route::get('/service-packages', [ServicePackageController::class, 'index']);
                 Route::post('/service-packages', [ServicePackageController::class, 'store']);
                 Route::put('/service-packages/{servicePackage}', [ServicePackageController::class, 'update']);
                 Route::delete('/service-packages/{servicePackage}', [ServicePackageController::class, 'destroy']);
 
+                // Read moved here from the store_owner-only group below —
+                // Catalog Designs is shown to isStoreOwner||isBranchManager
+                // in dashboard/layout.tsx, and a branch manager already has
+                // write access (store/update/destroy right here), but the
+                // list itself was left owner-only, so a branch manager's
+                // Catalog page 403'd just loading the item list they were
+                // otherwise fully permitted to manage.
+                Route::get('/catalog', [CatalogController::class, 'index']);
+                Route::post('/catalog', [CatalogController::class, 'store']);
+                Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
+                Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
+
+                // Branch Management — editing an existing branch's own info
+                // (hours, contact, location). StoreBranchController::
+                // branchManagerCrudDenied() enforces "their own branch only,
+                // never touching manager_id" since role middleware alone
+                // can't express that; store()/setMain()/destroy() stay
+                // owner-only above (bigger structural decisions).
+                Route::put('/branches/{branch}', [StoreBranchController::class, 'update']);
+                Route::post('/branches/resolve-maps-link', [StoreBranchController::class, 'resolveMapsLink']);
+            });
+
+            // Owner Only Access
+            Route::middleware('role:store_owner')->group(function () {
                 // Temporary Special Hours & Announcements
                 Route::get('/special-hours', [StoreSpecialHourController::class, 'index']);
                 Route::post('/special-hours', [StoreSpecialHourController::class, 'store']);
@@ -336,12 +384,6 @@ Route::prefix('v1')->group(function () {
                 Route::put('/posts/{post}', [StorePostController::class, 'update']);
                 Route::delete('/posts/{post}', [StorePostController::class, 'destroy']);
 
-                // Catalog Management
-                Route::get('/catalog', [CatalogController::class, 'index']);
-                Route::post('/catalog', [CatalogController::class, 'store']);
-                Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
-                Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
-
                 // Support Tickets (Store Owner → Admin)
                 Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
                 Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);
@@ -356,9 +398,12 @@ Route::prefix('v1')->group(function () {
         Route::middleware('role:store_owner')->group(function () {
             Route::apiResource('stores', StoreController::class);
 
-            // Branch Management (list/read is granted to store_owner+branch_manager above)
+            // Branch Management (list/read is granted to store_owner+branch_manager
+            // above). Adding/deleting a whole physical location and designating
+            // the main branch stay owner-only — see branchManagerCrudDenied()'s
+            // own docblock for why update()/resolveMapsLink() moved out to the
+            // store_owner,branch_manager group below instead.
             Route::post('/stores/{store}/branches', [StoreBranchController::class, 'store']);
-            Route::put('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'update']);
             Route::put('/stores/{store}/branches/{branch}/set-main', [StoreBranchController::class, 'setMain']);
             Route::delete('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'destroy']);
 
@@ -373,6 +418,14 @@ Route::prefix('v1')->group(function () {
             Route::get('/stores', [AdminStoreController::class, 'index']);
             Route::put('/stores/{store}/approve', [AdminStoreController::class, 'approve']);
             Route::put('/stores/{store}/reject', [AdminStoreController::class, 'reject']);
+
+            // Post-moderation (acts on "Report this product" tickets): warn →
+            // hide one catalog design → hide the whole shop. Manual only.
+            Route::post('/catalog-items/{catalogItem}/warn', [ModerationController::class, 'warnCatalogItem']);
+            Route::put('/catalog-items/{catalogItem}/hide', [ModerationController::class, 'hideCatalogItem']);
+            Route::put('/catalog-items/{catalogItem}/unhide', [ModerationController::class, 'unhideCatalogItem']);
+            Route::put('/stores/{store}/hide', [ModerationController::class, 'hideStore']);
+            Route::put('/stores/{store}/unhide', [ModerationController::class, 'unhideStore']);
 
             Route::get('/subscription-plans', [SubscriptionPlanController::class, 'index']);
             Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store']);

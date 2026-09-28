@@ -13,9 +13,16 @@ class StaffProfile extends Model
     // only ever showed up in seed data historically (sublimation_specialist,
     // senior_designer, cutter_sewer) so those existing profiles are actually
     // editable instead of showing a blank/unmatched dropdown.
+    //
+    // 'subcontractor' was removed (2026-09-28) — it implied the shop could
+    // hire out work to a partner store, but that's exactly the outsourcing
+    // concept JobOrder::is_outsourced/partner_store_name/outsourcing_cost
+    // were already removed for (maps to no thesis objective, edges into
+    // logistics/expense tracking — see this repo's CLAUDE.md "Explicitly OUT
+    // of scope"). Offering it as a staff role contradicted that removal.
     public const ROLES = [
         'head_tailor', 'tailor', 'cutter', 'seamstress', 'assistant',
-        'receptionist', 'quality_control', 'subcontractor', 'designer',
+        'receptionist', 'quality_control', 'designer',
         'pattern_maker', 'sublimation_specialist', 'senior_designer', 'cutter_sewer',
     ];
 

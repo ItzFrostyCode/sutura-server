@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
 use App\Notifications\AppointmentBookedNotification;
+use App\Notifications\AppointmentStatusNotification;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,9 +56,12 @@ class PublicBookingController extends Controller
                 'active_special_hours' => $store->active_special_hours,
                 'special_hours' => $store->specialHours()->get(),
                 'branches' => $store->branches()->get(['id', 'slug', 'name', 'address', 'city', 'latitude', 'longitude']),
+                // service_types/min_order_qty/custom_fields let the booking
+                // wizard pick purposes and roster columns from the real
+                // functional taxonomy instead of guessing from the name.
                 'services' => $store->services()
                     ->where('is_active', true)
-                    ->get(['id', 'name', 'base_price', 'estimated_days']),
+                    ->get(['id', 'name', 'base_price', 'estimated_days', 'service_types', 'min_order_qty', 'custom_fields']),
                 'appointment_types' => Appointment::TYPES,
                 'gcash_number' => $store->gcash_number,
                 'gcash_account_name' => $store->gcash_account_name,
@@ -229,6 +233,20 @@ class PublicBookingController extends Controller
             ], 409);
         }
 
+        // A customer can legitimately have appointments at several different
+        // stores/services, but not too close together in time — they can't
+        // physically be in two shops at once, and can't teleport between
+        // them either. Checked platform-wide (not just against $store) and
+        // buffered by Appointment::CUSTOMER_TRAVEL_BUFFER_MINUTES on both
+        // sides, not just a bare time-overlap check — see
+        // hasCustomerScheduleConflict()'s own docblock.
+        if (Appointment::hasCustomerScheduleConflict($customer->id, $scheduledAt, $durationMinutes)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This time is too close to another appointment you already have. Please leave at least '.Appointment::CUSTOMER_TRAVEL_BUFFER_MINUTES.' minutes between appointments so you have time to travel.',
+            ], 409);
+        }
+
         // ── Associate customer with this store ─────────────────────────────────
         // Ensures public-booked customers appear in the store's customer
         // list / CRM (CustomerController::index reads store_customers).
@@ -276,6 +294,12 @@ class PublicBookingController extends Controller
         if ($storeOwner) {
             $storeOwner->notify(new AppointmentBookedNotification($appointment));
         }
+
+        // Also notify the customer themselves — a record of what they just
+        // booked (when + why), in-app and by email, so if they forget the
+        // details later they have something to check back against instead
+        // of only the store owner knowing.
+        $customer->notify(new AppointmentStatusNotification($appointment, 'submitted'));
 
         return response()->json([
             'success' => true,

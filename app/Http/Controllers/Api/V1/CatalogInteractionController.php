@@ -51,6 +51,26 @@ class CatalogInteractionController extends Controller
         ]);
     }
 
+    /**
+     * Whether the authenticated user has already saved this item — lets the
+     * heart button render filled/unfilled correctly on page load, same
+     * pattern as ServiceReviewController::myRating.
+     */
+    public function mySave(Request $request, Store $store, CatalogItem $catalogItem): JsonResponse
+    {
+        if ($catalogItem->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
+        }
+
+        $isSaved = $catalogItem->saves()->where('user_id', $request->user()->id)->exists();
+
+        return response()->json([
+            'success' => true,
+            'is_saved' => $isSaved,
+            'saves_count' => $catalogItem->saves()->count(),
+        ]);
+    }
+
     // Single source of truth for valid report-reason values — referenced by
     // report()'s validation and the frontend's reason list.
     public const REPORT_REASONS = ['copyright', 'offensive', 'illegal', 'other'];
@@ -92,6 +112,7 @@ class CatalogInteractionController extends Controller
             'subject' => 'Product Report: '.$catalogItem->name,
             'message' => $message,
             'type' => 'product_report',
+            'catalog_item_id' => $catalogItem->id,
             'priority' => 'medium',
             'status' => 'open',
         ]);
@@ -141,6 +162,45 @@ class CatalogInteractionController extends Controller
             ->values();
 
         return response()->json(['success' => true, 'data' => $reviews]);
+    }
+
+    /**
+     * Cross-store "My Saved Items" list — same customer-scoped, no-role-gate
+     * pattern as myReviews() above. The heart/save button existed on the
+     * customer-facing item detail page but had nowhere for the customer to
+     * actually see their saved list until this endpoint.
+     */
+    public function mySavedItems(Request $request): JsonResponse
+    {
+        $saves = \App\Models\CatalogItemSave::where('user_id', $request->user()->id)
+            ->with(['catalogItem.images', 'catalogItem.store:id,name,slug'])
+            ->latest()
+            ->get()
+            ->filter(fn ($s) => $s->catalogItem !== null)
+            ->map(function ($s) {
+                $item = $s->catalogItem;
+                $item->loadCount(['reviews', 'catalogOrders', 'jobOrders']);
+                $item->loadAvg('reviews', 'rating');
+
+                return [
+                    'saved_at' => $s->created_at,
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'garment_type' => $item->garment_type,
+                    'price' => $item->price,
+                    'material' => $item->material,
+                    'estimated_days' => $item->estimated_days,
+                    'reviews_count' => $item->reviews_count,
+                    'reviews_avg_rating' => $item->reviews_avg_rating !== null ? round((float) $item->reviews_avg_rating, 1) : null,
+                    'order_count' => $item->catalog_orders_count + $item->job_orders_count,
+                    'images' => $item->images->map(fn ($img) => ['image_url' => $img->image_url, 'is_primary' => $img->is_primary])->values(),
+                    'fabric_image_url' => $item->fabric_image_url,
+                    'store' => $item->store ? ['id' => $item->store->id, 'name' => $item->store->name, 'slug' => $item->store->slug] : null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $saves]);
     }
 
     public function rate(Request $request, Store $store, CatalogItem $catalogItem): JsonResponse

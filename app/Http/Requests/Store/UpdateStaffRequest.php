@@ -10,7 +10,9 @@ class UpdateStaffRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->hasRole('store_owner');
+        // Coarse role check only — see StoreStaffRequest::authorize()'s
+        // matching note.
+        return $this->user()->hasRole('store_owner') || $this->user()->hasRole('branch_manager');
     }
 
     public function rules(): array
@@ -32,6 +34,11 @@ class UpdateStaffRequest extends FormRequest
             'is_active' => ['sometimes', 'boolean'],
             'password' => ['nullable', 'string', 'min:8'],
             'store_branch_id' => [
+                // See StoreStaffRequest's matching rule — a branch manager
+                // scoped to no branch would act with no branch restriction
+                // at all, since every branch-scoping check in this codebase
+                // treats a null store_branch_id as "sees everything."
+                Rule::requiredIf(fn () => $this->boolean('is_branch_manager')),
                 'nullable',
                 Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
             ],

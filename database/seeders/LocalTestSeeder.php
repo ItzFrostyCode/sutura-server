@@ -31,7 +31,6 @@ use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\JobStatusUpdatedNotification;
 use App\Notifications\NewJobOrderNotification;
 use App\Notifications\PaymentReceivedNotification;
-use App\Notifications\StaffAssignedNotification;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -184,6 +183,7 @@ class LocalTestSeeder extends Seeder
             [
                 'description' => 'Full sublimation jerseys using high-quality drifit fabrics. Perfect for sports teams, tournaments, and athletic wear. Price varies based on quantity, fabric (Mesh, Honeycomb), and design complexity.',
                 'category' => 'Sublimation & Digital Printing',
+                'department' => 'office',
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => 1000,
@@ -230,6 +230,7 @@ class LocalTestSeeder extends Seeder
             [
                 'description' => 'Premium bespoke custom suits tailored to your exact measurements with premium fabrics, lining, and custom details. Price varies based on wool quality and lining.',
                 'category' => 'Custom Tailoring & Bespoke',
+                'department' => 'men',
                 'categories' => ['Suit & Tuxedo Tailoring', 'Formal & Cultural Wear'],
                 'service_types' => ['custom_tailoring'],
                 'base_price' => 3500,
@@ -281,6 +282,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Barong Tagalog Tailoring',
                 'description' => 'Classic Filipiniana formal wear, hand-tailored to fit. Choose from plain cotton, jusi, or premium piña fabric. Includes one fitting session before final delivery.',
+                'department' => 'men',
                 'categories' => ['Barong Tagalog Tailoring', 'Formal & Cultural Wear'],
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 1500,
@@ -295,6 +297,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Bridal & Wedding Gown Design',
                 'description' => 'Custom-designed wedding gowns from sketch to final fitting. Two fitting sessions included.',
+                'department' => 'wedding',
                 'categories' => ['Custom Bridal Tailoring', 'Gown & Evening Wear Designing', 'Formal & Cultural Wear'],
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 8000,
@@ -309,6 +312,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'School & Organization Uniform Sewing',
                 'description' => 'Bulk uniform sewing for schools and organizations, sized per student roster.',
+                'department' => 'office',
                 'categories' => ['School Uniforms', 'Institutional & Uniform Wear', 'Corporate & Team Uniforms'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
@@ -338,6 +342,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Corporate & Team Jersey Printing',
                 'description' => 'Sublimation-printed jerseys for corporate teams and events.',
+                'department' => 'office',
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
@@ -351,6 +356,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Embroidery & Logo Digitizing',
                 'description' => 'Custom embroidery for logos, names, and designs on garments, uniforms, jackets, and accessories. New logo designs include one-time digitizing to convert artwork into a stitchable file.',
+                'department' => 'office',
                 'categories' => ['Embroidered Logos & Team Names', 'Custom Apparel, Printing & Embroidery'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
@@ -1103,6 +1109,8 @@ class LocalTestSeeder extends Seeder
                 'price' => 4500,
                 'estimated_days' => 10,
                 'material' => 'Chiffon & Tulle',
+                'garment_type' => 'gown',
+                'department' => 'wedding',
                 'listing_type' => 'made_to_order',
                 'is_active' => true,
                 'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
@@ -1123,6 +1131,8 @@ class LocalTestSeeder extends Seeder
                 'price' => 4500,
                 'estimated_days' => 14,
                 'material' => 'Chiffon & Tulle',
+                'garment_type' => 'gown',
+                'department' => 'wedding',
                 'listing_type' => 'made_to_order',
                 'is_active' => true,
                 'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
@@ -1174,7 +1184,7 @@ class LocalTestSeeder extends Seeder
 
         // Link seeded job orders to catalog items to show earnings/performance data
         $item1 = CatalogItem::where('name', 'Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown')->first();
-        $item2 = CatalogItem::where('name', 'Cycling_Jerseys_1')->first();
+        $item2 = CatalogItem::where('name', 'Pro-Fit Cycling Jersey - Team Kit')->first();
 
         if ($item1 && isset($jo1)) {
             $jo1->update(['catalog_item_id' => $item1->id]);
@@ -1226,13 +1236,18 @@ class LocalTestSeeder extends Seeder
                 ]
             );
 
-            // 3. Still being prepped
+            // 3. Still being prepped, GCash payment awaiting owner verification.
+            // 'partial' isn't a real CatalogOrder payment_status value — that's
+            // a JobOrder-only concept (unpaid/partial/paid); CatalogOrderController
+            // only ever validates pending/paid/rejected for this model. A seeder
+            // writing 'partial' here bypassed that validation and produced a
+            // state the real app can never create through any endpoint.
             CatalogOrder::updateOrCreate(
                 ['store_id' => $store->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'pending'],
                 [
                     'type' => 'walkin',
                     'total_amount' => 4500.00,
-                    'payment_status' => 'partial',
+                    'payment_status' => 'pending',
                     'payment_method' => 'gcash',
                     'intake_channel' => 'walk_in',
                     'fulfillment_type' => 'pickup',
@@ -1428,8 +1443,8 @@ class LocalTestSeeder extends Seeder
         // generate a real stream of in-app notifications, but every one of
         // those rows above was created by writing straight to Eloquent,
         // bypassing the controllers where notification-firing actually
-        // lives (JobOrderController@store/@assignStaff, the payment/
-        // appointment endpoints, etc.) — so the notifications table stayed
+        // lives (JobOrderController@store, the payment/appointment
+        // endpoints, etc.) — so the notifications table stayed
         // empty even on a freshly reseeded "realistic" demo store, which
         // looked like a bug but was really just missing seed coverage.
         // Fire the real Notification classes against already-seeded data
@@ -1449,10 +1464,11 @@ class LocalTestSeeder extends Seeder
         $owner->notify(new PaymentReceivedNotification($jo4, 3250.00));
         $owner->notify(new PaymentReceivedNotification($jo2, 3250.00));
 
-        $staffUsers[0]->notify(new StaffAssignedNotification($jo1, 'sewing'));
-        $lanangStaff->notify(new StaffAssignedNotification($jo10, 'sewing'));
-        $matinaStaff->notify(new StaffAssignedNotification($jo8, 'qc_ironing'));
-
+        // Staff no longer get a dedicated "you've been assigned" notification
+        // — that whole manual pre-assignment step was removed in favor of
+        // auto-attribution from real status updates (JobOrderController::
+        // update()), and there's nothing analogous to seed here; staff just
+        // see the job sitting in their branch's queue.
         $seededAppointments = Appointment::where('store_id', $store->id)->latest()->take(3)->get();
         foreach ($seededAppointments as $appt) {
             $owner->notify(new AppointmentBookedNotification($appt));
