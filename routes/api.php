@@ -113,12 +113,17 @@ Route::prefix('v1')->group(function () {
         // confirmed live (curl) before this fix. toggleSave/rate/report all
         // shared this bug; fixed together since they're the same call shape.
         Route::post('/stores/{store:slug}/catalog/{catalogItem}/save', [CatalogInteractionController::class, 'toggleSave']);
+        Route::get('/stores/{store:slug}/catalog/{catalogItem}/my-save', [CatalogInteractionController::class, 'mySave']);
         Route::post('/stores/{store:slug}/catalog/{catalogItem}/reviews', [CatalogInteractionController::class, 'rate']);
         Route::post('/stores/{store:slug}/catalog/{catalogItem}/report', [CatalogInteractionController::class, 'report']);
 
         // Service Ratings (Any authenticated user) — star-only, see ServiceReviewController.
         Route::post('/stores/{store:slug}/services/{service}/reviews', [ServiceReviewController::class, 'rate']);
         Route::get('/stores/{store:slug}/services/{service}/my-review', [ServiceReviewController::class, 'myRating']);
+        // Service Saves/Hearts — parity with catalog items above, services
+        // never had a save/heart equivalent before this.
+        Route::post('/stores/{store:slug}/services/{service}/save', [ServiceReviewController::class, 'toggleSave']);
+        Route::get('/stores/{store:slug}/services/{service}/my-save', [ServiceReviewController::class, 'mySave']);
 
         // Service Package Ratings — separate from reviews of included services.
         Route::post('/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'rate']);

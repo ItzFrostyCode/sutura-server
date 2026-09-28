@@ -6,11 +6,55 @@ use Illuminate\Database\Eloquent\Model;
 
 class CatalogItem extends Model
 {
+    // Canonical garment taxonomy — the single source of truth the public
+    // header nav's category links (navColumns.ts), the /search page's
+    // category filter, and this field's own validation all key off. Before
+    // this, garment_type was free text (owner-typed, "e.g. Barong, Gown,
+    // Suit") while CatalogController::index()'s category= filter did an
+    // exact, case-sensitive match against it — an owner who typed "Barong"
+    // (capitalized, exactly as the old placeholder suggested) made their
+    // own item invisible from every nav link and category filter expecting
+    // lowercase "barong", with no error anywhere. Union of what the nav
+    // already links to and what JobOrder's own garment_category enum
+    // already recognized (lab_gown/scrub_suit/corporate_wear existed there
+    // but had no catalog-side equivalent; jersey existed in the nav but not
+    // in JobOrder's enum) — reconciled here as one list both sides share.
+    public const GARMENT_CATEGORIES = [
+        'barong', 'gown', 'suit', 'filipiniana', 'uniform', 'jersey',
+        'lab_gown', 'scrub_suit', 'corporate_wear', 'alteration_repair',
+    ];
+
+    public const GARMENT_CATEGORY_LABELS = [
+        'barong' => 'Barong Tagalog',
+        'gown' => 'Gown',
+        'suit' => 'Suit & Tuxedo',
+        'filipiniana' => 'Filipiniana',
+        'uniform' => 'School / Corporate Uniform',
+        'jersey' => 'Jersey / Sublimation',
+        'lab_gown' => 'Lab Gown',
+        'scrub_suit' => 'Scrub Suit',
+        'corporate_wear' => 'Corporate Wear',
+        'alteration_repair' => 'Alteration / Repair',
+    ];
+
+    // The public header nav's other axis (MEN/WOMEN/WEDDING/OFFICE) — sent
+    // as ?department= on nearly every nav link, but nothing ever read it
+    // before this. Independent of garment category: a "suit" can be
+    // men's, women's, or a wedding suit.
+    public const DEPARTMENTS = ['men', 'women', 'wedding', 'office'];
+
+    public const DEPARTMENT_LABELS = [
+        'men' => 'Men',
+        'women' => 'Women',
+        'wedding' => 'Wedding',
+        'office' => 'Office & Uniforms',
+    ];
+
     protected $fillable = [
         'store_id', 'service_id', 'name', 'price', 'estimated_days',
         'material', 'color', 'fabric_image_url', 'sizes', 'description',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
-        'features', 'care_instructions', 'garment_type', 'listing_type', 'external_gallery_url',
+        'features', 'care_instructions', 'garment_type', 'department', 'listing_type', 'external_gallery_url',
         'is_active',
     ];
 

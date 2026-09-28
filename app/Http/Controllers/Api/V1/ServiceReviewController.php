@@ -67,6 +67,56 @@ class ServiceReviewController extends Controller
     }
 
     /**
+     * Heart/save a Service — mirrors CatalogInteractionController::
+     * toggleSave() exactly (same table shape, same toggle-on-repeat-call
+     * behavior). Services never had a save/heart equivalent before this;
+     * only catalog items (CatalogItemSave) did.
+     */
+    public function toggleSave(Request $request, Store $store, Service $service): JsonResponse
+    {
+        if ($service->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
+        }
+
+        $user = $request->user();
+
+        $existingSave = $service->saves()->where('user_id', $user->id)->first();
+
+        if ($existingSave) {
+            $existingSave->delete();
+            $status = 'unsaved';
+        } else {
+            $service->saves()->create(['user_id' => $user->id]);
+            $status = 'saved';
+        }
+
+        return response()->json([
+            'success' => true,
+            'status' => $status,
+            'saves_count' => $service->saves()->count(),
+        ]);
+    }
+
+    /**
+     * Whether the authenticated user has already saved this service — same
+     * as CatalogInteractionController::mySave.
+     */
+    public function mySave(Request $request, Store $store, Service $service): JsonResponse
+    {
+        if ($service->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
+        }
+
+        $isSaved = $service->saves()->where('user_id', $request->user()->id)->exists();
+
+        return response()->json([
+            'success' => true,
+            'is_saved' => $isSaved,
+            'saves_count' => $service->saves()->count(),
+        ]);
+    }
+
+    /**
      * The authenticated user's current rating for this service, to pre-fill
      * a star picker if they've already rated it.
      */

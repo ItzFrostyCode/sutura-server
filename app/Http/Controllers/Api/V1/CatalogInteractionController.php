@@ -51,6 +51,26 @@ class CatalogInteractionController extends Controller
         ]);
     }
 
+    /**
+     * Whether the authenticated user has already saved this item — lets the
+     * heart button render filled/unfilled correctly on page load, same
+     * pattern as ServiceReviewController::myRating.
+     */
+    public function mySave(Request $request, Store $store, CatalogItem $catalogItem): JsonResponse
+    {
+        if ($catalogItem->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
+        }
+
+        $isSaved = $catalogItem->saves()->where('user_id', $request->user()->id)->exists();
+
+        return response()->json([
+            'success' => true,
+            'is_saved' => $isSaved,
+            'saves_count' => $catalogItem->saves()->count(),
+        ]);
+    }
+
     // Single source of truth for valid report-reason values — referenced by
     // report()'s validation and the frontend's reason list.
     public const REPORT_REASONS = ['copyright', 'offensive', 'illegal', 'other'];

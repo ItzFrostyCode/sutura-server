@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Store;
 
+use App\Models\CatalogItem;
 use App\Models\Service;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -20,6 +21,10 @@ class StoreServiceRequest extends FormRequest
             'description' => ['nullable', 'string'],
             'categories' => ['nullable', 'array'],
             'categories.*' => ['string', 'max:100'],
+            // Same men/women/wedding/office axis as CatalogItem::DEPARTMENTS
+            // — distinct from `category`/`categories` above, which stay
+            // free-text marketing copy on purpose.
+            'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
             'service_types' => ['nullable', 'array'],
             'service_types.*' => [Rule::in(Service::SERVICE_TYPES)],
             'base_price' => ['nullable', 'numeric', 'min:0'],

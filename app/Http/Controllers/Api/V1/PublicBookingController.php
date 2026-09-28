@@ -234,12 +234,16 @@ class PublicBookingController extends Controller
         }
 
         // A customer can legitimately have appointments at several different
-        // stores, but not at overlapping times — they can't physically be in
-        // two shops at once. Checked platform-wide, not just against $store.
+        // stores/services, but not too close together in time — they can't
+        // physically be in two shops at once, and can't teleport between
+        // them either. Checked platform-wide (not just against $store) and
+        // buffered by Appointment::CUSTOMER_TRAVEL_BUFFER_MINUTES on both
+        // sides, not just a bare time-overlap check — see
+        // hasCustomerScheduleConflict()'s own docblock.
         if (Appointment::hasCustomerScheduleConflict($customer->id, $scheduledAt, $durationMinutes)) {
             return response()->json([
                 'success' => false,
-                'message' => 'This time overlaps with another appointment you already have at a different store. Please choose a different time.',
+                'message' => 'This time is too close to another appointment you already have. Please leave at least '.Appointment::CUSTOMER_TRAVEL_BUFFER_MINUTES.' minutes between appointments so you have time to travel.',
             ], 409);
         }
 

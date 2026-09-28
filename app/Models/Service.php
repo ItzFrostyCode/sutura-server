@@ -31,7 +31,7 @@ class Service extends Model
     ];
 
     protected $fillable = [
-        'store_id', 'name', 'description', 'category', 'categories', 'service_type', 'service_types', 'tags',
+        'store_id', 'name', 'description', 'category', 'categories', 'department', 'service_type', 'service_types', 'tags',
         'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
         'estimated_days', 'min_order_qty', 'is_active', 'custom_fields', 'roster_fields', 'image_url',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
@@ -86,6 +86,11 @@ class Service extends Model
     public function reviews(): HasMany
     {
         return $this->hasMany(ServiceReview::class);
+    }
+
+    public function saves(): HasMany
+    {
+        return $this->hasMany(ServiceSave::class);
     }
 
     public function catalogItems(): HasMany

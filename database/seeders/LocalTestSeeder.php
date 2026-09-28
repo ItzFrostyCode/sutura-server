@@ -183,6 +183,7 @@ class LocalTestSeeder extends Seeder
             [
                 'description' => 'Full sublimation jerseys using high-quality drifit fabrics. Perfect for sports teams, tournaments, and athletic wear. Price varies based on quantity, fabric (Mesh, Honeycomb), and design complexity.',
                 'category' => 'Sublimation & Digital Printing',
+                'department' => 'office',
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => 1000,
@@ -229,6 +230,7 @@ class LocalTestSeeder extends Seeder
             [
                 'description' => 'Premium bespoke custom suits tailored to your exact measurements with premium fabrics, lining, and custom details. Price varies based on wool quality and lining.',
                 'category' => 'Custom Tailoring & Bespoke',
+                'department' => 'men',
                 'categories' => ['Suit & Tuxedo Tailoring', 'Formal & Cultural Wear'],
                 'service_types' => ['custom_tailoring'],
                 'base_price' => 3500,
@@ -280,6 +282,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Barong Tagalog Tailoring',
                 'description' => 'Classic Filipiniana formal wear, hand-tailored to fit. Choose from plain cotton, jusi, or premium piña fabric. Includes one fitting session before final delivery.',
+                'department' => 'men',
                 'categories' => ['Barong Tagalog Tailoring', 'Formal & Cultural Wear'],
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 1500,
@@ -294,6 +297,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Bridal & Wedding Gown Design',
                 'description' => 'Custom-designed wedding gowns from sketch to final fitting. Two fitting sessions included.',
+                'department' => 'wedding',
                 'categories' => ['Custom Bridal Tailoring', 'Gown & Evening Wear Designing', 'Formal & Cultural Wear'],
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 8000,
@@ -308,6 +312,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'School & Organization Uniform Sewing',
                 'description' => 'Bulk uniform sewing for schools and organizations, sized per student roster.',
+                'department' => 'office',
                 'categories' => ['School Uniforms', 'Institutional & Uniform Wear', 'Corporate & Team Uniforms'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
@@ -337,6 +342,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Corporate & Team Jersey Printing',
                 'description' => 'Sublimation-printed jerseys for corporate teams and events.',
+                'department' => 'office',
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
@@ -350,6 +356,7 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Embroidery & Logo Digitizing',
                 'description' => 'Custom embroidery for logos, names, and designs on garments, uniforms, jackets, and accessories. New logo designs include one-time digitizing to convert artwork into a stitchable file.',
+                'department' => 'office',
                 'categories' => ['Embroidered Logos & Team Names', 'Custom Apparel, Printing & Embroidery'],
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
@@ -1102,6 +1109,8 @@ class LocalTestSeeder extends Seeder
                 'price' => 4500,
                 'estimated_days' => 10,
                 'material' => 'Chiffon & Tulle',
+                'garment_type' => 'gown',
+                'department' => 'wedding',
                 'listing_type' => 'made_to_order',
                 'is_active' => true,
                 'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
@@ -1122,6 +1131,8 @@ class LocalTestSeeder extends Seeder
                 'price' => 4500,
                 'estimated_days' => 14,
                 'material' => 'Chiffon & Tulle',
+                'garment_type' => 'gown',
+                'department' => 'wedding',
                 'listing_type' => 'made_to_order',
                 'is_active' => true,
                 'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],

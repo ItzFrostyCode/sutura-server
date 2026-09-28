@@ -34,11 +34,18 @@ class UpdateAppointmentRequest extends FormRequest
             // Status transitions — state machine enforced in controller
             'status' => ['sometimes', 'required', 'in:'.implode(',', Appointment::STATUSES)],
 
-            // Staff Check-In action — On Time/Late is derived from this vs
-            // scheduled_at on the frontend/response side, never its own
-            // stored status. Not in Appointment::STATUSES, not a new column
-            // driving any transition — see docs/STAFF-WORKFLOW.md §1-2.
+            // Staff Check-In action — arrival_status (on_time/early/late) is
+            // now auto-derived server-side from this vs scheduled_at
+            // whenever checked_in_at is written (see AppointmentController::
+            // update()), never trusted from the client and never its own
+            // driver of a status transition. Not in Appointment::STATUSES.
             'checked_in_at' => ['nullable', 'date'],
+
+            // Early-Arrival Accommodation workflow (thesis feedback,
+            // 2026-09-28) — staff explicitly decides to start service early
+            // or ask the customer to keep waiting; scheduled_at itself is
+            // never touched by either. See Appointment::EARLY_ARRIVAL_DECISIONS.
+            'early_arrival_decision' => ['sometimes', 'nullable', 'in:'.implode(',', Appointment::EARLY_ARRIVAL_DECISIONS)],
 
             // Reschedule — updates scheduled_at in-place (no new row)
             'scheduled_at' => [

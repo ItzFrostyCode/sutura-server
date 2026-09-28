@@ -79,7 +79,7 @@ class CatalogController extends Controller
         }
 
         if ($request->filled('garment_type')) {
-            $query->where('garment_type', $request->string('garment_type'));
+            $query->whereRaw('LOWER(garment_type) = ?', [strtolower($request->string('garment_type'))]);
         }
 
         match ($request->string('sort')->toString()) {
@@ -149,9 +149,17 @@ class CatalogController extends Controller
             ->withCount(['catalogOrders', 'jobOrders']);
 
         if ($request->filled('garment_type')) {
-            $query->where('garment_type', $request->string('garment_type'));
+            $query->whereRaw('LOWER(garment_type) = ?', [strtolower($request->string('garment_type'))]);
         } elseif ($request->filled('category')) {
-            $query->where('garment_type', $request->string('category'));
+            $query->whereRaw('LOWER(garment_type) = ?', [strtolower($request->string('category'))]);
+        }
+
+        // The nav's other axis (men/women/wedding/office) — sent as
+        // ?department= on nearly every header nav link. Previously silently
+        // ignored: every department under a given category returned the
+        // exact same result set with no way to actually tell them apart.
+        if ($request->filled('department')) {
+            $query->whereRaw('LOWER(department) = ?', [strtolower($request->string('department'))]);
         }
 
         // Scopes "More Like This" (and any other same-garment-type lookup)
@@ -307,7 +315,8 @@ class CatalogController extends Controller
             'sizes' => 'nullable|array',
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
-            'garment_type' => 'nullable|string|max:100',
+            'garment_type' => ['nullable', 'string', Rule::in(CatalogItem::GARMENT_CATEGORIES)],
+            'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
@@ -342,6 +351,7 @@ class CatalogController extends Controller
             'sizes' => $validated['sizes'] ?? null,
             'description' => $validated['description'] ?? null,
             'garment_type' => $validated['garment_type'] ?? null,
+            'department' => $validated['department'] ?? null,
             // Made-to-order only — no ready-to-wear inventory or rental stock,
             // the approved thesis frames this as a tailoring tracker, not a
             // retail/rental system.
@@ -492,7 +502,8 @@ class CatalogController extends Controller
             'sizes' => 'nullable|array',
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
-            'garment_type' => 'nullable|string|max:100',
+            'garment_type' => ['nullable', 'string', Rule::in(CatalogItem::GARMENT_CATEGORIES)],
+            'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
@@ -536,6 +547,7 @@ class CatalogController extends Controller
             'material' => array_key_exists('material', $validated) ? $validated['material'] : $catalog->material,
             'description' => array_key_exists('description', $validated) ? $validated['description'] : $catalog->description,
             'garment_type' => array_key_exists('garment_type', $validated) ? $validated['garment_type'] : $catalog->garment_type,
+            'department' => array_key_exists('department', $validated) ? $validated['department'] : $catalog->department,
             'size_chart_image_url' => array_key_exists('size_chart_image_url', $validated) ? $validated['size_chart_image_url'] : $catalog->size_chart_image_url,
             'size_chart_columns' => array_key_exists('size_chart_columns', $validated) ? $validated['size_chart_columns'] : $catalog->size_chart_columns,
             'size_chart_rows' => array_key_exists('size_chart_rows', $validated) ? $validated['size_chart_rows'] : $catalog->size_chart_rows,
