@@ -234,6 +234,17 @@ Route::prefix('v1')->group(function () {
                 // managing services (create/update/delete) stays owner-only below.
                 Route::get('/services', [ServiceController::class, 'index']);
 
+                // Service Packages (read-only) — this used to sit in the
+                // store_owner-only group below even though its own write
+                // actions (store/update/destroy) already moved to
+                // store_owner,branch_manager, and even though the Services nav
+                // (with its Packages tab) is shown to branch_manager AND
+                // plain staff. A branch manager or staff account opening the
+                // Packages tab got a 403 just listing packages, despite
+                // managers being able to create/edit/delete them. Matches
+                // Services' own read gate immediately above.
+                Route::get('/service-packages', [ServicePackageController::class, 'index']);
+
                 // Staff & Branch directory (read-only) — staff, managers, and owners
                 // need to see the artisan roster, availability, and branch assignments.
                 Route::get('/staff', [StaffController::class, 'index']);
@@ -327,11 +338,6 @@ Route::prefix('v1')->group(function () {
 
             // Owner Only Access
             Route::middleware('role:store_owner')->group(function () {
-                // Service Packages — bundles of 2+ existing services sold as one
-                // combo. Write actions moved to the store_owner,branch_manager
-                // group above (see the comment there); list/read stays here.
-                Route::get('/service-packages', [ServicePackageController::class, 'index']);
-
                 // Temporary Special Hours & Announcements
                 Route::get('/special-hours', [StoreSpecialHourController::class, 'index']);
                 Route::post('/special-hours', [StoreSpecialHourController::class, 'store']);
