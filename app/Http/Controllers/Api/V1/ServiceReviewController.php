@@ -117,6 +117,41 @@ class ServiceReviewController extends Controller
     }
 
     /**
+     * Cross-store "My Saved Items" list, Services tab — mirrors
+     * CatalogInteractionController::mySavedItems() exactly. Customer-scoped,
+     * no role gate, same as /my-orders, /my-appointments, /my-measurements.
+     */
+    public function mySavedServices(Request $request): JsonResponse
+    {
+        $saves = \App\Models\ServiceSave::where('user_id', $request->user()->id)
+            ->with(['service.store:id,name,slug'])
+            ->latest()
+            ->get()
+            ->filter(fn ($s) => $s->service !== null)
+            ->map(function ($s) {
+                $service = $s->service;
+                $service->loadCount(['reviews', 'jobOrders']);
+                $service->loadAvg('reviews', 'rating');
+
+                return [
+                    'saved_at' => $s->created_at,
+                    'id' => $service->id,
+                    'name' => $service->name,
+                    'description' => $service->description,
+                    'base_price' => $service->base_price,
+                    'estimated_days' => $service->estimated_days,
+                    'image_url' => $service->image_url,
+                    'reviews_count' => $service->reviews_count,
+                    'reviews_avg_rating' => $service->reviews_avg_rating !== null ? round((float) $service->reviews_avg_rating, 1) : null,
+                    'store' => $service->store ? ['id' => $service->store->id, 'name' => $service->store->name, 'slug' => $service->store->slug] : null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $saves]);
+    }
+
+    /**
      * The authenticated user's current rating for this service, to pre-fill
      * a star picker if they've already rated it.
      */

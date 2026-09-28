@@ -157,6 +157,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/my-measurements', [MeasurementController::class, 'myMeasurements']);
         Route::get('/my-catalog-reviews', [CatalogInteractionController::class, 'myReviews']);
         Route::get('/my-store-reviews', [StoreReviewController::class, 'myReviews']);
+        Route::get('/my-saved-catalog-items', [CatalogInteractionController::class, 'mySavedItems']);
+        Route::get('/my-saved-services', [ServiceReviewController::class, 'mySavedServices']);
         Route::get('/my-recently-viewed', [RecentlyViewedController::class, 'index']);
         Route::post('/recently-viewed', [RecentlyViewedController::class, 'store']);
         Route::get('/my-tickets', [SupportTicketController::class, 'myTickets']);
