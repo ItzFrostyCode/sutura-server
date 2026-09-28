@@ -322,6 +322,14 @@ Route::prefix('v1')->group(function () {
                 Route::put('/service-packages/{servicePackage}', [ServicePackageController::class, 'update']);
                 Route::delete('/service-packages/{servicePackage}', [ServicePackageController::class, 'destroy']);
 
+                // Read moved here from the store_owner-only group below —
+                // Catalog Designs is shown to isStoreOwner||isBranchManager
+                // in dashboard/layout.tsx, and a branch manager already has
+                // write access (store/update/destroy right here), but the
+                // list itself was left owner-only, so a branch manager's
+                // Catalog page 403'd just loading the item list they were
+                // otherwise fully permitted to manage.
+                Route::get('/catalog', [CatalogController::class, 'index']);
                 Route::post('/catalog', [CatalogController::class, 'store']);
                 Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
                 Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
@@ -375,10 +383,6 @@ Route::prefix('v1')->group(function () {
                 Route::post('/posts', [StorePostController::class, 'store']);
                 Route::put('/posts/{post}', [StorePostController::class, 'update']);
                 Route::delete('/posts/{post}', [StorePostController::class, 'destroy']);
-
-                // Catalog Management — write actions moved to the
-                // store_owner,branch_manager group above; list/read stays here.
-                Route::get('/catalog', [CatalogController::class, 'index']);
 
                 // Support Tickets (Store Owner → Admin)
                 Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
