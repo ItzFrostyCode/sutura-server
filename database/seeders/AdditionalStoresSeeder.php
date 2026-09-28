@@ -360,8 +360,14 @@ class AdditionalStoresSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '08:00', 'close' => '18:00'],
                     'sunday' => ['is_open' => true, 'open' => '08:00', 'close' => '12:00'],
                 ],
-                'logo_path' => \Illuminate\Support\Facades\Storage::url('logos/villanueva_atelier_logo.jpg'),
-                'banner_path' => \Illuminate\Support\Facades\Storage::url('banners/villanueva_atelier_banner.jpg'),
+                // Deliberately no logo_path/banner_path — this was previously
+                // copy-pasted from LocalTestSeeder's unrelated "Villanueva
+                // Bespoke Atelier" store (villanueva_atelier_logo.jpg), a
+                // mismatch that would have shown Fely's storefront with
+                // another store's branding. Leaving these null instead
+                // exercises the "no logo uploaded yet" empty state, which
+                // fits this store's own intent as "deliberately the smallest
+                // tenant."
             ]
         );
 
