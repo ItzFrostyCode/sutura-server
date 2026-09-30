@@ -124,19 +124,46 @@ class StoreController extends Controller
             });
         }
 
+        // Header nav's MEN/WOMEN/KIDS/SERVICES axis — Store itself has no
+        // department column, so this filters to stores that actually carry
+        // something in that department: a catalog item tagged with it for
+        // men/women/children, or (a store has no equivalent column for
+        // "does services" other than having any) any active service at all
+        // for 'services'.
+        if ($request->filled('department')) {
+            $department = strtolower(trim((string) $request->string('department')));
+            if ($department === 'services' || $department === 'service') {
+                $query->whereHas('services', fn ($sq) => $sq->where('is_active', true));
+            } else {
+                $query->whereHas('catalogItems', function ($cq) use ($department) {
+                    $cq->where('is_active', true)->whereRaw('LOWER(department) = ?', [$department]);
+                });
+            }
+        }
+
         $spec = $request->input('specialization') ?: $request->input('category');
         if ($spec) {
             $query->where(function ($sq) use ($spec) {
+                // Specializations are now the canonical Men/Women/Kids +
+                // Services axes (CanonicalTaxonomy::storeSpecializations()),
+                // so also match a store by what it actually carries — a
+                // catalog item in that department, or a service in that
+                // service category — not only by its self-declared tags.
                 $sq->whereJsonContains('specializations', (string) $spec)
                     ->orWhereHas('catalogItems', function ($cq) use ($spec) {
                         $cq->where('is_active', true)
                             ->where(function ($ccq) use ($spec) {
                                 $ccq->where('garment_type', (string) $spec)
+                                    ->orWhere('department', (string) $spec)
                                     ->orWhereRaw('LOWER(name) LIKE ?', ['%'.strtolower((string) $spec).'%']);
                             });
                     })
                     ->orWhereHas('services', function ($svq) use ($spec) {
-                        $svq->whereRaw('LOWER(category) LIKE ?', ['%'.strtolower((string) $spec).'%']);
+                        $svq->where('is_active', true)
+                            ->where(function ($ssq) use ($spec) {
+                                $ssq->where('service_category', (string) $spec)
+                                    ->orWhereRaw('LOWER(category) LIKE ?', ['%'.strtolower((string) $spec).'%']);
+                            });
                     });
             });
         }
@@ -201,18 +228,42 @@ class StoreController extends Controller
         }
 
         if ($request->filled('min_price') || $request->filled('max_price')) {
-            $query->whereHas('services', function ($sq) use ($request) {
-                $sq->where('is_active', true);
-                if ($request->filled('min_price')) {
-                    $sq->where('base_price', '>=', $request->float('min_price'));
-                }
-                if ($request->filled('max_price')) {
-                    $sq->where('base_price', '<=', $request->float('max_price'));
-                }
+            $query->where(function ($q) use ($request) {
+                $q->whereHas('services', function ($sq) use ($request) {
+                    $sq->where('is_active', true);
+                    if ($request->filled('min_price')) {
+                        $sq->where('base_price', '>=', $request->float('min_price'));
+                    }
+                    if ($request->filled('max_price')) {
+                        $sq->where('base_price', '<=', $request->float('max_price'));
+                    }
+                })->orWhereHas('catalogItems', function ($cq) use ($request) {
+                    $cq->where('is_active', true);
+                    if ($request->filled('min_price')) {
+                        $cq->where('price', '>=', $request->float('min_price'));
+                    }
+                    if ($request->filled('max_price')) {
+                        $cq->where('price', '<=', $request->float('max_price'));
+                    }
+                });
             });
         }
 
         $query->withCount('reviews')->withAvg('reviews', 'rating');
+
+        // Real, uncapped totals — the catalogItems/services relations
+        // eager-loaded below (for the storefront preview carousel) are
+        // capped at take(10)/unlimited-but-preview-only respectively, so a
+        // frontend deriving "N catalog designs"/"N services" from that
+        // array's own .length silently undercounts once a store has more
+        // than the preview cap. This count query is independent of that
+        // capped list on purpose — the same fix pattern already applied to
+        // notification badges, Home dashboard alerts, and Job list tabs
+        // elsewhere in this codebase.
+        $query->withCount([
+            'catalogItems as catalog_items_count' => fn ($q) => $q->where('is_active', true),
+            'services as services_count' => fn ($q) => $q->where('is_active', true),
+        ]);
 
         if ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
@@ -294,7 +345,7 @@ class StoreController extends Controller
 
         $stores = $query->with([
             'branches' => fn ($q) => $q->where('status', 'active'),
-            'services' => fn ($q) => $q->where('is_active', true),
+            'services' => fn ($q) => $q->where('is_active', true)->withCount('reviews')->withAvg('reviews', 'rating'),
             'owner:id,name',
             'catalogItems' => function ($cq) use ($request) {
                 $cq->where('is_active', true)->with('images');
@@ -322,6 +373,14 @@ class StoreController extends Controller
             $store->reviews_avg_rating = $store->reviews_avg_rating !== null
                 ? round((float) $store->reviews_avg_rating, 1)
                 : null;
+
+            if ($store->relationLoaded('services')) {
+                $store->services->each(function ($svc) {
+                    $svc->reviews_avg_rating = $svc->reviews_avg_rating !== null
+                        ? round((float) $svc->reviews_avg_rating, 1)
+                        : null;
+                });
+            }
 
             return $store;
         });
@@ -373,8 +432,15 @@ class StoreController extends Controller
         // phone, exact last_seen_at, bio/education/skills, deleted_at — to any
         // anonymous visitor. Every other public endpoint here (reviews, posts)
         // already minimizes user data the same way; this one was the outlier.
-        $store->load(['branches' => function ($query) {
-            $query->where('status', 'active');
+        // The owner viewing their own storefront should still see a branch
+        // they just added that hasn't gone through verification yet (or one
+        // they've since deactivated) — an anonymous/other visitor only ever
+        // sees active branches, same as before.
+        $isOwnerViewer = $viewer && $viewer->id === $store->owner_id;
+        $store->load(['branches' => function ($query) use ($isOwnerViewer) {
+            if (! $isOwnerViewer) {
+                $query->where('status', 'active');
+            }
         }, 'owner:id,name,email,profile_picture']);
 
         return response()->json([
@@ -392,22 +458,6 @@ class StoreController extends Controller
         // (not rejected) so the rest of a settings save still goes through.
         if ($store->admin_hidden_at) {
             $validated['is_hidden'] = true;
-        }
-
-        // "Featured Store Visibility (Top Placement)" is a real Premium-plan
-        // perk per the seeded plan data (SubscriptionPlanSeeder) — it was
-        // documented there but never actually enforced anywhere until now.
-        // Checks the plan's own features list rather than hardcoding the
-        // plan slug, so the entitlement stays correct if plan tiers/features
-        // are ever restructured.
-        if (($validated['is_featured'] ?? false) === true) {
-            $planFeatures = $store->subscription?->plan?->features ?? [];
-            if (! in_array('Featured Store Visibility (Top Placement)', $planFeatures, true)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Featured placement requires a subscription plan that includes it.',
-                ], 422);
-            }
         }
 
         $store->update($validated);

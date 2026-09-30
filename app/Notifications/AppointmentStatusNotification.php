@@ -59,6 +59,7 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
             'in_progress' => 'Appointment In Progress',
             'no_show' => 'No-Show Recorded',
             'walk_in_preempted' => 'Appointment Slot Claimed by Walk-in Client',
+            'shared' => 'The Store Shared Something With You',
         ];
     }
 

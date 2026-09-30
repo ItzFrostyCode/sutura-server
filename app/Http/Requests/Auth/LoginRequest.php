@@ -16,6 +16,9 @@ class LoginRequest extends FormRequest
         return [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+            // Which tab of the public Sign In switch was used. Optional so
+            // older callers keep working; admins never use this endpoint.
+            'portal' => ['nullable', 'string', 'in:customer,store'],
         ];
     }
 }

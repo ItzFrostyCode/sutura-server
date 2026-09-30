@@ -94,6 +94,16 @@ From `app/Models/Appointment.php` — ground truth for both the public booking f
 
 **`GET /service-packages` read-scope fix (2026-09-28)** — this stayed `role:store_owner`-only even after Service Packages' own write actions (`store`/`update`/`destroy`) moved to `role:store_owner,branch_manager`, and even though the Services nav (with its Packages tab) is shown to plain staff too. A branch manager who could create/edit/delete packages couldn't even list them, and staff got a flat 403 just opening the Packages tab despite having read access to every other Services resource. Moved to sit alongside `GET /services` in the shared `role:store_owner,branch_manager,staff` group.
 
+## Services / packages / catalog — API changes (2026-09-30)
+
+Supersedes older mentions above of `updateSale` / `restore` (those endpoints are gone).
+
+- **Removed on purpose:** `PUT /services/{id}/sale`, `POST /services/{id}/restore` (and `?trashed=1` on the list), `PUT /catalog-item-reviews/{id}` (owner replies), and the per-design `appointment_config` (column dropped). Don't rebuild them.
+- **Service days:** `services.estimated_days_max`; `estimated_days` null = "it depends". Validation: `estimated_days_max` must be greater than `estimated_days`.
+- **Combo packages:** `service_packages` now has `image_url` and `service_category` (must be one of `CanonicalTaxonomy::SERVICE_CATEGORIES`); `GET /public/service-packages` is the cross-store search feed (filters `q`, `service_category`, `district`). `appointments.service_package_id` and `job_orders.service_package_id` record the package a booking / order came from — **one job order for the whole set**, created from the appointment with `service_package_id` inherited and the total set to the bundle price. `JobOrder` eager-loads `servicePackage` (+ its services) on every read. Service revenue/sold counts **exclude** package orders (`whereNull('service_package_id')`); a package's own revenue comes from `ServicePackageController::index` (same discount-aware formula).
+- **Ratings lists for Analytics:** `GET /stores/{store}/service-reviews` and `GET /stores/{store}/catalog-item-reviews` are `store_owner,branch_manager` (service ratings are star-only — no reply).
+- **Demo accounts:** `staff@sutura.com` must stay plain `staff` (the seeder strips `branch_manager` from it); `manager@sutura.com` is the Branch Manager; `booking.tester1/2@sutura.com` are customers with no appointments (every other seeded customer already holds their one active booking at the store).
+
 ## Domain models (current, not the paper's ERD)
 
 `Appointment`, `AuditLog`, `CatalogImage`, `CatalogItem`, `CatalogItemReview`, `CatalogItemSave`, `CatalogOrder`, `CatalogRecommendation`, `JobOrder`, `JobOrderStaff`, `Measurement`, `Payment`, `Role`, `Service`, `ServicePackage`, `ServicePricing`, `Shop`, `ShopBranch`, `ShopPost`, `ShopReview`, `ShopSpecialHour`, `ShopSubscription`, `StaffProfile`, `SubscriptionPlan`, `SupportTicket`, `SupportTicketReply`, `User`.

@@ -74,6 +74,10 @@ class Appointment extends Model
         'store_branch_id',
         'customer_id',
         'service_id',
+        'service_package_id',
+        'catalog_item_id',
+        'selected_size',
+        'selected_color',
         'appointment_type',
         'intake_channel',
         'scheduled_at',
@@ -83,6 +87,8 @@ class Appointment extends Model
         'notes',
         'reference_images',
         'reference_link',
+        'shared_link',
+        'shared_images',
         'answers',
         'job_order_id',
         'payment_method',
@@ -116,6 +122,7 @@ class Appointment extends Model
         'duration_minutes' => 'integer',
         'answers' => 'array',
         'reference_images' => 'array',
+        'shared_images' => 'array',
         'reminder_sent_at' => 'datetime',
         'rebooking_blocked' => 'boolean',
         'checked_in_at' => 'datetime',
@@ -147,6 +154,18 @@ class Appointment extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /** The combo package this booking was made from, if any. */
+    public function servicePackage(): BelongsTo
+    {
+        return $this->belongsTo(ServicePackage::class);
+    }
+
+    /** The catalog design this booking was made from, if any. */
+    public function catalogItem(): BelongsTo
+    {
+        return $this->belongsTo(CatalogItem::class);
     }
 
     public function assignedStaff(): BelongsTo

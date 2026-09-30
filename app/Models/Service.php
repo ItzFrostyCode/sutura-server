@@ -32,8 +32,15 @@ class Service extends Model
 
     protected $fillable = [
         'store_id', 'name', 'description', 'category', 'categories', 'department', 'service_type', 'service_types', 'tags',
+        // service_category/service_leaf_type: the new canonical Services.md
+        // taxonomy (Custom Tailoring > Bespoke Tailoring, etc) — additive to,
+        // not a replacement for, the free-text category/categories above and
+        // the operational service_type/service_types (TYPE_CUSTOM_TAILORING
+        // etc, drives Job Order conditional fields) below. See
+        // App\Support\CanonicalTaxonomy.
+        'service_category', 'service_leaf_type',
         'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
-        'estimated_days', 'min_order_qty', 'is_active', 'custom_fields', 'roster_fields', 'image_url',
+        'estimated_days', 'estimated_days_max', 'min_order_qty', 'is_active', 'custom_fields', 'roster_fields', 'image_url',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
     ];
 

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class ServicePackage extends Model
 {
     protected $fillable = [
-        'store_id', 'name', 'description', 'bundle_price', 'is_active',
+        'store_id', 'name', 'description', 'service_category', 'image_url', 'bundle_price', 'is_active',
     ];
 
     protected $casts = [
@@ -26,6 +26,11 @@ class ServicePackage extends Model
     public function services(): BelongsToMany
     {
         return $this->belongsToMany(Service::class, 'service_package_items', 'service_package_id', 'service_id');
+    }
+
+    public function jobOrders(): HasMany
+    {
+        return $this->hasMany(JobOrder::class);
     }
 
     public function reviews(): HasMany

@@ -4,6 +4,7 @@ namespace App\Http\Requests\Store;
 
 use App\Models\CatalogItem;
 use App\Models\Service;
+use App\Support\CanonicalTaxonomy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -22,6 +23,13 @@ class StoreServiceRequest extends FormRequest
 
     public function rules(): array
     {
+        // 'others' is a deliberate safety-valve service_category (see
+        // App\Support\CanonicalTaxonomy) — free text for its leaf type
+        // rather than an empty Rule::in() list that would reject everything.
+        $serviceLeafTypeRule = $this->input('service_category') === 'others'
+            ? ['nullable', 'string', 'max:100']
+            : ['nullable', 'string', Rule::in(CanonicalTaxonomy::allServiceTypeSlugs())];
+
         return [
             'name' => ['required', 'string', 'max:191'],
             'description' => ['nullable', 'string'],
@@ -33,11 +41,18 @@ class StoreServiceRequest extends FormRequest
             'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
             'service_types' => ['nullable', 'array'],
             'service_types.*' => [Rule::in(Service::SERVICE_TYPES)],
+            // Canonical Services.md taxonomy — additive to service_types
+            // above (an unrelated, operational enum). service_leaf_type is
+            // only checked against its parent service_category's own leaf
+            // list when both are present; either may be set alone.
+            'service_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::SERVICE_CATEGORIES)],
+            'service_leaf_type' => $serviceLeafTypeRule,
             'base_price' => ['nullable', 'numeric', 'min:0'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
             'sale_starts_at' => ['nullable', 'date'],
             'sale_ends_at' => ['nullable', 'date', 'after_or_equal:sale_starts_at'],
             'estimated_days' => ['nullable', 'integer', 'min:1'],
+            'estimated_days_max' => ['nullable', 'integer', 'min:1', 'gt:estimated_days'],
             'min_order_qty' => ['nullable', 'integer', 'min:1'],
             'custom_fields' => ['nullable', 'array'],
             'roster_fields' => ['nullable', 'array'],

@@ -36,11 +36,20 @@ class ExpireSubscriptions extends Command
                 ]);
 
                 $store = $subscription->store;
-                if ($store && ! $store->is_hidden) {
-                    $store->update(['is_hidden' => true]);
-                    if ($store->owner) {
-                        $store->owner->notify(new SubscriptionExpiredNotification($store));
+                if ($store) {
+                    // A lapsed Premium subscription loses its featured
+                    // placement immediately — mirrors the same
+                    // auto-sync SubscriptionController::subscribe() does
+                    // on the way in, so is_featured never sits stale once
+                    // the plan that earned it is gone.
+                    $updates = ['is_featured' => false];
+                    if (! $store->is_hidden) {
+                        $updates['is_hidden'] = true;
+                        if ($store->owner) {
+                            $store->owner->notify(new SubscriptionExpiredNotification($store));
+                        }
                     }
+                    $store->update($updates);
                 }
 
                 $expired++;

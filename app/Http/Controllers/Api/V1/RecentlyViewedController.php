@@ -115,6 +115,7 @@ class RecentlyViewedController extends Controller
             'image_url' => $service->image_url,
             'base_price' => $service->base_price,
             'estimated_days' => $service->estimated_days,
+            'estimated_days_max' => $service->estimated_days_max,
             'reviews_count' => $service->reviews_count,
             'reviews_avg_rating' => $service->reviews_avg_rating ? round($service->reviews_avg_rating, 1) : null,
             'store' => $service->store ? ['name' => $service->store->name, 'slug' => $service->store->slug] : null,

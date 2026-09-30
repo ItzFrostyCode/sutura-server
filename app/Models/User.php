@@ -21,7 +21,7 @@ use Laravel\Sanctum\HasApiTokens;
 // needing forceFill). Verified live: an upload returned success + a correct
 // URL, but the user record's profile_picture stayed null. The whole avatar
 // upload feature was unreachable for every role, not just newly broken.
-#[Fillable(['name', 'email', 'password', 'password_set_at', 'phone', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery', 'profile_picture', 'cover_photo'])]
+#[Fillable(['name', 'email', 'contact_email', 'password', 'password_set_at', 'phone', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery', 'profile_picture', 'cover_photo'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -39,6 +39,9 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'last_seen_at' => 'datetime',
             'password_set_at' => 'datetime',
+            // Not fillable on purpose — only Admin\AccountController sets it.
+            'suspended_at' => 'datetime',
+            'must_change_password' => 'boolean',
             'password' => 'hashed',
             'experience' => 'array',
             'education' => 'array',
@@ -51,6 +54,16 @@ class User extends Authenticatable
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class);
+    }
+
+    /**
+     * Shop accounts sign in with an admin-issued login on the shop domain,
+     * which receives no mail — send their notifications (approval,
+     * credentials, password resets) to the owner's real inbox instead.
+     */
+    public function routeNotificationForMail(): string
+    {
+        return $this->contact_email ?: $this->email;
     }
 
     public function hasRole(string $role): bool

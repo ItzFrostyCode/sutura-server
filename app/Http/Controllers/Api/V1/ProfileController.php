@@ -75,12 +75,15 @@ class ProfileController extends Controller
     {
         $validated = $request->validate([
             'current_password' => 'required|current_password',
-            'password' => ['required', 'confirmed', Password::defaults()],
+            // `different`: an admin-issued temporary password can't just be
+            // "changed" to itself to clear must_change_password.
+            'password' => ['required', 'confirmed', 'different:current_password', Password::defaults()],
         ]);
 
-        $request->user()->update([
+        $request->user()->forceFill([
             'password' => Hash::make($validated['password']),
-        ]);
+            'must_change_password' => false,
+        ])->save();
 
         return response()->json([
             'success' => true,

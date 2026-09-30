@@ -13,10 +13,23 @@ class StoreController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Store::with('owner');
+        // Store Directory (sutura2's ShopDirectoryView): plan + branch count
+        // alongside the owner so the admin sees the whole shop at a glance.
+        $query = Store::with(['owner:id,name,email', 'subscription.plan:id,name'])
+            ->withCount('branches')
+            ->latest();
 
-        if ($request->has('status')) {
+        if ($request->filled('status')) {
             $query->where('status', $request->status);
+        }
+        if ($request->input('visibility') === 'hidden') {
+            $query->where('is_hidden', true);
+        }
+        if ($search = trim((string) $request->input('search'))) {
+            $term = '%'.strtolower($search).'%';
+            $query->where(fn ($q) => $q->whereRaw('LOWER(name) LIKE ?', [$term])
+                ->orWhereRaw('LOWER(city) LIKE ?', [$term])
+                ->orWhereHas('owner', fn ($o) => $o->whereRaw('LOWER(email) LIKE ?', [$term])->orWhereRaw('LOWER(name) LIKE ?', [$term])));
         }
 
         $perPage = $request->input('per_page', 15);

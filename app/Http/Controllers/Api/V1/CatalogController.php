@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\CatalogItem;
 use App\Models\Store;
+use App\Support\CanonicalTaxonomy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CatalogController extends Controller
 {
@@ -39,7 +41,7 @@ class CatalogController extends Controller
     public function index(Request $request, Store $store): JsonResponse
     {
         $query = $store->catalogItems()
-            ->with(['images', 'recommendations.recommendedItem'])
+            ->with(['images', 'recommendations.recommendedItem', 'service:id,name'])
             ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
             ->withAvg('reviews', 'rating')
             ->withSum('catalogOrders as catalog_revenue', 'total_amount')
@@ -154,12 +156,24 @@ class CatalogController extends Controller
             $query->whereRaw('LOWER(garment_type) = ?', [strtolower($request->string('category'))]);
         }
 
-        // The nav's other axis (men/women/wedding/office) — sent as
-        // ?department= on nearly every header nav link. Previously silently
-        // ignored: every department under a given category returned the
-        // exact same result set with no way to actually tell them apart.
+        // The nav's other axis (men/women/children) — sent as ?department=
+        // on nearly every header nav link. Previously silently ignored:
+        // every department under a given category returned the exact same
+        // result set with no way to actually tell them apart.
         if ($request->filled('department')) {
-            $query->whereRaw('LOWER(department) = ?', [strtolower($request->string('department'))]);
+            $dept = strtolower(trim((string) $request->string('department')));
+            if ($dept !== 'services' && $dept !== 'service') {
+                $query->whereRaw('LOWER(department) = ?', [$dept]);
+            }
+        }
+
+        // Canonical Categories.md taxonomy — Subcategory and Garment
+        // Structure, the two levels between department and garment_type.
+        if ($request->filled('subcategory')) {
+            $query->whereRaw('LOWER(subcategory) = ?', [strtolower($request->string('subcategory'))]);
+        }
+        if ($request->filled('garment_structure')) {
+            $query->whereRaw('LOWER(garment_structure) = ?', [strtolower($request->string('garment_structure'))]);
         }
 
         // Scopes "More Like This" (and any other same-garment-type lookup)
@@ -305,21 +319,41 @@ class CatalogController extends Controller
      */
     public function store(Request $request, Store $store): JsonResponse
     {
+        // Children's Apparel has no canonical leaf garment types yet (see
+        // App\Support\CanonicalTaxonomy), 'others' is a deliberate
+        // safety-valve subcategory on every department, and 'other' is the
+        // same safety valve one level down (a garment_structure with no
+        // leaf list even under a real subcategory) — validate garment_type
+        // against the full men/women list only outside those cases; free
+        // text otherwise, rather than inventing leaf values or blocking a
+        // legitimate item.
+        $garmentTypeRule = (
+            $request->input('department') === 'children'
+            || $request->input('subcategory') === 'others'
+            || $request->input('garment_structure') === 'other'
+        )
+            ? ['nullable', 'string', 'max:100']
+            : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',
+            'estimated_days_max' => 'nullable|integer|min:1|gt:estimated_days',
             'material' => 'nullable|string|max:255',
             'color' => 'nullable|string|max:100',
             'fabric_image_url' => 'nullable|string|max:500',
             'sizes' => 'nullable|array',
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
-            'garment_type' => ['nullable', 'string', Rule::in(CatalogItem::GARMENT_CATEGORIES)],
+            'garment_type' => $garmentTypeRule,
             'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
+            'subcategory' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::allSubcategorySlugs())],
+            'garment_structure' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::GARMENT_STRUCTURES)],
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
+            'measurement_guide' => 'nullable|string',
             'features' => 'nullable|array',
             'care_instructions' => 'nullable|string',
             'external_gallery_url' => 'nullable|url|max:500',
@@ -344,6 +378,7 @@ class CatalogController extends Controller
             'name' => $validated['name'],
             'price' => $validated['price'] ?? 0,
             'estimated_days' => $validated['estimated_days'] ?? 7,
+            'estimated_days_max' => $validated['estimated_days_max'] ?? null,
             'service_id' => $validated['service_id'] ?? null,
             'material' => $validated['material'] ?? null,
             'color' => $validated['color'] ?? null,
@@ -352,6 +387,8 @@ class CatalogController extends Controller
             'description' => $validated['description'] ?? null,
             'garment_type' => $validated['garment_type'] ?? null,
             'department' => $validated['department'] ?? null,
+            'subcategory' => $validated['subcategory'] ?? null,
+            'garment_structure' => $validated['garment_structure'] ?? null,
             // Made-to-order only — no ready-to-wear inventory or rental stock,
             // the approved thesis frames this as a tailoring tracker, not a
             // retail/rental system.
@@ -360,6 +397,7 @@ class CatalogController extends Controller
             'size_chart_image_url' => $validated['size_chart_image_url'] ?? null,
             'size_chart_columns' => $validated['size_chart_columns'] ?? null,
             'size_chart_rows' => $validated['size_chart_rows'] ?? null,
+            'measurement_guide' => $validated['measurement_guide'] ?? null,
             'features' => $validated['features'] ?? null,
             'care_instructions' => $validated['care_instructions'] ?? null,
             'external_gallery_url' => $validated['external_gallery_url'] ?? null,
@@ -470,13 +508,18 @@ class CatalogController extends Controller
         // Sum order counts
         $catalog->order_count = $catalog->catalog_orders_count + $catalog->job_orders_count;
 
-        // Same public-vs-owner split as index() — an anonymous storefront
-        // visitor (or a direct link) should never see this item's exact
-        // revenue/order/save figures, only the owner/staff previewing it.
+        // Same public-vs-owner split as index() for exact revenue/component
+        // breakdowns — but unlike the catalog card list, the detail page's
+        // UI (CatalogHeroGallery's "Favorite (count)", CatalogProductInfo's
+        // "N Sold") is built to show saves_count/order_count to everyone,
+        // the same way a Shopee/Etsy listing shows public heart and sold
+        // counts as trust signals. Only the owner/staff-only business data
+        // (raw view count, revenue, and the catalog-vs-job order breakdown)
+        // stays hidden from anonymous/non-owner visitors.
         if (! $this->belongsToStore($request, $store)) {
             $catalog->makeHidden([
-                'views_count', 'saves_count', 'catalog_orders_count', 'job_orders_count',
-                'total_revenue', 'order_count',
+                'views_count', 'catalog_orders_count', 'job_orders_count',
+                'total_revenue',
             ]);
         }
 
@@ -492,21 +535,33 @@ class CatalogController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
+        $garmentTypeRule = (
+            $request->input('department', $catalog->department) === 'children'
+            || $request->input('subcategory', $catalog->subcategory) === 'others'
+            || $request->input('garment_structure', $catalog->garment_structure) === 'other'
+        )
+            ? ['nullable', 'string', 'max:100']
+            : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'price' => 'sometimes|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',
+            'estimated_days_max' => 'nullable|integer|min:1|gt:estimated_days',
             'material' => 'nullable|string|max:255',
             'color' => 'nullable|string|max:100',
             'fabric_image_url' => 'nullable|string|max:500',
             'sizes' => 'nullable|array',
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
-            'garment_type' => ['nullable', 'string', Rule::in(CatalogItem::GARMENT_CATEGORIES)],
+            'garment_type' => $garmentTypeRule,
             'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
+            'subcategory' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::allSubcategorySlugs())],
+            'garment_structure' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::GARMENT_STRUCTURES)],
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
+            'measurement_guide' => 'nullable|string',
             'features' => 'nullable|array',
             'care_instructions' => 'nullable|string',
             'external_gallery_url' => 'nullable|url|max:500',
@@ -539,6 +594,7 @@ class CatalogController extends Controller
             'name' => $validated['name'] ?? $catalog->name,
             'price' => $validated['price'] ?? $catalog->price,
             'estimated_days' => array_key_exists('estimated_days', $validated) ? $validated['estimated_days'] : $catalog->estimated_days,
+            'estimated_days_max' => array_key_exists('estimated_days_max', $validated) ? $validated['estimated_days_max'] : $catalog->estimated_days_max,
             'is_active' => array_key_exists('is_active', $validated) ? $validated['is_active'] : $catalog->is_active,
             'service_id' => array_key_exists('service_id', $validated) ? $validated['service_id'] : $catalog->service_id,
             'color' => array_key_exists('color', $validated) ? $validated['color'] : $catalog->color,
@@ -548,9 +604,12 @@ class CatalogController extends Controller
             'description' => array_key_exists('description', $validated) ? $validated['description'] : $catalog->description,
             'garment_type' => array_key_exists('garment_type', $validated) ? $validated['garment_type'] : $catalog->garment_type,
             'department' => array_key_exists('department', $validated) ? $validated['department'] : $catalog->department,
+            'subcategory' => array_key_exists('subcategory', $validated) ? $validated['subcategory'] : $catalog->subcategory,
+            'garment_structure' => array_key_exists('garment_structure', $validated) ? $validated['garment_structure'] : $catalog->garment_structure,
             'size_chart_image_url' => array_key_exists('size_chart_image_url', $validated) ? $validated['size_chart_image_url'] : $catalog->size_chart_image_url,
             'size_chart_columns' => array_key_exists('size_chart_columns', $validated) ? $validated['size_chart_columns'] : $catalog->size_chart_columns,
             'size_chart_rows' => array_key_exists('size_chart_rows', $validated) ? $validated['size_chart_rows'] : $catalog->size_chart_rows,
+            'measurement_guide' => array_key_exists('measurement_guide', $validated) ? $validated['measurement_guide'] : $catalog->measurement_guide,
             'features' => array_key_exists('features', $validated) ? $validated['features'] : $catalog->features,
             'care_instructions' => array_key_exists('care_instructions', $validated) ? $validated['care_instructions'] : $catalog->care_instructions,
             'external_gallery_url' => array_key_exists('external_gallery_url', $validated) ? $validated['external_gallery_url'] : $catalog->external_gallery_url,

@@ -4,941 +4,544 @@ namespace Database\Seeders;
 
 use App\Models\CatalogImage;
 use App\Models\CatalogItem;
+use App\Models\CatalogOrder;
+use App\Models\JobOrder;
+use App\Models\Service;
 use App\Models\Store;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 
+/**
+ * Thread & Needle Tailoring's catalog. Every design is placed in the
+ * canonical taxonomy (department → subcategory → garment structure →
+ * garment type, see App\Support\CanonicalTaxonomy) so it shows up under the
+ * header nav's MEN / WOMEN / KIDS menus and the matching /search filters.
+ *
+ * Convergent, not just idempotent: earlier revisions of this seeder keyed
+ * `firstOrCreate` on titles that later changed, so every rename left the old
+ * row behind and the catalog grew to ~80 rows of duplicates. Re-running this
+ * on an existing DB now renames a row still carrying an older title
+ * (`aliases`), merges duplicate listings of the same design into one row
+ * (catalog orders and job orders are re-pointed first), and deletes titles
+ * retired from earlier revisions — so an existing DB ends up with exactly
+ * the catalog a fresh seed produces.
+ */
 class CatalogItemsSeeder extends Seeder
 {
+    public const ANDREA_LEO_NAME = 'Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown';
+
+    private const SVC_BRIDAL = 'Bridal & Wedding Gown Design';
+    private const SVC_SUIT = 'Bespoke Suit Tailoring';
+    private const SVC_BARONG = 'Barong Tagalog Tailoring';
+    private const SVC_JERSEY = 'Custom Sublimation Team Jerseys';
+    private const SVC_UNIFORM = 'School & Organization Uniform Sewing';
+
+    private const SIZES_WOMEN = ['XS', 'S', 'M', 'L', 'XL'];
+    private const SIZES_ADULT = ['S', 'M', 'L', 'XL', 'XXL'];
+    private const SIZES_SUIT = ['36', '38', '40', '42', '44', '46'];
+    private const SIZES_KIDS = ['4', '6', '8', '10', '12', '14'];
+
+    private const FABRIC_BRIDAL = '/catalog/fabrics/bridal_chiffon_fabric.jpg';
+    private const FABRIC_SATIN = '/catalog/fabrics/satin_silk_fabric.jpg';
+    private const FABRIC_WOOL = '/catalog/fabrics/wool_twill_fabric.jpg';
+    private const FABRIC_DRIFIT = '/catalog/fabrics/drifit_mesh_fabric.jpg';
+    private const FABRIC_SPANDEX = '/catalog/fabrics/compression_spandex_fabric.jpg';
+    private const FABRIC_PINA = '/catalog/fabrics/pina_cocoon_fabric.jpg';
+
+    /**
+     * Titles from earlier revisions with no canonical design behind them
+     * (scraped listing titles, placeholder rows). Deleted unless an order or
+     * job order still points at one, in which case it's left alone rather
+     * than breaking that record.
+     */
+    private const RETIRED_NAMES = [
+        'AllStar-Basketball-Jersey',
+        'Lakers-Basketball-Jersey',
+        'Best Custom Tuxedos in NYC - Bespoke Groom Tuxedos',
+        'Tailor Made Suits London - The Bespoke Tailor UK',
+        'images',
+        'Custom Tailored Piece - Made to Order',
+        'Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown',
+        'Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI',
+        'Barong Tagalog Cloth- Traditional and Elegant Fabrics',
+        'Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining',
+        "Men's - Traditional Barong Tagalog - Page 1 - Barong At Bestida Australia",
+        // These two were never their own design — both just reused one of
+        // ANDREA_LEO_NAME's own color-variant photos (Champagne / the
+        // "back" shot) as if it were a completely separate gown, so the
+        // same stock photo confusingly showed up as two unrelated catalog
+        // listings. The photos themselves stay exactly where they belong:
+        // tagged onto Andrea & Leo's own images (see items() below).
+        'Champagne-Gold Embroidered Wedding Gown',
+        'Luxury Long-Train Bridal Gown',
+    ];
+
     public function run(): void
     {
-        $store = Store::first(); // First store is the main store owner
+        $store = Store::where('slug', 'thread-needle')->first() ?? Store::first();
         if (! $store) {
             return;
         }
 
-        $item_0 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown'],
-            [
-                'price' => 4700.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_0->id, 'image_url' => '/catalog/gown-off-shoulder-tulle-floral.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_1 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor'],
-            [
-                'price' => 4300.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_1->id, 'image_url' => '/catalog/maid-of-honor-dress-chiffon.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_2 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Pro-Fit Cycling Jersey - Team Kit'],
-            [
-                'price' => 620.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Cycling_Jerseys_1 designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_2->id, 'image_url' => '/catalog/Cycling_Jerseys_1.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_3 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Store Long Tail Wedding Gown'],
-            [
-                'price' => 5200.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Store Long Tail Wedding Gown made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_3->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_4 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Emerald Green Multiway Convertible Bridesmaid Gown'],
-            [
-                'price' => 4100.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant bespoke emerald green multiway convertible bridesmaid gown tailored to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_4->id, 'image_url' => '/catalog/bridesmaid-dresses-maid-of-honor.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_5 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Esports Team Jersey - Royal Blue'],
-            [
-                'price' => 680.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear esport tshirt blue designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_5->id, 'image_url' => '/catalog/esport tshirt blue.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_6 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => "Women's Esports Jersey with Customized Design"],
-            [
-                'price' => 650.0,
-                'material' => 'Drifit Mesh',
-                'description' => "Custom sublimation activewear Women's Esports Jersey with Customized Design designed for maximum breathability.",
-                'garment_type' => 'jersey',
-                'department' => 'women',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_6->id, 'image_url' => "/catalog/Women's Esports Jersey with Customized Design.jpg"],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_7 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Custom Basketball Jersey - Away Kit'],
-            [
-                'price' => 700.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Bulls-Basketball-Jersey designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_7->id, 'image_url' => '/catalog/Bulls-Basketball-Jersey.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_8 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns'],
-            [
-                'price' => 4600.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_8->id, 'image_url' => '/catalog/mother-of-bride-dress-chiffon-pink.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_9 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Custom Tailored Piece - Made to Order'],
-            [
-                'price' => 1400.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom images tailored to perfection.',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_9->id, 'image_url' => '/catalog/images.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_10 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Retro Basketball Jersey - Purple & Gold'],
-            [
-                'price' => 700.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear KobeBryant-Basketball-Jersey designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_10->id, 'image_url' => '/catalog/KobeBryant-Basketball-Jersey.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_11 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora'],
-            [
-                'price' => 1650.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_11->id, 'image_url' => '/catalog/mother-of-bride-dress-green.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_12 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Best Custom Tuxedos in NYC - Bespoke Groom Tuxedos'],
-            [
-                'price' => 12000.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Best Custom Tuxedos in NYC - Bespoke Groom Tuxedos crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_12->id, 'image_url' => '/catalog/bespoke-groom-tuxedo.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_13 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Bespoke Two-Piece Suit - Charcoal Wool'],
-            [
-                'price' => 11500.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Bespoke_Suits2 crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_13->id, 'image_url' => '/catalog/Bespoke_Suits2.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_14 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery - Elegant Bridal Dress with Corset Back - Floor-Length Wedding Dress for Women'],
-            [
-                'price' => 4500.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Buy Luxury White Tail Wedding Gown with Champagne-Gold Embroidery - Elegant Bridal Dress with Corset Back - Floor-Length Wedding Dress for Women made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_14->id, 'image_url' => '/catalog/wedding-gown-champagne-embroidery.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_15 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Traditional Ivory Color Barong Tagalog - Formal Fit'],
-            [
-                'price' => 3800.0,
-                'material' => 'Pina Cocoon',
-                'description' => 'Traditional Filipino Traditional Ivory Color Barong Tagalog - Formal Fit featuring delicate hand embroidery.',
-                'garment_type' => 'barong',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_15->id, 'image_url' => '/catalog/barong-tagalog-ivory-formal.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_16 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Motorcycle Riders Long-Sleeve Jersey'],
-            [
-                'price' => 1400.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_16->id, 'image_url' => '/catalog/Riders_Long_Sleeves.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_17 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'AllStar-Basketball-Jersey'],
-            [
-                'price' => 650.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear AllStar-Basketball-Jersey designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_17->id, 'image_url' => '/catalog/AllStar-Basketball-Jersey.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_18 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => "Men's Custom Tuxedo - Classic Peak Lapel"],
-            [
-                'price' => 12500.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium mens-custom-tuxedos-its-all-about-the-fit crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_18->id, 'image_url' => '/catalog/mens-custom-tuxedos-its-all-about-the-fit.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_19 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Volleyball Team Jersey - Sleeveless Set'],
-            [
-                'price' => 600.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Volleyball Jersey_2 designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_19->id, 'image_url' => '/catalog/Volleyball Jersey_2.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_20 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Long-Sleeve Cycling Jersey - Aero Fit'],
-            [
-                'price' => 670.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Cycling_Jerseys_3 designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_20->id, 'image_url' => '/catalog/Cycling_Jerseys_3.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_21 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Riders Club Long-Sleeve Jersey V2'],
-            [
-                'price' => 1450.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom Riders_Long_Sleeves_2 tailored to perfection.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_21->id, 'image_url' => '/catalog/Riders_Long_Sleeves_2.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_22 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI'],
-            [
-                'price' => 4400.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Vintage Dark Teal Mother Gowns for Wedding Women 2024 Lace Mother of the Groom Dress Long Sleeve ZXI made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_22->id, 'image_url' => '/catalog/mother-of-groom-dress-teal-lace.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_23 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Cycling Jersey - Sublimated Print'],
-            [
-                'price' => 640.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Cycling_Jerseys_2 designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_23->id, 'image_url' => '/catalog/Cycling_Jerseys_2.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_24 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Bespoke Three-Piece Suit - Navy Wool'],
-            [
-                'price' => 11800.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Bespoke_Suits crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_24->id, 'image_url' => '/catalog/Bespoke_Suits.png'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_25 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Tailor Made Suits London - The Bespoke Tailor UK'],
-            [
-                'price' => 11900.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Tailor Made Suits London - The Bespoke Tailor UK crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_25->id, 'image_url' => '/catalog/tailor-made-suit-bespoke.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_26 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => "Men's Classic Black Tuxedo"],
-            [
-                'price' => 12200.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Custom_Tuxedos_men crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_26->id, 'image_url' => '/catalog/Custom_Tuxedos_men.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_27 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Luxury Long-Train Bridal Gown'],
-            [
-                'price' => 4800.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Luxury_Bridal_Gowns_Long_Tail made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_27->id, 'image_url' => '/catalog/Luxury_Bridal_Gowns_Long_Tail.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_28 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Custom Basketball Jersey - Home Kit'],
-            [
-                'price' => 660.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Bears-Basketball-Jersey designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_28->id, 'image_url' => '/catalog/Bears-Basketball-Jersey.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_29 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Compression Rash Guard - Long Sleeve'],
-            [
-                'price' => 580.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear rashguard_1 designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_29->id, 'image_url' => '/catalog/rashguard_1.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_30 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Retro Basketball Jersey - Gold Edition'],
-            [
-                'price' => 710.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Lebron James-Lakers-Basketball-Jersey designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_30->id, 'image_url' => '/catalog/Lebron James-Lakers-Basketball-Jersey.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_31 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => "Men's - Traditional Barong Tagalog - Page 1 - Barong At Bestida Australia"],
-            [
-                'price' => 4500.0,
-                'material' => 'Pina Cocoon',
-                'description' => "Traditional Filipino Men's - Traditional Barong Tagalog - Page 1 - Barong At Bestida Australia featuring delicate hand embroidery.",
-                'garment_type' => 'barong',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_31->id, 'image_url' => '/catalog/mens-traditional-barong-tagalog.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_32 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => "Women's Esports Jersey - Custom Print"],
-            [
-                'price' => 660.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Esports-Jersey-women designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'women',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_32->id, 'image_url' => '/catalog/Esports-Jersey-women.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_33 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Custom Groom Tuxedo - Event Package'],
-            [
-                'price' => 12800.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Custom Tuxedos for Memorable Events crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_33->id, 'image_url' => '/catalog/Custom Tuxedos for Memorable Events.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_34 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Compression Rash Guard - Short Sleeve'],
-            [
-                'price' => 590.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear rashguard_3 designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_34->id, 'image_url' => '/catalog/rashguard_3.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_35 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Football Club Jersey - Custom Print'],
-            [
-                'price' => 690.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Arsenal-Jersey designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_35->id, 'image_url' => '/catalog/Arsenal-Jersey.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_36 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Traditional Barong Tagalog Polo Shirt for Men'],
-            [
-                'price' => 3200.0,
-                'material' => 'Pina Cocoon',
-                'description' => 'Traditional Filipino Traditional Barong Tagalog Polo Shirt for Men featuring delicate hand embroidery.',
-                'garment_type' => 'barong',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_36->id, 'image_url' => '/catalog/Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_37 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Esports Team Jersey - Classic Cut'],
-            [
-                'price' => 630.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear esport tshirt designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_37->id, 'image_url' => '/catalog/esport tshirt.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_38 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Navy Blue Tuxedo with Contrast Belt'],
-            [
-                'price' => 12400.0,
-                'material' => 'Premium Wool',
-                'description' => 'Bespoke premium Blue Tuxedo Belt Tuxedo Blue Suit Brown Belt Core Navy crafted for formal attire and weddings.',
-                'garment_type' => 'suit',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_38->id, 'image_url' => '/catalog/navy-blue-tuxedo-suit.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_39 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining'],
-            [
-                'price' => 4200.0,
-                'material' => 'Pina Cocoon',
-                'description' => 'Traditional Filipino Barong Tagalog For Sale - Traditional and Modern Filipino Attire for M - Tagged barong with lining featuring delicate hand embroidery.',
-                'garment_type' => 'barong',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_39->id, 'image_url' => '/catalog/barong-tagalog-lined.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_40 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => '9 Luxury Designer Bridesmaid Dresses for the Bridal Crew'],
-            [
-                'price' => 5500.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer 9 Luxury Designer Bridesmaid Dresses for the Bridal Crew made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_40->id, 'image_url' => '/catalog/bridesmaid-dresses-bridal-crew.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_41 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora'],
-            [
-                'price' => 1750.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_41->id, 'image_url' => '/catalog/mother-of-bride-dress-red.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_42 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Lakers-Basketball-Jersey'],
-            [
-                'price' => 650.0,
-                'material' => 'Drifit Mesh',
-                'description' => 'Custom sublimation activewear Lakers-Basketball-Jersey designed for maximum breathability.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_42->id, 'image_url' => '/catalog/Lakers-Basketball-Jersey.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_43 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora'],
-            [
-                'price' => 1600.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora tailored to perfection.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_43->id, 'image_url' => '/catalog/mother-of-bride-dress-pink.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_44 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Barong Tagalog Cloth- Traditional and Elegant Fabrics'],
-            [
-                'price' => 3600.0,
-                'material' => 'Pina Cocoon',
-                'description' => 'Traditional Filipino Barong Tagalog Cloth- Traditional and Elegant Fabrics featuring delicate hand embroidery.',
-                'garment_type' => 'barong',
-                'department' => 'men',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_44->id, 'image_url' => '/catalog/barong-tagalog-cloth-fabric.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_45 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Volleyball Round-Neck Jersey Set'],
-            [
-                'price' => 1300.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom volleyballroundneckSET tailored to perfection.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_45->id, 'image_url' => '/catalog/volleyballroundneckSET.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_46 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown'],
-            [
-                'price' => 5800.0,
-                'material' => 'Chiffon & Tulle',
-                'description' => 'Elegant designer Elegant Sequined Off White Wedding Dresses with Puff Sleeves and Long Tail from Dhgate Ball Gown Wedding Gown made to order with custom sizing.',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_46->id, 'image_url' => '/catalog/wedding-gown-sequined-puff-sleeve.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_47 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Riders Club Long-Sleeve Jersey'],
-            [
-                'price' => 1450.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom Riders_Long_Sleeves tailored to perfection.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_47->id, 'image_url' => '/catalog/Riders_Long_Sleeves.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $item_48 = CatalogItem::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Volleyball Pre-Order Jersey Set'],
-            [
-                'price' => 1350.0,
-                'material' => 'Premium Fabric',
-                'description' => 'High-quality custom VBALL_PRE-2001_800x800 tailored to perfection.',
-                'garment_type' => 'jersey',
-                'department' => 'office',
-                'listing_type' => 'made_to_order',
-                'features' => ['Premium Quality', 'SUTURA Guaranteed'],
-                'care_instructions' => 'Handle with care.',
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $item_48->id, 'image_url' => '/catalog/VBALL_PRE-2001_800x800.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
+        $serviceIds = Service::where('store_id', $store->id)->pluck('id', 'name');
 
-        // Populate realistic color & fabric_image_url for all catalog items based on garment type & material
-        foreach (CatalogItem::all() as $item) {
-            $name = strtolower($item->name);
-            $gt = strtolower($item->garment_type ?? '');
-            $mat = strtolower($item->material ?? '');
+        foreach ($this->items() as $def) {
+            $this->upsertItem($store->id, $def, $serviceIds);
+        }
 
-            $fabric = '/catalog/fabrics/peach_twill_fabric.jpg';
-            $color = 'Ivory';
+        $this->deleteRetired($store->id);
+    }
 
-            if (str_contains($name, 'barong') || $gt === 'barong' || str_contains($mat, 'pina')) {
-                $fabric = '/catalog/fabrics/pina_cocoon_fabric.jpg';
-                $color = 'Ivory';
-            } elseif (str_contains($name, 'andrea') || str_contains($name, 'sky blue') || str_contains($name, 'a1237')) {
-                $fabric = '/catalog/fabrics/sky_blue_chiffon_tulle_fabric.jpg';
-                $color = 'Sky Blue';
-            } elseif (str_contains($name, 'teal')) {
-                $fabric = '/catalog/fabrics/emerald_lace_fabric.jpg';
-                $color = 'Teal';
-            } elseif (str_contains($name, 'green') || str_contains($name, 'greed')) {
-                $fabric = '/catalog/fabrics/emerald_lace_fabric.jpg';
-                $color = 'Emerald';
-            } elseif (str_contains($name, 'red') || str_contains($name, 'crimson') || str_contains($name, 'bulls') || str_contains($name, 'arsenal')) {
-                $fabric = '/catalog/fabrics/crimson_satin_fabric.jpg';
-                $color = 'Crimson';
-            } elseif (str_contains($name, 'pink') || str_contains($name, 'maid') || str_contains($name, 'bridesmaid')) {
-                $fabric = '/catalog/fabrics/satin_silk_fabric.jpg';
-                $color = str_contains($name, 'light pink') ? 'Pink' : 'Blush';
-            } elseif ($gt === 'gown' || str_contains($name, 'gown') || str_contains($name, 'wedding') || str_contains($name, 'tulle') || str_contains($mat, 'chiffon')) {
-                $fabric = '/catalog/fabrics/bridal_chiffon_fabric.jpg';
-                $color = str_contains($name, 'champagne') ? 'Champagne' : 'White';
-            } elseif (str_contains($name, 'blue') || str_contains($name, 'navy') || str_contains($name, 'bears')) {
-                $fabric = ($gt === 'suit' || str_contains($name, 'suit') || str_contains($name, 'tuxedo'))
-                    ? '/catalog/fabrics/wool_twill_fabric.jpg'
-                    : '/catalog/fabrics/drifit_mesh_fabric.jpg';
-                $color = str_contains($name, 'navy') ? 'Navy' : 'Blue';
-            } elseif ($gt === 'suit' || str_contains($name, 'suit') || str_contains($name, 'tuxedo') || str_contains($mat, 'wool')) {
-                $fabric = '/catalog/fabrics/wool_twill_fabric.jpg';
-                $color = str_contains($name, 'bespoke_suits2') ? 'Charcoal' : (str_contains($name, 'bespoke_suits') ? 'Gray' : 'Black');
-            } elseif (str_contains($name, 'kobe') || str_contains($name, 'lakers') || str_contains($name, 'lebron')) {
-                $fabric = '/catalog/fabrics/drifit_mesh_fabric.jpg';
-                $color = 'Gold';
-            } elseif (str_contains($name, 'rashguard') || str_contains($name, 'riders')) {
-                $fabric = '/catalog/fabrics/compression_spandex_fabric.jpg';
-                $color = 'Black';
-            } elseif ($gt === 'uniform' || $gt === 'jersey' || str_contains($name, 'jersey') || str_contains($name, 'esport') || str_contains($name, 'volleyball') || str_contains($name, 'basketball') || str_contains($mat, 'drifit') || str_contains($name, 'vball')) {
-                $fabric = '/catalog/fabrics/drifit_mesh_fabric.jpg';
-                $color = 'Blue';
-            } else {
-                $color = 'Peach';
+    private function upsertItem(int $storeId, array $def, Collection $serviceIds): void
+    {
+        $names = array_merge([$def['name']], $def['aliases'] ?? []);
+        $matches = CatalogItem::where('store_id', $storeId)->whereIn('name', $names)->orderBy('id')->get();
+        $item = $matches->firstWhere('name', $def['name']) ?? $matches->first();
+
+        $attributes = [
+            'name' => $def['name'],
+            'price' => $def['price'],
+            'estimated_days' => $def['days'] ?? 7,
+            'material' => $def['material'],
+            'color' => $def['color'] ?? null,
+            'fabric_image_url' => $def['fabric'] ?? null,
+            'sizes' => $def['sizes'],
+            'description' => $def['desc'],
+            'department' => $def['dept'],
+            'subcategory' => $def['sub'],
+            'garment_structure' => $def['struct'],
+            'garment_type' => $def['type'],
+            'service_id' => isset($def['service']) ? ($serviceIds[$def['service']] ?? null) : null,
+            'listing_type' => 'made_to_order',
+            'is_active' => true,
+            'features' => ['Made to Measure', 'SUTURA Guaranteed'],
+            'care_instructions' => 'Handle with care.',
+            'size_chart_columns' => $def['chart_columns'] ?? null,
+            'size_chart_rows' => $def['chart_rows'] ?? null,
+        ];
+
+        if ($item) {
+            $item->update($attributes);
+        } else {
+            $item = CatalogItem::create($attributes + ['store_id' => $storeId]);
+        }
+
+        // Other rows for the same design: move their orders over, then drop
+        // them (their images cascade).
+        foreach ($matches as $duplicate) {
+            if ($duplicate->id === $item->id) {
+                continue;
             }
-
-            $item->update([
-                'fabric_image_url' => $fabric,
-                'color' => $color,
-            ]);
+            CatalogOrder::where('catalog_item_id', $duplicate->id)->update(['catalog_item_id' => $item->id]);
+            JobOrder::where('catalog_item_id', $duplicate->id)->update(['catalog_item_id' => $item->id]);
+            $duplicate->delete();
         }
 
-        // Canonical Service mappings for Store 1 (Dynamic Garment Type Mapping + Fallback IDs)
-        $bridalService = \App\Models\Service::where('store_id', $store->id)->where(function ($q) {
-            $q->where('name', 'like', '%Bridal%')->orWhere('name', 'like', '%Gown%');
-        })->first();
-        $sublimationService = \App\Models\Service::where('store_id', $store->id)->where(function ($q) {
-            $q->where('name', 'like', '%Sublimation%')->orWhere('name', 'like', '%Jersey%');
-        })->first();
-        $suitService = \App\Models\Service::where('store_id', $store->id)->where(function ($q) {
-            $q->where('name', 'like', '%Suit%')->orWhere('name', 'like', '%Tuxedo%');
-        })->first();
-        $barongService = \App\Models\Service::where('store_id', $store->id)->where('name', 'like', '%Barong%')->first();
+        // updateOrCreate() matches on the exact image_url string, so if a
+        // path's formatting ever changes between seeder revisions (e.g. a
+        // leading slash added later) the old row is never matched — it just
+        // sits there as an orphaned duplicate instead of being replaced.
+        // This exact thing happened to ANDREA_LEO_NAME: three stale rows
+        // (no leading slash) survived alongside the current ones, showing
+        // up as extra/repeated thumbnails in its gallery. Pruning anything
+        // not in this def's current image list keeps that from recurring.
+        $currentUrls = array_column($def['images'], 0);
+        CatalogImage::where('catalog_item_id', $item->id)
+            ->whereNotIn('image_url', $currentUrls)
+            ->delete();
 
-        if ($bridalService) {
-            CatalogItem::where('store_id', $store->id)->where('garment_type', 'gown')->update(['service_id' => $bridalService->id]);
+        foreach ($def['images'] as $index => [$url, $angle]) {
+            CatalogImage::updateOrCreate(
+                ['catalog_item_id' => $item->id, 'image_url' => $url],
+                ['view_angle' => $angle, 'is_primary' => $index === 0]
+            );
         }
-        if ($sublimationService) {
-            // 'jersey' is the canonical garment_type for sportswear/sublimation
-            // items now (was mistagged 'uniform' before CatalogItem::
-            // GARMENT_CATEGORIES gained a real 'jersey' value) — 'uniform'
-            // itself stays here too since it's still a valid category for
-            // actual school/corporate uniforms that end up on this service.
-            CatalogItem::where('store_id', $store->id)->whereIn('garment_type', ['uniform', 'jersey'])->update(['service_id' => $sublimationService->id]);
-        }
-        if ($suitService) {
-            CatalogItem::where('store_id', $store->id)->where('garment_type', 'suit')->update(['service_id' => $suitService->id]);
-        }
-        if ($barongService) {
-            CatalogItem::where('store_id', $store->id)->where('garment_type', 'barong')->update(['service_id' => $barongService->id]);
-        }
+    }
 
-        // Secondary fallback by explicit IDs
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [1, 2, 4, 5, 9, 12, 15, 23, 28, 41, 42, 44, 47, 49, 50])->update(['service_id' => $bridalService ? $bridalService->id : 4]);
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [3, 6, 7, 8, 11, 17, 18, 20, 21, 22, 24, 29, 30, 31, 33, 35, 36, 38, 43, 46, 48])->update(['service_id' => $sublimationService ? $sublimationService->id : 1]);
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [13, 14, 19, 25, 26, 27, 34, 39])->update(['service_id' => $suitService ? $suitService->id : 2]);
-        CatalogItem::where('store_id', $store->id)->whereIn('id', [16, 32, 37, 40, 45])->update(['service_id' => $barongService ? $barongService->id : 3]);
+    private function deleteRetired(int $storeId): void
+    {
+        CatalogItem::where('store_id', $storeId)
+            ->whereIn('name', self::RETIRED_NAMES)
+            ->get()
+            ->each(function (CatalogItem $item) {
+                $referenced = CatalogOrder::where('catalog_item_id', $item->id)->exists()
+                    || JobOrder::where('catalog_item_id', $item->id)->exists();
+                if (! $referenced) {
+                    $item->delete();
+                }
+            });
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function items(): array
+    {
+        $women = ['dept' => 'women'];
+        $men = ['dept' => 'men'];
+        $gown = ['sub' => 'dresses_gowns', 'struct' => 'one_piece', 'service' => self::SVC_BRIDAL, 'material' => 'Chiffon & Tulle', 'sizes' => self::SIZES_WOMEN];
+        $formalSet = ['sub' => 'formal_wear', 'struct' => 'sets', 'service' => self::SVC_SUIT, 'material' => 'Premium Wool', 'fabric' => self::FABRIC_WOOL, 'sizes' => self::SIZES_SUIT, 'days' => 14];
+        $barong = ['sub' => 'traditional_wear', 'struct' => 'top_wear', 'service' => self::SVC_BARONG, 'material' => 'Piña Cocoon', 'fabric' => self::FABRIC_PINA, 'color' => 'Ivory', 'sizes' => self::SIZES_ADULT, 'days' => 10];
+        $sportTop = ['sub' => 'sportswear_teamwear', 'struct' => 'top_wear', 'service' => self::SVC_JERSEY, 'material' => 'Drifit Mesh', 'fabric' => self::FABRIC_DRIFIT, 'sizes' => self::SIZES_ADULT];
+        $sportSet = ['sub' => 'sportswear_teamwear', 'struct' => 'sets', 'service' => self::SVC_JERSEY, 'material' => 'Drifit Mesh', 'fabric' => self::FABRIC_DRIFIT, 'sizes' => self::SIZES_ADULT];
+
+        return [
+            // ── WOMEN · Dresses & Gowns ───────────────────────────────────
+            array_merge($women, $gown, [
+                'name' => self::ANDREA_LEO_NAME,
+                'aliases' => ['Off-Shoulder Floral Tulle A-Line Gown'],
+                'type' => 'evening_dresses', 'price' => 4500,
+                'color' => 'Sky Blue, Champagne, Ivory',
+                'fabric' => '/catalog/fabrics/sky_blue_chiffon_tulle_fabric.jpg',
+                'desc' => 'Off-shoulder A-line gown with a slit leg and hand-applied floral tulle, cut to your measurements.',
+                'chart_columns' => ['Bust (cm)', 'Waist (cm)', 'Hip (cm)'],
+                'chart_rows' => [
+                    ['size' => 'XS', 'values' => ['82', '62', '88']],
+                    ['size' => 'S', 'values' => ['86', '66', '92']],
+                    ['size' => 'M', 'values' => ['90', '70', '96']],
+                    ['size' => 'L', 'values' => ['94', '74', '100']],
+                    ['size' => 'XL', 'values' => ['98', '78', '104']],
+                ],
+                // Front/back are angle shots; the named ones are color
+                // variants (see fabricHelper.ts's isAngleLabel()).
+                'images' => [
+                    ['/catalog/gown-off-shoulder-tulle-floral.webp', 'front'],
+                    ['/catalog/Luxury_Bridal_Gowns_Long_Tail.jpg', 'back'],
+                    ['/catalog/wedding-gown-champagne-embroidery.jpg', 'Champagne'],
+                    ['/catalog/wedding-gown-sequined-puff-sleeve.jpg', 'Ivory'],
+                ],
+            ]),
+            array_merge($women, $gown, [
+                'name' => 'Pleated Chiffon Maid of Honor Dress',
+                'aliases' => ['Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor'],
+                'type' => 'formal_dresses', 'price' => 4500, 'color' => 'Blush', 'fabric' => self::FABRIC_SATIN,
+                'desc' => 'Floor-length maid of honor dress with a modest sweetheart neckline and soft pleated chiffon skirt.',
+                'images' => [['/catalog/maid-of-honor-dress-chiffon.jpg', 'front']],
+            ]),
+            array_merge($women, $gown, [
+                'name' => 'Long-Tail White Wedding Gown',
+                'aliases' => ['Shop Long Tail Wedding Gown', 'Store Long Tail Wedding Gown', 'Long-Train Wedding Gown'],
+                'type' => 'custom_gowns', 'price' => 4500, 'color' => 'White', 'fabric' => self::FABRIC_BRIDAL, 'days' => 14,
+                'desc' => 'Classic white wedding gown with a long flowing tail, made to order for your wedding day.',
+                'images' => [['/catalog/Shop Long Tail Wedding Gown.jpg', 'front']],
+            ]),
+            array_merge($women, $gown, [
+                'name' => 'Emerald Green Multiway Convertible Bridesmaid Gown',
+                'type' => 'formal_dresses', 'price' => 4500, 'color' => 'Emerald', 'fabric' => '/catalog/fabrics/emerald_lace_fabric.jpg',
+                'desc' => 'Convertible bridesmaid gown that can be wrapped and tied several ways to suit every member of the entourage.',
+                'images' => [['/catalog/bridesmaid-dresses-maid-of-honor.webp', 'front']],
+            ]),
+            array_merge($women, $gown, [
+                'name' => 'Pink Chiffon Mother of the Bride Tea-Length Dress',
+                'aliases' => ['Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns'],
+                'type' => 'evening_dresses', 'price' => 4500, 'color' => 'Blush', 'fabric' => self::FABRIC_SATIN,
+                'desc' => 'Tea-length A-line dress with a scoop neck, long sleeves, and pearl detailing for the mother of the bride.',
+                'images' => [['/catalog/mother-of-bride-dress-chiffon-pink.jpg', 'front']],
+            ]),
+            array_merge($women, $gown, [
+                'name' => 'Bridal Crew Bridesmaid Dress',
+                'aliases' => ['9 Luxury Designer Bridesmaid Dresses for the Bridal Crew'],
+                'type' => 'formal_dresses', 'price' => 4500, 'color' => 'Blush', 'fabric' => self::FABRIC_SATIN,
+                'desc' => 'Coordinated bridesmaid dress for the whole bridal crew, tailored individually for each member.',
+                'images' => [['/catalog/bridesmaid-dresses-bridal-crew.jpg', 'front']],
+            ]),
+            array_merge($women, $gown, [
+                'name' => 'Regal A-Line Floor-Length Satin Corset Mother of the Bride Dress',
+                'aliases' => [
+                    'Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora',
+                    'Greed Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora',
+                    'Red Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora',
+                ],
+                'type' => 'formal_dresses', 'price' => 1500, 'material' => 'Satin', 'fabric' => self::FABRIC_SATIN,
+                'color' => 'Blush, Emerald Green, Crimson Red',
+                'desc' => 'Floor-length A-line satin dress with a structured corset bodice and floral accents, offered in three colors.',
+                'images' => [
+                    ['/catalog/mother-of-bride-dress-pink.webp', 'front'],
+                    ['/catalog/mother-of-bride-dress-green.webp', 'Emerald Green'],
+                    ['/catalog/mother-of-bride-dress-red.webp', 'Crimson Red'],
+                ],
+            ]),
+            array_merge($women, $gown, [
+                'name' => 'Tailored Casual Day Dress',
+                'type' => 'casual_dresses', 'price' => 1800, 'material' => 'Cotton Blend', 'service' => null,
+                'desc' => 'Everyday day dress tailored to your measurements for an easy, comfortable fit.',
+                'images' => [['/images/categories/dress.jpg', 'front']],
+            ]),
+
+            // ── WOMEN · Traditional & Cultural / Formal / Workwear / Casual ─
+            array_merge($women, [
+                'name' => 'Modern Filipiniana Terno Top',
+                'sub' => 'traditional_cultural_wear', 'struct' => 'top_wear', 'type' => 'modern_filipiniana_tops',
+                'service' => self::SVC_BRIDAL, 'price' => 3800, 'material' => 'Piña-Jusi Blend', 'fabric' => self::FABRIC_PINA,
+                'sizes' => self::SIZES_WOMEN, 'days' => 14,
+                'desc' => 'Modern Filipiniana top with structured butterfly sleeves, for formal events and Buwan ng Wika.',
+                'images' => [['/images/categories/filipiniana.jpg', 'front']],
+            ]),
+            array_merge($women, [
+                'name' => "Women's Tailored Power Suit",
+                'sub' => 'formal_wear', 'struct' => 'sets', 'type' => 'womens_suits',
+                'service' => self::SVC_SUIT, 'price' => 7500, 'material' => 'Premium Wool Blend', 'fabric' => self::FABRIC_WOOL,
+                'sizes' => self::SIZES_WOMEN, 'days' => 14,
+                'desc' => 'Two-piece tailored suit for the office and formal occasions, cut to your measurements.',
+                'images' => [['/images/categories/women_suit.jpg', 'front']],
+            ]),
+            array_merge($women, [
+                'name' => "Women's Tailored Office Blazer",
+                'sub' => 'uniforms_workwear', 'struct' => 'top_wear', 'type' => 'blazers',
+                'service' => self::SVC_SUIT, 'price' => 3200, 'material' => 'Poly-Viscose Suiting', 'fabric' => self::FABRIC_WOOL,
+                'sizes' => self::SIZES_WOMEN, 'days' => 10,
+                'desc' => 'Single-breasted office blazer, tailored for corporate wear and company uniforms.',
+                'images' => [['/images/categories/blazer.jpg', 'front']],
+            ]),
+            array_merge($women, [
+                'name' => "Women's Tailored Trousers",
+                'sub' => 'casual_wear', 'struct' => 'bottom_wear', 'type' => 'trousers',
+                'service' => null, 'price' => 1300, 'material' => 'Poly-Viscose',
+                'sizes' => self::SIZES_WOMEN, 'days' => 7,
+                'desc' => 'Straight-leg trousers tailored to your waist, hip, and inseam.',
+                'images' => [['/images/categories/women_pants.jpg', 'front']],
+            ]),
+
+            // ── WOMEN · Sportswear ────────────────────────────────────────
+            array_merge($women, $sportTop, [
+                'name' => "Women's Esports Jersey - Custom Print",
+                'aliases' => ['Esports-Jersey-women', "Women's Esports Jersey with Customized Design"],
+                'type' => 'esports_jerseys', 'price' => 660, 'color' => 'Blue',
+                'desc' => "Women's-cut esports jersey with full sublimation print — team name, handle, and number included.",
+                'images' => [['/catalog/Esports-Jersey-women.jpg', 'front']],
+            ]),
+
+            // ── MEN · Formal Wear ─────────────────────────────────────────
+            array_merge($men, $formalSet, [
+                'name' => 'Bespoke Two-Piece Suit - Charcoal Wool',
+                'aliases' => ['Bespoke_Suits2'],
+                'type' => 'suits', 'price' => 11500, 'color' => 'Black',
+                'desc' => 'Two-piece bespoke suit in charcoal wool, fully canvassed and cut to your measurements.',
+                'images' => [['/catalog/Bespoke_Suits2.jpg', 'front']],
+            ]),
+            array_merge($men, $formalSet, [
+                'name' => 'Bespoke Three-Piece Suit - Navy Wool',
+                'aliases' => ['Bespoke_Suits'],
+                'type' => 'suits', 'price' => 11800, 'color' => 'Navy',
+                'desc' => 'Three-piece bespoke suit in navy wool with a matching waistcoat.',
+                'images' => [['/catalog/Bespoke_Suits.png', 'front']],
+            ]),
+            array_merge($men, $formalSet, [
+                'name' => "Men's Custom Tuxedo - Classic Peak Lapel",
+                'aliases' => ['mens-custom-tuxedos-its-all-about-the-fit'],
+                'type' => 'tuxedo_sets', 'price' => 12500, 'color' => 'Black',
+                'desc' => 'Classic tuxedo with satin peak lapels, tailored for weddings and black-tie events.',
+                'images' => [['/catalog/mens-custom-tuxedos-its-all-about-the-fit.jpeg', 'front']],
+            ]),
+            array_merge($men, $formalSet, [
+                'name' => "Men's Classic Black Tuxedo",
+                'aliases' => ['Custom_Tuxedos_men'],
+                'type' => 'tuxedo_sets', 'price' => 12200, 'color' => 'Black',
+                'desc' => 'Timeless black tuxedo, cut and fitted to your measurements.',
+                'images' => [['/catalog/Custom_Tuxedos_men.jpeg', 'front']],
+            ]),
+            array_merge($men, $formalSet, [
+                'name' => 'Custom Groom Tuxedo - Event Package',
+                'aliases' => ['Custom Tuxedos for Memorable Events'],
+                'type' => 'tuxedo_sets', 'price' => 12800, 'color' => 'Black',
+                'desc' => 'Groom tuxedo package with fittings scheduled around your wedding date.',
+                'images' => [['/catalog/Custom Tuxedos for Memorable Events.jpeg', 'front']],
+            ]),
+            array_merge($men, $formalSet, [
+                'name' => 'Navy Blue Tuxedo with Contrast Belt',
+                'aliases' => ['Blue Tuxedo Belt Tuxedo Blue Suit Brown Belt Core Navy'],
+                'type' => 'tuxedo_sets', 'price' => 12400, 'color' => 'Navy',
+                'desc' => 'Navy tuxedo paired with a contrast belt for a modern formal look.',
+                'images' => [['/catalog/navy-blue-tuxedo-suit.webp', 'front']],
+            ]),
+
+            // ── MEN · Traditional Wear ────────────────────────────────────
+            array_merge($men, $barong, [
+                'name' => 'Traditional Ivory Barong Tagalog - Formal Fit',
+                'aliases' => ['Traditional Ivory Color Barong Tagalog - Formal Fit'],
+                'type' => 'barong_tagalog', 'price' => 4500,
+                'desc' => 'Ivory Barong Tagalog in piña cocoon with delicate hand embroidery, in a formal fit.',
+                'images' => [['/catalog/barong-tagalog-ivory-formal.jpg', 'front']],
+            ]),
+            array_merge($men, $barong, [
+                'name' => 'Short-Sleeve Barong Polo',
+                'aliases' => ['Traditional Barong Tagalog Polo Shirt for Men'],
+                'type' => 'short_sleeve_barong', 'price' => 4500,
+                'desc' => 'Short-sleeve barong polo — traditional embroidery with a lighter, semi-formal cut.',
+                'images' => [['/catalog/Traditional Barong Tagalog Polo Shirt for Men.jpeg', 'front']],
+            ]),
+
+            // ── MEN · Casual / Outerwear / Workwear ──────────────────────
+            array_merge($men, [
+                'name' => 'Tailored Button-Down Shirt',
+                'sub' => 'casual_wear', 'struct' => 'top_wear', 'type' => 'button_down_shirts',
+                'service' => null, 'price' => 1200, 'material' => 'Cotton Oxford', 'sizes' => self::SIZES_ADULT,
+                'desc' => 'Button-down shirt cut to your neck, chest, and sleeve length.',
+                'images' => [['/images/categories/shirt.jpg', 'front']],
+            ]),
+            array_merge($men, [
+                'name' => 'Tailored Chino Trousers',
+                'sub' => 'casual_wear', 'struct' => 'bottom_wear', 'type' => 'chinos',
+                'service' => null, 'price' => 1100, 'material' => 'Cotton Twill', 'sizes' => self::SIZES_ADULT,
+                'desc' => 'Everyday chinos tailored to your waist and inseam.',
+                'images' => [['/images/categories/pants.jpg', 'front']],
+            ]),
+            array_merge($men, [
+                'name' => 'Tailored Wool Overcoat',
+                'sub' => 'outerwear', 'struct' => 'top_wear', 'type' => 'coats',
+                'service' => self::SVC_SUIT, 'price' => 6500, 'material' => 'Wool Melton', 'fabric' => self::FABRIC_WOOL,
+                'sizes' => self::SIZES_SUIT, 'days' => 14,
+                'desc' => 'Knee-length wool overcoat, tailored to wear over a suit.',
+                'images' => [['/images/categories/men_outerwear.jpg', 'front']],
+            ]),
+            array_merge($men, [
+                'name' => 'Medical Scrub Top',
+                'sub' => 'uniforms_workwear', 'struct' => 'top_wear', 'type' => 'medical_tops',
+                'service' => self::SVC_UNIFORM, 'price' => 850, 'material' => 'Poly-Cotton Twill', 'sizes' => self::SIZES_ADULT,
+                'desc' => 'Durable scrub top for clinics and hospitals — bulk orders sized per staff roster.',
+                'images' => [['/images/categories/scrubs.jpg', 'front']],
+            ]),
+
+            // ── MEN · Sportswear & Teamwear ───────────────────────────────
+            array_merge($men, $sportTop, [
+                'name' => 'Pro-Fit Cycling Jersey - Team Kit',
+                'aliases' => ['Cycling_Jerseys_1'],
+                'type' => 'cycling_jerseys', 'price' => 620, 'color' => 'Blue',
+                'desc' => 'Full-sublimation cycling jersey in breathable drifit mesh, printed with your team kit.',
+                'images' => [['/catalog/Cycling_Jerseys_1.jpeg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Cycling Jersey - Sublimated Print',
+                'aliases' => ['Cycling_Jerseys_2'],
+                'type' => 'cycling_jerseys', 'price' => 640, 'color' => 'Blue',
+                'desc' => 'Short-sleeve cycling jersey with an all-over sublimated print.',
+                'images' => [['/catalog/Cycling_Jerseys_2.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Long-Sleeve Cycling Jersey - Aero Fit',
+                'aliases' => ['Cycling_Jerseys_3'],
+                'type' => 'cycling_jerseys', 'price' => 670, 'color' => 'Blue',
+                'desc' => 'Long-sleeve aero-fit cycling jersey for sun protection on long rides.',
+                'images' => [['/catalog/Cycling_Jerseys_3.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Motorcycle Riders Long-Sleeve Jersey',
+                'type' => 'cycling_jerseys', 'price' => 1400, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Black',
+                'desc' => 'Long-sleeve riding jersey for motorcycle clubs, printed with your club design.',
+                'images' => [['/catalog/Riders_Long_Sleeves.webp', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Riders Club Long-Sleeve Jersey',
+                'aliases' => ['Riders_Long_Sleeves'],
+                'type' => 'cycling_jerseys', 'price' => 1450, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Black',
+                'desc' => 'Riders club long-sleeve jersey with sublimated club colors.',
+                'images' => [['/catalog/Riders_Long_Sleeves.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Riders Club Long-Sleeve Jersey V2',
+                'aliases' => ['Riders_Long_Sleeves_2'],
+                'type' => 'cycling_jerseys', 'price' => 1450, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Black',
+                'desc' => 'Second-edition riders club jersey with an updated panel layout.',
+                'images' => [['/catalog/Riders_Long_Sleeves_2.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Compression Rash Guard - Long Sleeve',
+                'aliases' => ['rashguard_1'],
+                'type' => 'cycling_jerseys', 'price' => 580, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Blue',
+                'desc' => 'Long-sleeve compression rash guard for training, surfing, and combat sports.',
+                'images' => [['/catalog/rashguard_1.webp', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Compression Rash Guard - Short Sleeve',
+                'aliases' => ['rashguard_3'],
+                'type' => 'cycling_jerseys', 'price' => 590, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Blue',
+                'desc' => 'Short-sleeve compression rash guard with a sublimated design.',
+                'images' => [['/catalog/rashguard_3.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Custom Basketball Jersey - Away Kit',
+                'aliases' => ['Bulls-Basketball-Jersey'],
+                'type' => 'basketball_jerseys', 'price' => 700, 'color' => 'Crimson',
+                'desc' => 'Away-kit basketball jersey with your team name and player numbers.',
+                'images' => [['/catalog/Bulls-Basketball-Jersey.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Custom Basketball Jersey - Home Kit',
+                'aliases' => ['Bears-Basketball-Jersey'],
+                'type' => 'basketball_jerseys', 'price' => 660, 'color' => 'Blue',
+                'desc' => 'Home-kit basketball jersey with your team name and player numbers.',
+                'images' => [['/catalog/Bears-Basketball-Jersey.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Retro Basketball Jersey - Purple & Gold',
+                'aliases' => ['KobeBryant-Basketball-Jersey'],
+                'type' => 'basketball_jerseys', 'price' => 700, 'color' => 'Purple',
+                'desc' => 'Retro-style basketball jersey in purple and gold.',
+                'images' => [['/catalog/KobeBryant-Basketball-Jersey.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Retro Basketball Jersey - Gold Edition',
+                'aliases' => ['Lebron James-Lakers-Basketball-Jersey'],
+                'type' => 'basketball_jerseys', 'price' => 710, 'color' => 'Gold',
+                'desc' => 'Retro-style basketball jersey, gold edition.',
+                'images' => [['/catalog/Lebron James-Lakers-Basketball-Jersey.webp', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Football Club Jersey - Custom Print',
+                'aliases' => ['Arsenal-Jersey'],
+                'type' => 'basketball_jerseys', 'price' => 690, 'color' => 'Crimson',
+                'desc' => 'Club-style football jersey with a custom sublimated print.',
+                'images' => [['/catalog/Arsenal-Jersey.jpg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Esports Team Jersey - Royal Blue',
+                'aliases' => ['esport tshirt blue'],
+                'type' => 'esports_jerseys', 'price' => 680, 'color' => 'Royal Blue',
+                'desc' => 'Esports team jersey in royal blue, printed with team and player names.',
+                'images' => [['/catalog/esport tshirt blue.jpeg', 'front']],
+            ]),
+            array_merge($men, $sportTop, [
+                'name' => 'Esports Team Jersey - Classic Cut',
+                'aliases' => ['esport tshirt'],
+                'type' => 'esports_jerseys', 'price' => 630, 'color' => 'Blue',
+                'desc' => 'Classic-cut esports team jersey with a full sublimated design.',
+                'images' => [['/catalog/esport tshirt.webp', 'front']],
+            ]),
+            array_merge($men, $sportSet, [
+                'name' => 'Volleyball Team Jersey - Sleeveless Set',
+                'aliases' => ['Volleyball Jersey_2'],
+                'type' => 'volleyball_sets', 'price' => 600, 'color' => 'Blue',
+                'desc' => 'Sleeveless volleyball jersey and shorts set for your team.',
+                'images' => [['/catalog/Volleyball Jersey_2.jpg', 'front']],
+            ]),
+            array_merge($men, $sportSet, [
+                'name' => 'Volleyball Round-Neck Jersey Set',
+                'aliases' => ['volleyballroundneckSET'],
+                'type' => 'volleyball_sets', 'price' => 1300, 'color' => 'Blue',
+                'desc' => 'Round-neck volleyball jersey and shorts set.',
+                'images' => [['/catalog/volleyballroundneckSET.webp', 'front']],
+            ]),
+            array_merge($men, $sportSet, [
+                'name' => 'Volleyball Pre-Order Jersey Set',
+                'aliases' => ['VBALL_PRE-2001_800x800'],
+                'type' => 'volleyball_sets', 'price' => 1350, 'color' => 'Blue',
+                'desc' => 'Pre-order volleyball set — jersey and shorts, produced in one team batch.',
+                'images' => [['/catalog/VBALL_PRE-2001_800x800.webp', 'front']],
+            ]),
+
+            // ── KIDS ──────────────────────────────────────────────────────
+            [
+                'name' => "Boys' School Uniform Set",
+                'dept' => 'children', 'sub' => 'boys_apparel', 'struct' => 'sets', 'type' => 'school_uniform_sets',
+                'service' => self::SVC_UNIFORM, 'price' => 650, 'material' => 'Poly-Cotton', 'sizes' => self::SIZES_KIDS, 'days' => 14,
+                'desc' => 'Polo and trousers school uniform set, sized per student — bulk school orders welcome.',
+                'images' => [['/catalog/school-uniforms.jpg', 'front']],
+            ],
+            [
+                'name' => "Girls' School Uniform Set",
+                'dept' => 'children', 'sub' => 'girls_apparel', 'struct' => 'sets', 'type' => 'school_uniform_sets',
+                'service' => self::SVC_UNIFORM, 'price' => 650, 'material' => 'Poly-Cotton', 'sizes' => self::SIZES_KIDS, 'days' => 14,
+                'desc' => 'Blouse and skirt school uniform set, sized per student — bulk school orders welcome.',
+                'images' => [['/images/categories/school_uniform.jpg', 'front']],
+            ],
+        ];
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Store;
 use App\Models\StoreSubscription;
 use App\Models\SubscriptionEvent;
 use App\Models\SubscriptionPlan;
+use App\Support\SubscriptionSwitcher;
 use Illuminate\Http\Request;
 
 class SubscriptionController extends Controller
@@ -68,99 +69,25 @@ class SubscriptionController extends Controller
 
         $plan = SubscriptionPlan::findOrFail($request->plan_id);
 
-        // A store can freely switch plans up OR down, but nothing ever
-        // checked whether the store's *current* usage still fits the plan
-        // being switched TO — a Premium store with 3 branches and 8 staff
-        // could downgrade straight to Basic (1 branch, few staff) and be
-        // left silently over-limit on both, with no warning at downgrade
-        // time. The create-time gates (StoreBranchController@store,
-        // StaffController@store) only ever stop *adding* more; they don't
-        // protect against this. Blocking here, not just warning, since
-        // there's no legitimate reason to let a downgrade succeed into an
-        // already-invalid state — unlike the duplicate-payment-reference
-        // warnings elsewhere in this app, there's no plausible "actually
-        // fine" case for this one.
         $store = Store::findOrFail($storeId);
 
-        $currentStaffCount = $store->staff()->count();
-        if ($plan->max_staff !== -1 && $currentStaffCount > $plan->max_staff) {
+        if ($error = SubscriptionSwitcher::misfit($store, $plan)) {
+            return response()->json(['success' => false, 'message' => $error], 422);
+        }
+
+        // Moving up to (or renewing) a paid plan takes a real payment: the owner
+        // sends GCash and submits the receipt as an upgrade request, and an admin
+        // approves it (see SubscriptionUpgradeRequestController). Only an admin,
+        // or a switch to a free / cheaper plan, applies right away.
+        if (! $user->hasRole('admin') && SubscriptionSwitcher::needsPayment($store, $plan, $request->billing_cycle)) {
             return response()->json([
                 'success' => false,
-                'message' => "This plan allows up to {$plan->max_staff} staff member".($plan->max_staff === 1 ? '' : 's').", but you currently have {$currentStaffCount}. Remove staff first, or choose a plan that fits your current team size.",
-            ], 422);
+                'code' => 'payment_required',
+                'message' => 'This plan needs a payment. Send it by GCash and upload your receipt to request the upgrade.',
+            ], 402);
         }
 
-        $currentBranchCount = $store->branches()->count();
-        if ($plan->slug !== 'premium' && $currentBranchCount > 1) {
-            return response()->json([
-                'success' => false,
-                'message' => "This plan only supports a single branch, but you currently have {$currentBranchCount}. Remove the extra branches first, or stay on a plan that supports multiple branches.",
-            ], 422);
-        }
-
-        // Simulated billing: Instantly create or update subscription
-        // In a real app, this is where PayMongo/Stripe checkout session would be created
-
-        // Read the previous subscription BEFORE cancelling it — needed to
-        // classify the event below (created/renewed/upgraded/downgraded),
-        // and the update() call two lines down overwrites its status to
-        // 'cancelled' with no way to read the "was this the same plan or a
-        // different one" fact afterward.
-        $previousSubscription = StoreSubscription::where('store_id', $storeId)
-            ->whereIn('status', ['active', 'trial'])
-            ->latest()
-            ->first();
-
-        // Cancel previous active subscription if it exists
-        StoreSubscription::where('store_id', $storeId)
-            ->whereIn('status', ['active', 'trial'])
-            ->update([
-                'status' => 'cancelled',
-                'cancelled_at' => now(),
-                'ends_at' => now(),
-            ]);
-
-        $days = $request->billing_cycle === 'yearly' ? 365 : 30;
-
-        $newSubscription = StoreSubscription::create([
-            'store_id' => $storeId,
-            'plan_id' => $plan->id,
-            'status' => 'active',
-            'starts_at' => now(),
-            'ends_at' => now()->addDays($days),
-        ]);
-
-        // Mirrors app:expire-subscriptions' auto-hide-on-expiry — a store the
-        // system hid for a lapsed subscription should come back the moment
-        // the owner renews, not stay hidden until they separately notice and
-        // flip the visibility toggle themselves.
-        // ...unless an admin took the store down — renewing a plan must not
-        // lift a moderation takedown.
-        Store::where('id', $storeId)->whereNull('admin_hidden_at')->update(['is_hidden' => false]);
-
-        // Objective 7's "subscription activity" reporting needs a real
-        // event log, not just the latest StoreSubscription row (which only
-        // ever shows the current state, never the history of how a store
-        // got there).
-        if (! $previousSubscription) {
-            $eventType = 'created';
-        } elseif ($previousSubscription->plan_id === $plan->id) {
-            $eventType = 'renewed';
-        } else {
-            $previousPlan = SubscriptionPlan::find($previousSubscription->plan_id);
-            $eventType = ($previousPlan && $previousPlan->price_monthly < $plan->price_monthly) ? 'upgraded' : 'downgraded';
-        }
-
-        SubscriptionEvent::create([
-            'store_id' => $storeId,
-            'store_subscription_id' => $newSubscription->id,
-            'event_type' => $eventType,
-            'plan_id' => $plan->id,
-            'previous_plan_id' => $previousSubscription?->plan_id,
-            'billing_cycle' => $request->billing_cycle,
-            'triggered_by' => $user->id,
-            'occurred_at' => now(),
-        ]);
+        $newSubscription = SubscriptionSwitcher::apply($store, $plan, $request->billing_cycle, $user->id);
 
         return response()->json([
             'success' => true,

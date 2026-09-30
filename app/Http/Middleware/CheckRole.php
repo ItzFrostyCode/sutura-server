@@ -25,6 +25,17 @@ class CheckRole
             ], 403);
         }
 
+        // A shop login issued by the System Admin starts with a temporary
+        // password; nothing store-scoped works until the owner replaces it
+        // (PUT /profile/password — not role-gated, so it stays reachable).
+        if ($user->must_change_password) {
+            return response()->json([
+                'success' => false,
+                'code' => 'password_change_required',
+                'message' => 'Please change your temporary password before continuing.',
+            ], 403);
+        }
+
         // Admin routes intentionally act across every store; skip tenant scoping.
         if (in_array('admin', $roles, true)) {
             return $next($request);
