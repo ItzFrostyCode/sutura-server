@@ -231,7 +231,9 @@ class ServiceController extends Controller
 
         $this->syncPricingTiers($service, $tiers);
 
-        return response()->json(['success' => true, 'data' => $service->fresh('pricing')]);
+        $paused = $service->is_active ? [] : $service->pausePackagesLeftTooSmall();
+
+        return response()->json(['success' => true, 'data' => $service->fresh('pricing'), 'paused_packages' => $paused]);
     }
 
     /**
@@ -268,7 +270,8 @@ class ServiceController extends Controller
         ]);
 
         $service->delete();
+        $paused = $service->pausePackagesLeftTooSmall();
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'paused_packages' => $paused]);
     }
 }

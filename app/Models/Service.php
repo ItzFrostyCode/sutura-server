@@ -80,6 +80,29 @@ class Service extends Model
         return $this->hasMany(ServicePricing::class, 'service_id');
     }
 
+    public function packages(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(ServicePackage::class, 'service_package_items', 'service_id', 'service_package_id');
+    }
+
+    /**
+     * A combo needs at least 2 services that customers can actually order. After this service is
+     * deleted or paused, pause every active combo that no longer has that, and return their names
+     * so the owner can be told. Never re-activates anything — that stays the owner's call.
+     */
+    public function pausePackagesLeftTooSmall(): array
+    {
+        $paused = [];
+        foreach ($this->packages()->where('is_active', true)->get() as $package) {
+            if ($package->services()->where('services.is_active', true)->count() < 2) {
+                $package->update(['is_active' => false]);
+                $paused[] = $package->name;
+            }
+        }
+
+        return $paused;
+    }
+
     public function jobOrders(): HasMany
     {
         return $this->hasMany(JobOrder::class);
