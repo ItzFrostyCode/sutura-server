@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * LocalTestSeeder only ever built ONE store-owner tenant (owner@sutura.com /
+ * LocalTestSeeder only ever built ONE store-owner tenant (maria.cruz@gmail.com /
  * Thread & Needle Tailoring). Every CRUD/logic audit this whole project has
  * only ever exercised store-scoping by coincidence — a bug that filters by
  * the wrong column, or forgets a store_id check entirely, would never surface
@@ -172,6 +172,8 @@ class AdditionalStoresSeeder extends Seeder
                 'description' => 'Made-to-measure business suits for corporate clients, priced per fabric grade.',
                 'category' => 'Custom Tailoring & Bespoke',
                 'categories' => ['Suit & Tuxedo Tailoring'],
+                'service_category' => 'custom_tailoring',
+                'service_leaf_type' => 'formal_wear_tailoring',
                 'service_types' => ['custom_tailoring'],
                 'base_price' => 3200,
                 'estimated_days' => 12,
@@ -188,6 +190,8 @@ class AdditionalStoresSeeder extends Seeder
                 'description' => 'Bulk office uniform sets, sized per employee roster.',
                 'category' => 'Institutional & Uniform Wear',
                 'categories' => ['Corporate & Team Uniforms'],
+                'service_category' => 'uniform_production',
+                'service_leaf_type' => 'office_uniforms',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => 900,
                 'min_order_qty' => 5,
@@ -279,19 +283,24 @@ class AdditionalStoresSeeder extends Seeder
         // Catalog items — reuse existing static image assets (already on disk
         // in sutura-client/public/catalog/), but as genuinely separate rows
         // scoped to THIS store, priced/named for a formal-wear specialty.
+        // 'suit'/'barong'/'uniform' and department 'office' are no longer
+        // valid values post-taxonomy-migration (see App\Support\
+        // CanonicalTaxonomy) — remapped to canonical leaf values below;
+        // 'office'-department items (gender-neutral corporate/office gear)
+        // get department=null rather than a guessed men/women.
         $catalogSeed = [
-            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'department' => 'men', 'image' => 'tailor-made-suit-bespoke.jpg'],
-            ['name' => 'Double-Breasted Pinstripe Suit', 'price' => 6500, 'material' => 'Premium Wool', 'garment_type' => 'suit', 'department' => 'men', 'image' => 'Custom Tuxedos for Memorable Events.jpeg'],
-            ['name' => 'Barong Tagalog — Office Formal', 'price' => 3200, 'material' => 'Jusi Fabric', 'garment_type' => 'barong', 'department' => 'men', 'image' => 'Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
-            ['name' => 'Corporate Office Blazer', 'price' => 4200, 'material' => 'Poly-Wool Blend', 'garment_type' => 'suit', 'department' => 'office', 'image' => 'Bespoke_Suits.png'],
-            ['name' => 'Standard Office Uniform Set', 'price' => 900, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'Esports-Jersey-women.jpg'],
+            ['name' => 'Classic Navy Business Suit', 'price' => 5800, 'material' => 'Premium Wool', 'garment_type' => 'suits', 'department' => 'men', 'subcategory' => 'formal_wear', 'garment_structure' => 'sets', 'image' => 'tailor-made-suit-bespoke.jpg'],
+            ['name' => 'Double-Breasted Pinstripe Suit', 'price' => 6500, 'material' => 'Premium Wool', 'garment_type' => 'suits', 'department' => 'men', 'subcategory' => 'formal_wear', 'garment_structure' => 'sets', 'image' => 'Custom Tuxedos for Memorable Events.jpeg'],
+            ['name' => 'Barong Tagalog — Office Formal', 'price' => 3200, 'material' => 'Jusi Fabric', 'garment_type' => 'barong_tagalog', 'department' => 'men', 'subcategory' => 'traditional_wear', 'garment_structure' => 'top_wear', 'image' => 'Traditional Barong Tagalog Polo Shirt for Men.jpeg'],
+            ['name' => 'Corporate Office Blazer', 'price' => 4200, 'material' => 'Poly-Wool Blend', 'garment_type' => 'corporate_shirts', 'department' => null, 'subcategory' => 'uniforms_workwear', 'garment_structure' => 'top_wear', 'image' => 'Bespoke_Suits.png'],
+            ['name' => 'Standard Office Uniform Set', 'price' => 900, 'material' => 'Poly-Cotton', 'garment_type' => 'corporate_uniform_sets', 'department' => null, 'subcategory' => 'uniforms_workwear', 'garment_structure' => 'sets', 'image' => 'Esports-Jersey-women.jpg'],
         ];
         foreach ($catalogSeed as $c) {
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
                     'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
-                    'department' => $c['department'],
+                    'department' => $c['department'], 'subcategory' => $c['subcategory'], 'garment_structure' => $c['garment_structure'],
                     'estimated_days' => 10, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order, tailored to your measurements.',
                 ]
@@ -408,6 +417,8 @@ class AdditionalStoresSeeder extends Seeder
                 'description' => 'Hemming, resizing, zipper replacement, and general repair work.',
                 'category' => 'Alterations & Adjustments',
                 'categories' => ['General Clothing Alterations'],
+                'service_category' => 'alterations_repairs',
+                'service_leaf_type' => 'hemming_length_adjustment',
                 'service_types' => ['alteration_repair'],
                 'base_price' => 150,
                 'estimated_days' => 3,
@@ -424,6 +435,8 @@ class AdditionalStoresSeeder extends Seeder
                 'description' => 'Elementary and high school uniform sets, sewn per student.',
                 'category' => 'Institutional & Uniform Wear',
                 'categories' => ['School Uniforms'],
+                'service_category' => 'uniform_production',
+                'service_leaf_type' => 'school_uniforms',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => 450,
                 'estimated_days' => 7,
@@ -478,19 +491,20 @@ class AdditionalStoresSeeder extends Seeder
         );
 
         $catalogSeed = [
-            ['name' => 'Elementary Uniform Set', 'price' => 450, 'material' => 'Poly-Cotton', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'VBALL_PRE-2001_800x800.webp'],
-            ['name' => 'High School PE Uniform', 'price' => 650, 'material' => 'Drifit Mesh', 'garment_type' => 'uniform', 'department' => 'office', 'image' => 'volleyballroundneckSET.webp'],
-            // 'other' wasn't a valid CatalogItem::GARMENT_CATEGORIES value —
-            // this is a real alteration/repair reference item, which the
-            // enum already covers.
-            ['name' => 'Simple Alteration Reference — Hemline', 'price' => 150, 'material' => 'N/A', 'garment_type' => 'alteration_repair', 'department' => null, 'image' => 'Riders_Long_Sleeves.jpg'],
+            ['name' => 'Elementary Uniform Set', 'price' => 450, 'material' => 'Poly-Cotton', 'garment_type' => 'school_uniform_sets', 'department' => null, 'subcategory' => 'uniforms_workwear', 'garment_structure' => 'sets', 'image' => 'VBALL_PRE-2001_800x800.webp'],
+            ['name' => 'High School PE Uniform', 'price' => 650, 'material' => 'Drifit Mesh', 'garment_type' => 'school_uniform_sets', 'department' => null, 'subcategory' => 'uniforms_workwear', 'garment_structure' => 'sets', 'image' => 'volleyballroundneckSET.webp'],
+            // 'alteration_repair' is no longer a garment_type value — it's a
+            // service_category now (see App\Support\CanonicalTaxonomy). This
+            // is a real alteration/repair reference item, not an actual
+            // garment, so it's left fully unclassified in the garment tree.
+            ['name' => 'Simple Alteration Reference — Hemline', 'price' => 150, 'material' => 'N/A', 'garment_type' => null, 'department' => null, 'subcategory' => null, 'garment_structure' => null, 'image' => 'Riders_Long_Sleeves.jpg'],
         ];
         foreach ($catalogSeed as $c) {
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
                     'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
-                    'department' => $c['department'],
+                    'department' => $c['department'], 'subcategory' => $c['subcategory'], 'garment_structure' => $c['garment_structure'],
                     'estimated_days' => 5, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order.',
                 ]

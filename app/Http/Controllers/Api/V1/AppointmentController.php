@@ -97,7 +97,7 @@ class AppointmentController extends Controller
     public function myAppointments(Request $request): JsonResponse
     {
         $appointments = Appointment::where('customer_id', $request->user()->id)
-            ->with(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name'])
+            ->with(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price'])
             ->orderByDesc('scheduled_at')
             ->paginate($request->input('per_page', 20));
 
@@ -110,9 +110,17 @@ class AppointmentController extends Controller
             'checked_in_at' => $appointment->checked_in_at,
             'duration_minutes' => $appointment->duration_minutes,
             'service_name' => $appointment->service?->name,
+            'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category', 'service_leaf_type']) : null,
+            // The catalog design this was booked from, with the size/color picked on its page.
+            'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'department', 'subcategory', 'garment_structure', 'garment_type']),
+            'service_package' => $appointment->servicePackage?->only(['id', 'name', 'bundle_price', 'service_category']),
+            'selected_size' => $appointment->selected_size,
+            'selected_color' => $appointment->selected_color,
             'payment_status' => $appointment->payment_status,
             'cancellation_reason' => $appointment->cancellation_reason,
             'rebooking_blocked' => (bool) $appointment->rebooking_blocked,
+            // A walk-in took this request's slot: the customer must pick a new time.
+            'needs_new_time' => $appointment->status === 'pending' && $appointment->outcome === 'rescheduled',
             'store' => $appointment->store ? [
                 'name' => $appointment->store->name,
                 'slug' => $appointment->store->slug,
@@ -177,6 +185,82 @@ class AppointmentController extends Controller
     }
 
     /**
+     * The customer moves their own PENDING request to another time — needed when
+     * a walk-in took the slot (preemptByWalkIn keeps the request pending and
+     * asks them to pick another time, but customers had no way to). Same
+     * guards as a fresh booking: closures, the slot's other holders, the
+     * store's daily cap, and the customer's own travel buffer. Confirmed
+     * appointments stay with the store (only they can move those).
+     */
+    public function rescheduleMine(Request $request, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->customer_id !== $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
+        }
+
+        if ($appointment->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a request that is still waiting for the store can be moved. Ask the store, or cancel and book again.',
+            ], 422);
+        }
+
+        $validated = $request->validate(['scheduled_at' => ['required', 'date', 'after:now']]);
+
+        $store = $appointment->store;
+        $scheduledAt = Carbon::parse($validated['scheduled_at']);
+        $duration = $appointment->duration_minutes ?? 60;
+
+        if ($closure = $store->closureTitleOn($scheduledAt, $appointment->store_branch_id)) {
+            return response()->json(['success' => false, 'message' => "The store is closed on this date ({$closure}). Please choose a different day."], 409);
+        }
+
+        if (Appointment::hasSchedulingConflict($store, $appointment->store_branch_id, $scheduledAt, $duration, $appointment->id, true)) {
+            return response()->json(['success' => false, 'message' => 'This time slot is already reserved or currently requested. Please choose a different time.'], 409);
+        }
+
+        if ($store->max_appointments_per_day) {
+            $sameDay = $store->appointments()
+                ->whereNotIn('status', ['cancelled'])
+                ->where('id', '!=', $appointment->id)
+                ->whereDate('scheduled_at', $scheduledAt->toDateString())
+                ->count();
+            if ($sameDay >= $store->max_appointments_per_day) {
+                return response()->json(['success' => false, 'message' => 'This date is fully booked. Please choose another date.'], 409);
+            }
+        }
+
+        if (Appointment::hasCustomerScheduleConflict($request->user()->id, $scheduledAt, $duration, $appointment->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'That time is too close to another appointment you already have. Leave at least '.Appointment::CUSTOMER_TRAVEL_BUFFER_MINUTES.' minutes between appointments.',
+            ], 409);
+        }
+
+        $old = $appointment->scheduled_at?->format('M j, Y g:i A');
+        $tag = "[Moved by customer from {$old}]";
+
+        $appointment->update([
+            'scheduled_at' => $scheduledAt,
+            'notes' => $appointment->notes ? $tag."\n".$appointment->notes : $tag,
+            'outcome' => null, // clears the "needs a new time" flag
+        ]);
+        if ($appointment->reminder_sent_at) {
+            $appointment->forceFill(['reminder_sent_at' => null])->save();
+        }
+
+        $this->notifyOwnerOfActivity($request, $store, [
+            'type' => 'appointment_rescheduled',
+            'title' => 'Customer Picked a New Time',
+            'message' => "{$request->user()->name} moved their request to ".$scheduledAt->format('M j, Y g:i A').'.',
+            'url' => '/dashboard/appointments',
+            'extra' => ['appointment_id' => $appointment->id],
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Your request was moved to the new time.', 'data' => $appointment]);
+    }
+
+    /**
      * Single-appointment detail for the customer's own "view full detail"
      * screen — same customer-scoped ownership check and safe field subset
      * as myAppointments(), just one row with a bit more (duration, payment
@@ -189,7 +273,7 @@ class AppointmentController extends Controller
             return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
         }
 
-        $appointment->load(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name']);
+        $appointment->load(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price']);
 
         return response()->json([
             'success' => true,
@@ -202,10 +286,22 @@ class AppointmentController extends Controller
                 'checked_in_at' => $appointment->checked_in_at,
                 'duration_minutes' => $appointment->duration_minutes,
                 'service_name' => $appointment->service?->name,
+                'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category', 'service_leaf_type']) : null,
+                // The catalog design this was booked from, with the size/color picked on its page.
+                'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'department', 'subcategory', 'garment_structure', 'garment_type']),
+                // The combo package this was booked from, with what it includes.
+                'service_package' => $appointment->servicePackage,
+                'selected_size' => $appointment->selected_size,
+                'selected_color' => $appointment->selected_color,
                 'payment_status' => $appointment->payment_status,
                 'payment_method' => $appointment->payment_method,
                 'notes' => $appointment->notes,
                 'reference_link' => $appointment->reference_link,
+                'shared_link' => $appointment->shared_link,
+                'shared_images' => $appointment->shared_images ?? [],
+                'needs_new_time' => $appointment->status === 'pending' && $appointment->outcome === 'rescheduled',
+                'store_branch_id' => $appointment->store_branch_id,
+                'store_id' => $appointment->store_id,
                 'cancellation_reason' => $appointment->cancellation_reason,
                 'rebooking_blocked' => (bool) $appointment->rebooking_blocked,
                 'store' => $appointment->store ? [
@@ -230,8 +326,8 @@ class AppointmentController extends Controller
         $roles = $user->roles->pluck('name');
 
         $query = $store->appointments()->with([
-            'customer:id,name,email',
-            'service:id,name,base_price',
+            'customer:id,name,email,phone',
+            'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price',
             'branch:id,name',
             'assignedStaff:id,name',
             'jobOrder:id,order_number',
@@ -333,7 +429,7 @@ class AppointmentController extends Controller
         );
 
         $appointment = $store->appointments()->create($data);
-        $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+        $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         // Walk-in claims the slot: preempt all overlapping pending online bookings
         $preemptedCount = 0;
@@ -375,7 +471,7 @@ class AppointmentController extends Controller
                 ? "Walk-in appointment confirmed. {$preemptedCount} pending online booking(s) for this slot were notified to reschedule."
                 : 'Appointment created successfully.',
             'preempted_count' => $preemptedCount,
-            'data' => $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
         ], 201);
     }
 
@@ -468,7 +564,7 @@ class AppointmentController extends Controller
                 ? "Follow-up appointment confirmed. {$preemptedCount} pending online booking(s) for this slot were notified to reschedule."
                 : 'Follow-up appointment created.',
             'preempted_count' => $preemptedCount,
-            'data' => $appointment->load(['customer:id,name,email', 'branch:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->load(['customer:id,name,email,phone', 'branch:id,name', 'jobOrder:id,order_number']),
         ], 201);
     }
 
@@ -634,6 +730,9 @@ class AppointmentController extends Controller
             }
 
             if (! $error) {
+                $sharedChanged = (array_key_exists('shared_link', $data) && ($data['shared_link'] ?? null) !== $appointment->shared_link)
+                    || (array_key_exists('shared_images', $data) && ($data['shared_images'] ?? []) !== ($appointment->shared_images ?? []));
+
                 // Perform update
                 $appointment->update($data);
 
@@ -664,11 +763,19 @@ class AppointmentController extends Controller
                     $appointment->forceFill(['reminder_sent_at' => null])->save();
                 }
 
-                $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+                $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
                 // ── Notifications ─────────────────────────────────────────────────────
                 $customer = $appointment->customer;
                 if ($customer) {
+                    if ($sharedChanged && ($appointment->shared_link || ! empty($appointment->shared_images))) {
+                        $customer->notify(new AppointmentStatusNotification(
+                            $appointment,
+                            'shared',
+                            ($appointment->store?->name ?? 'The store').' shared a link or photos for your appointment. Open it to see them.',
+                            $request->user()
+                        ));
+                    }
                     if ($isRescheduled) {
                         $customer->notify(new AppointmentStatusNotification($appointment, 'rescheduled', null, $request->user()));
                         $this->notifyOwnerOfActivity($request, $store, [
@@ -765,7 +872,7 @@ class AppointmentController extends Controller
                         ]);
                     }
                 }
-                $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+                $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
                 // Notify customer
                 $customer = $appointment->customer;
@@ -867,7 +974,7 @@ class AppointmentController extends Controller
                 'cancellation_reason' => $validated['reason'],
                 'rebooking_blocked' => $validated['block_rebooking'] ?? false,
             ]);
-            $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+            $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
             $customer = $appointment->customer;
             if ($customer) {
@@ -922,7 +1029,7 @@ class AppointmentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment status updated.',
-            'data' => $appointment->load(['customer:id,name,email', 'service:id,name,base_price', 'branch:id,name']),
+            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price', 'branch:id,name']),
         ]);
     }
 }

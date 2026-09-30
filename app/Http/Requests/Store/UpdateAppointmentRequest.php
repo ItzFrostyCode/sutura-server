@@ -83,6 +83,12 @@ class UpdateAppointmentRequest extends FormRequest
                 },
             ],
 
+            // What the shop shares with the customer after accepting (Messenger-style
+            // hand-off, kept on the appointment): one link and up to 6 photos.
+            'shared_link' => ['sometimes', 'nullable', 'url', 'max:500'],
+            'shared_images' => ['sometimes', 'nullable', 'array', 'max:6'],
+            'shared_images.*' => ['string', 'max:1000'],
+
             // Notes always updatable
             'notes' => ['nullable', 'string', 'max:2000'],
             'job_order_id' => [

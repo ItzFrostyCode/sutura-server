@@ -253,33 +253,6 @@ class CatalogInteractionController extends Controller
         ]);
     }
 
-    public function replyToReview(Request $request, Store $store, CatalogItemReview $review): JsonResponse
-    {
-        if ($review->catalogItem?->store_id !== $store->id) {
-            return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
-        }
-
-        $validated = $request->validate([
-            'reply' => 'nullable|string|max:1000',
-        ]);
-
-        // Only notify on an actual new/changed non-empty reply — not on
-        // every save of an unrelated field, and not when the reply is being
-        // cleared back to blank.
-        $isNewReply = ! empty($validated['reply']) && $validated['reply'] !== $review->reply;
-
-        $review->update($validated);
-
-        if ($isNewReply && $review->user) {
-            $review->user->notify(new CatalogItemReviewReplyNotification($review->fresh(['catalogItem.store'])));
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => $review->fresh(['user:id,name,email', 'catalogItem:id,name']),
-        ]);
-    }
-
     public function destroyReview(Store $store, CatalogItemReview $review): JsonResponse
     {
         if ($review->catalogItem?->store_id !== $store->id) {

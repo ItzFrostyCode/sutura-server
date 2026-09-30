@@ -90,6 +90,30 @@ class AuthController extends Controller
             ], 401);
         }
 
+        $roles = $user->roles()->pluck('name');
+
+        // System Admins sign in only through the separate admin portal
+        // (Admin\AdminAuthController). Same generic message as a wrong
+        // password, so this public form can't be used to learn which
+        // emails belong to admins.
+        if ($roles->contains('admin')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid credentials.',
+            ], 401);
+        }
+
+        if ($user->suspended_at !== null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This account has been suspended. Please contact SUTURA support.',
+            ], 403);
+        }
+
+        if ($mismatch = $this->portalMismatch($request->input('portal'), $roles->all())) {
+            return response()->json(['success' => false, 'message' => $mismatch], 422);
+        }
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         $user->load('roles:id,name', 'stores');
@@ -115,6 +139,26 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * The Sign In page's Customer / Shop Owner switch. Only checked after
+     * the password is verified, so it reveals nothing to a guesser; it just
+     * points a real user at the tab their account actually belongs to.
+     */
+    private function portalMismatch(?string $portal, array $roles): ?string
+    {
+        $isStoreSide = array_intersect($roles, ['store_owner', 'branch_manager', 'staff']) !== [];
+        $isCustomer = in_array('customer', $roles, true);
+
+        if ($portal === 'customer' && ! $isCustomer && $isStoreSide) {
+            return 'This is a shop account. Switch to the Shop tab to sign in.';
+        }
+        if ($portal === 'store' && ! $isStoreSide) {
+            return 'This is a customer account. Switch to the Customer tab to sign in.';
+        }
+
+        return null;
+    }
+
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
         Password::sendResetLink($request->only('email'));
@@ -133,8 +177,11 @@ class AuthController extends Controller
         $status = Password::reset(
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function (User $user, string $password) {
+                // Choosing a password via a reset link also satisfies an
+                // admin-issued temporary password's forced change.
                 $user->forceFill([
                     'password' => Hash::make($password),
+                    'must_change_password' => false,
                 ])->save();
             }
         );

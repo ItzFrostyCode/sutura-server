@@ -13,7 +13,14 @@ class ServicePackageController extends Controller
 {
     public function index(Store $store): JsonResponse
     {
-        $packages = $store->servicePackages()->with('services')->get();
+        $packages = $store->servicePackages()->with('services')
+            ->withCount('jobOrders')
+            ->withSum('jobOrders as job_revenue', 'total_amount')
+            ->withSum('jobOrders as job_balance_sum', 'balance')
+            ->withSum('jobOrders as job_discount_sum', 'discount_amount')
+            ->get();
+        // Same discount-aware formula as services and designs.
+        $packages->each(fn ($p) => $p->total_revenue = (float) $p->job_revenue - (float) $p->job_balance_sum - (float) $p->job_discount_sum);
 
         return response()->json([
             'success' => true,
@@ -31,7 +38,7 @@ class ServicePackageController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->with('services:id,name,base_price')
-            ->get(['id', 'store_id', 'name', 'description', 'bundle_price'])
+            ->get(['id', 'store_id', 'name', 'description', 'service_category', 'image_url', 'bundle_price'])
             ->each(function (ServicePackage $package) {
                 $package->reviews_avg_rating = $package->reviews_avg_rating !== null
                     ? round((float) $package->reviews_avg_rating, 1)
@@ -44,6 +51,43 @@ class ServicePackageController extends Controller
         ]);
     }
 
+    /**
+     * Cross-store combo packages for /search (Services tab), filtered like services:
+     * text, service_category, district.
+     */
+    public function publicShowroom(Request $request): JsonResponse
+    {
+        $query = ServicePackage::query()
+            ->where('is_active', true)
+            ->whereHas('store', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
+            ->withCount('reviews')
+            ->withAvg('reviews', 'rating')
+            ->with([
+                'services:id,name,base_price',
+                'store' => fn ($q) => $q->select('id', 'name', 'slug')->with(['branches' => fn ($b) => $b->where('status', 'active')->select('id', 'store_id', 'district', 'city')]),
+            ]);
+
+        if ($request->filled('q')) {
+            $search = '%'.strtolower((string) $request->string('q')).'%';
+            $query->where(fn ($q) => $q->whereRaw('LOWER(name) LIKE ?', [$search])->orWhereRaw('LOWER(description) LIKE ?', [$search])
+                ->orWhereHas('services', fn ($s) => $s->whereRaw('LOWER(services.name) LIKE ?', [$search])));
+        }
+        if ($request->filled('service_category')) {
+            $query->whereRaw('LOWER(service_category) = ?', [strtolower((string) $request->string('service_category'))]);
+        }
+        if ($request->filled('district')) {
+            $district = $request->string('district')->toString();
+            $query->whereHas('store.branches', fn ($b) => $b->where('district', $district)->where('status', 'active'));
+        }
+
+        $packages = $query->latest()->limit(24)->get(['id', 'store_id', 'name', 'description', 'service_category', 'image_url', 'bundle_price'])
+            ->each(function (ServicePackage $p) {
+                $p->reviews_avg_rating = $p->reviews_avg_rating !== null ? round((float) $p->reviews_avg_rating, 1) : null;
+            });
+
+        return response()->json(['success' => true, 'data' => $packages]);
+    }
+
     public function store(Request $request, Store $store): JsonResponse
     {
         $validated = $this->validatePackage($request, $store);
@@ -51,6 +95,8 @@ class ServicePackageController extends Controller
         $package = $store->servicePackages()->create([
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
+            'service_category' => $validated['service_category'] ?? null,
+            'image_url' => $validated['image_url'] ?? null,
             'bundle_price' => $validated['bundle_price'] ?? null,
             'is_active' => $validated['is_active'] ?? true,
         ]);
@@ -74,6 +120,8 @@ class ServicePackageController extends Controller
         $servicePackage->update([
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
+            'service_category' => $validated['service_category'] ?? null,
+            'image_url' => $validated['image_url'] ?? null,
             'bundle_price' => $validated['bundle_price'] ?? null,
             'is_active' => $validated['is_active'] ?? $servicePackage->is_active,
         ]);
@@ -106,6 +154,9 @@ class ServicePackageController extends Controller
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'image_url' => ['nullable', 'string', 'max:255'],
+            // Same canonical list as services, so a combo is searched and filtered like one.
+            'service_category' => ['nullable', 'string', Rule::in(\App\Support\CanonicalTaxonomy::SERVICE_CATEGORIES)],
             'bundle_price' => ['nullable', 'numeric', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
             // 'distinct' belongs on the wildcard item, not the parent array

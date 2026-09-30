@@ -53,6 +53,11 @@ class StoreJobOrderRequest extends FormRequest
             // purely server-derived, set automatically the moment anyone
             // actually moves the job into a production stage (see
             // JobOrderController::update()'s auto-attribution block).
+            // One job order for a whole combo package (the set's services are listed with it).
+            'service_package_id' => [
+                'nullable', 'integer',
+                Rule::exists('service_packages', 'id')->where('store_id', $store?->id),
+            ],
             'measurement_id' => [
                 'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('store_id', $store?->id),

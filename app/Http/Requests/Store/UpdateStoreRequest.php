@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Store;
 
+use App\Support\CanonicalTaxonomy;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateStoreRequest extends FormRequest
 {
@@ -52,8 +54,14 @@ class UpdateStoreRequest extends FormRequest
             'fitting_limit_policy' => ['sometimes', 'in:fee,block'],
             'repair_requires_downpayment' => ['sometimes', 'boolean'],
             'specializations' => ['nullable', 'array'],
-            'specializations.*' => ['string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
-            'is_featured' => ['sometimes', 'boolean'],
+            // Men/Women/Kids departments + Services categories — the same axes
+            // the header nav and /search use (see CanonicalTaxonomy).
+            'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::storeSpecializations())],
+            // is_featured is deliberately NOT owner-writable here — it's a
+            // Premium-plan perk the system keeps in sync automatically
+            // (see SubscriptionController::subscribe() and
+            // ExpireSubscriptions), not a toggle the owner can flip on
+            // their own regardless of plan.
             'is_hidden' => ['sometimes', 'boolean'],
             // Where customers should actually send a GCash/bank payment —
             // informational only, the system still never moves money itself.

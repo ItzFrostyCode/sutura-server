@@ -1,5 +1,10 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\AccountController as AdminAccountController;
+use App\Http\Controllers\Api\V1\Admin\AdminAuthController;
+use App\Http\Controllers\Api\V1\Admin\AuditLogController as AdminAuditLogController;
+use App\Http\Controllers\Api\V1\Admin\DashboardController as AdminDashboardController;
+use App\Http\Controllers\Api\V1\Admin\StoreApplicationController as AdminStoreApplicationController;
 use App\Http\Controllers\Api\V1\Admin\StoreController as AdminStoreController;
 use App\Http\Controllers\Api\V1\Admin\ModerationController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
@@ -24,12 +29,15 @@ use App\Http\Controllers\Api\V1\ServicePackageController;
 use App\Http\Controllers\Api\V1\ServicePackageReviewController;
 use App\Http\Controllers\Api\V1\ServiceReviewController;
 use App\Http\Controllers\Api\V1\StaffController;
+use App\Http\Controllers\Api\V1\StoreApplicationController;
 use App\Http\Controllers\Api\V1\StoreBranchController;
 use App\Http\Controllers\Api\V1\StoreController;
 use App\Http\Controllers\Api\V1\StorePostController;
 use App\Http\Controllers\Api\V1\StoreReviewController;
 use App\Http\Controllers\Api\V1\StoreSpecialHourController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
+use App\Http\Controllers\Api\V1\SubscriptionUpgradeRequestController;
+use App\Http\Controllers\Api\V1\Admin\SubscriptionUpgradeRequestController as AdminSubscriptionUpgradeRequestController;
 use App\Http\Controllers\Api\V1\SupportTicketController;
 use App\Http\Controllers\Api\V1\SystemNewsController;
 use App\Http\Controllers\CatalogOrderController;
@@ -65,6 +73,15 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:6,1,login')->name('login');
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:6,1,forgot-password');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:6,1,reset-password');
+
+    // System Admin portal sign-in — separate from the public form (which
+    // refuses admin accounts) and throttled tighter. See AdminAuthController.
+    Route::post('/auth/admin/login', [AdminAuthController::class, 'login'])->middleware('throttle:5,1,admin-login');
+
+    // "Open a shop" application: creates the owner's login + a pending
+    // store + the verification packet. Multipart uploads, so rate-limited.
+    Route::post('/store-applications', [StoreApplicationController::class, 'store'])->middleware('throttle:5,1,store-application');
+    Route::get('/public/subscription-plans', [StoreApplicationController::class, 'plans']);
 
     // Public Job Order Tracking — no account needed, just the tracking_code
     // handed to the customer at intake. Backend-only for now; no consuming
@@ -154,6 +171,8 @@ Route::prefix('v1')->group(function () {
         // (PublicBookingController::submit()'s guard) to book a different
         // date themselves instead of asking the store to do it.
         Route::delete('/my-appointments/{appointment}', [AppointmentController::class, 'cancelMine']);
+        // Move your own still-pending request to another time (e.g. after a walk-in took the slot).
+        Route::put('/my-appointments/{appointment}/reschedule', [AppointmentController::class, 'rescheduleMine']);
         Route::get('/my-measurements', [MeasurementController::class, 'myMeasurements']);
         Route::get('/my-catalog-reviews', [CatalogInteractionController::class, 'myReviews']);
         Route::get('/my-store-reviews', [StoreReviewController::class, 'myReviews']);
@@ -313,11 +332,12 @@ Route::prefix('v1')->group(function () {
                 // store_branch_id column), not scoped to the manager's own
                 // branch the way Staff/Jobs/Appointments are above.
                 Route::post('/services', [ServiceController::class, 'store']);
-                Route::post('/services/{serviceId}/restore', [ServiceController::class, 'restore'])->whereNumber('serviceId');
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
-                Route::put('/services/{service}/sale', [ServiceController::class, 'updateSale']);
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
 
+                // Ratings lists for the Services / Catalog Analytics tabs, which branch managers see too.
+                Route::get('/service-reviews', [ServiceReviewController::class, 'indexForStore']);
+                Route::get('/catalog-item-reviews', [CatalogInteractionController::class, 'indexForStore']);
                 Route::post('/service-packages', [ServicePackageController::class, 'store']);
                 Route::put('/service-packages/{servicePackage}', [ServicePackageController::class, 'update']);
                 Route::delete('/service-packages/{servicePackage}', [ServicePackageController::class, 'destroy']);
@@ -374,8 +394,6 @@ Route::prefix('v1')->group(function () {
                 // Catalog Item Reviews — per-design-item reviews (e.g. a
                 // specific Barong/gown in the Design Catalog), distinct from
                 // the store-level reviews above.
-                Route::get('/catalog-item-reviews', [CatalogInteractionController::class, 'indexForStore']);
-                Route::put('/catalog-item-reviews/{review}', [CatalogInteractionController::class, 'replyToReview']);
                 Route::delete('/catalog-item-reviews/{review}', [CatalogInteractionController::class, 'destroyReview']);
 
                 // Store Posts — completed-work showcase the owner posts to their storefront
@@ -410,11 +428,37 @@ Route::prefix('v1')->group(function () {
             // Subscription Plan Billing
             Route::get('/subscriptions/plans', [SubscriptionController::class, 'index']);
             Route::post('/stores/{store}/subscription', [SubscriptionController::class, 'subscribe']);
+            // Paid plan changes: GCash receipt → admin approval (see SubscriptionUpgradeRequestController).
+            Route::get('/stores/{store}/subscription/upgrade-requests', [SubscriptionUpgradeRequestController::class, 'index']);
+            Route::post('/stores/{store}/subscription/upgrade-requests', [SubscriptionUpgradeRequestController::class, 'store']);
+            Route::get('/stores/{store}/subscription/upgrade-requests/{upgradeRequest}/receipt', [SubscriptionUpgradeRequestController::class, 'receipt']);
             Route::put('/stores/{store}', [StoreController::class, 'update']);
         });
 
         // Admin Routes
         Route::prefix('admin')->middleware('role:admin')->group(function () {
+            Route::get('/dashboard', [AdminDashboardController::class, 'overview']);
+            Route::get('/reports/subscriptions', [AdminDashboardController::class, 'subscriptionReport']);
+            Route::get('/upgrade-requests', [AdminSubscriptionUpgradeRequestController::class, 'index']);
+            Route::get('/upgrade-requests/{upgradeRequest}/receipt', [AdminSubscriptionUpgradeRequestController::class, 'receipt']);
+            Route::post('/upgrade-requests/{upgradeRequest}/approve', [AdminSubscriptionUpgradeRequestController::class, 'approve']);
+            Route::post('/upgrade-requests/{upgradeRequest}/reject', [AdminSubscriptionUpgradeRequestController::class, 'reject']);
+
+            // Shop application review queue (documents stream from the
+            // private disk through this controller only).
+            Route::get('/store-applications', [AdminStoreApplicationController::class, 'index']);
+            Route::get('/store-applications/{store}', [AdminStoreApplicationController::class, 'show']);
+            Route::get('/store-applications/{store}/documents/{document}', [AdminStoreApplicationController::class, 'document'])
+                ->where('document', '[a-z-]+[0-9]*');
+            Route::put('/store-applications/{store}/approve', [AdminStoreApplicationController::class, 'approve']);
+            Route::put('/store-applications/{store}/reject', [AdminStoreApplicationController::class, 'reject']);
+
+            Route::get('/accounts', [AdminAccountController::class, 'index']);
+            Route::put('/accounts/{user}/suspend', [AdminAccountController::class, 'suspend']);
+            Route::put('/accounts/{user}/reactivate', [AdminAccountController::class, 'reactivate']);
+
+            Route::get('/audit-logs', [AdminAuditLogController::class, 'index']);
+
             Route::get('/stores', [AdminStoreController::class, 'index']);
             Route::put('/stores/{store}/approve', [AdminStoreController::class, 'approve']);
             Route::put('/stores/{store}/reject', [AdminStoreController::class, 'reject']);
@@ -429,6 +473,7 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/subscription-plans', [SubscriptionPlanController::class, 'index']);
             Route::post('/subscription-plans', [SubscriptionPlanController::class, 'store']);
+            Route::put('/subscription-plans/{subscriptionPlan}', [SubscriptionPlanController::class, 'update']);
 
             // Admin Support Ticket Management
             Route::get(TICKETS_ROUTE, [SupportTicketAdminController::class, 'index']);
@@ -449,6 +494,7 @@ Route::prefix('v1')->group(function () {
     // Cross-store catalog showroom feed for the landing page's catalog grid
     Route::get('/public/catalog-items', [CatalogController::class, 'publicShowroom']);
     Route::get('/public/services', [ServiceController::class, 'publicShowroom']);
+    Route::get('/public/service-packages', [ServicePackageController::class, 'publicShowroom']);
     Route::get('/public/stores/{store:slug}', [StoreController::class, 'publicProfile']);
     Route::get('/public/stores/{store:slug}/services', [ServiceController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/service-packages', [ServicePackageController::class, 'publicIndex']);

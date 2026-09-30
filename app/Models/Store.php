@@ -126,6 +126,12 @@ class Store extends Model
         return $this->hasMany(Measurement::class);
     }
 
+    /** The owner's verification application (null for stores created before it existed). */
+    public function application(): HasOne
+    {
+        return $this->hasOne(StoreApplication::class);
+    }
+
     public function subscription(): HasOne
     {
         return $this->hasOne(StoreSubscription::class)->latestOfMany();

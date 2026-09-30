@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\OrderNumber;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -10,6 +11,7 @@ class CatalogOrder extends Model
     use HasFactory;
 
     protected $fillable = [
+        'order_number',
         'store_id',
         'store_branch_id',
         'catalog_item_id',
@@ -39,6 +41,16 @@ class CatalogOrder extends Model
     public function branch()
     {
         return $this->belongsTo(StoreBranch::class, 'store_branch_id');
+    }
+
+    protected static function booted(): void
+    {
+        // Every order gets a number from the store's shared JO- series.
+        static::creating(function (self $order) {
+            if (! $order->order_number) {
+                $order->order_number = OrderNumber::next((int) $order->store_id);
+            }
+        });
     }
 
     public function catalogItem()

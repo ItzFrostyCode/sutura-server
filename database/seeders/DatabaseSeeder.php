@@ -15,12 +15,14 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             SubscriptionPlanSeeder::class,
             LocalTestSeeder::class,
-            // Fully built (2 more stores, including this dataset's ONLY
-            // Branch Manager test account) but never actually registered
-            // here — every `db:seed` run silently skipped it. Found while
-            // auditing for seed-data bugs; there was no way to demo the
-            // Branch Manager role at all without this.
-            AdditionalStoresSeeder::class,
+            // Deliberately disabled (2026-09-29) — the owner wants the local
+            // demo down to a single shop (Thread & Needle Tailoring / Maria
+            // Cruz) only, and had the other 4 shops this seeder creates
+            // force-deleted from the dev DB. Leave this commented out so a
+            // future `db:seed` doesn't silently bring them back; uncomment
+            // if the Branch Manager demo account (one of this seeder's
+            // stores) is needed again.
+            // AdditionalStoresSeeder::class,
         ]);
     }
 }

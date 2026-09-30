@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use App\Models\Appointment;
 use App\Models\AuditLog;
-use App\Models\CatalogImage;
 use App\Models\CatalogItem;
 use App\Models\CatalogOrder;
 use App\Models\JobOrder;
@@ -31,6 +30,7 @@ use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\JobStatusUpdatedNotification;
 use App\Notifications\NewJobOrderNotification;
 use App\Notifications\PaymentReceivedNotification;
+use App\Support\CanonicalTaxonomy;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -59,7 +59,7 @@ class LocalTestSeeder extends Seeder
 
         // 2. Create YOU (The Store Owner)
         $owner = User::firstOrCreate(
-            ['email' => 'owner@sutura.com'],
+            ['email' => 'maria.cruz@gmail.com'],
             [
                 'name' => 'Maria Cruz',
                 'password' => Hash::make('password'),
@@ -78,7 +78,7 @@ class LocalTestSeeder extends Seeder
                 'slug' => 'thread-needle',
                 'store_code' => 'TNED',
                 'description' => 'Premium tailoring and bespoke design services.',
-                'specializations' => ['barong', 'suit', 'gown'],
+                'specializations' => CanonicalTaxonomy::storeSpecializations(),
                 'address' => '123 Rizal Avenue',
                 'city' => 'Davao City',
                 'province' => 'Davao del Sur',
@@ -146,6 +146,12 @@ class LocalTestSeeder extends Seeder
         if (! $staff->roles()->where('role_id', $staffRole->id)->exists()) {
             $staff->roles()->attach($staffRole->id);
         }
+        // The demo "Staff" login must stay plain staff (it's listed as Staff in the
+        // README / HowToOpen). If it was promoted while testing, a re-seed undoes it.
+        if ($bmRole = \App\Models\Role::where('name', 'branch_manager')->first()) {
+            $staff->roles()->detach($bmRole->id);
+        }
+        $staff->staffProfile()->update(['is_branch_manager' => false]);
 
         // Link the staff to the store branch via StaffProfile — this demo staff
         // member covers two roles (head tailor + sublimation), demonstrating
@@ -161,6 +167,26 @@ class LocalTestSeeder extends Seeder
             ]);
         }
 
+        // 4b. Branch Manager demo login — kept separate from staff@sutura.com (which is plain
+        // Staff) so testers can compare the two roles side by side.
+        $branchManagerRole = Role::where('name', 'branch_manager')->first();
+        $manager = User::firstOrCreate(
+            ['email' => 'manager@sutura.com'],
+            ['name' => 'Miguel Manager', 'password' => Hash::make('password'), 'email_verified_at' => now()]
+        );
+        if ($branchManagerRole && ! $manager->roles()->where('role_id', $branchManagerRole->id)->exists()) {
+            $manager->roles()->attach($branchManagerRole->id);
+        }
+        if (! $manager->staffProfile()->exists()) {
+            StaffProfile::create([
+                'user_id' => $manager->id,
+                'store_id' => $store->id,
+                'store_branch_id' => $mainBranch->id,
+                'role' => 'head_tailor',
+                'is_branch_manager' => true,
+            ]);
+        }
+
         // 5. Update Store Branding (Profile Picture/Logo, Bio/Description)
         // Was hardcoded to http://127.0.0.1:8000/... -- only ever resolved on
         // one specific machine with `php artisan serve` running on that exact
@@ -171,6 +197,10 @@ class LocalTestSeeder extends Seeder
             'logo_path' => Storage::url('logos/thread_needle_logo.jpg'),
             'banner_path' => Storage::url('banners/thread_needle_banner.jpg'),
             'description' => "Davao City's premier provider of full sublimation jerseys, corporate uniforms, and custom tailoring.",
+            // Re-applied on every run (firstOrCreate above only sets it on a
+            // brand-new store) so an existing DB picks up the canonical
+            // Men/Women/Kids + Services specializations too.
+            'specializations' => CanonicalTaxonomy::storeSpecializations(),
         ]);
 
         // 6. Seed separated services (Sublimation Jerseys & Bespoke Suits)
@@ -183,14 +213,20 @@ class LocalTestSeeder extends Seeder
             [
                 'description' => 'Full sublimation jerseys using high-quality drifit fabrics. Perfect for sports teams, tournaments, and athletic wear. Price varies based on quantity, fabric (Mesh, Honeycomb), and design complexity.',
                 'category' => 'Sublimation & Digital Printing',
-                'department' => 'office',
+                // 'office' isn't a valid department anymore (Categories.md
+                // demotes Office to a filter, not a department) — team
+                // jerseys are gender-neutral, so left unset here rather than
+                // guessing men/women.
+                'department' => null,
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
+                'service_category' => 'printing_sublimation',
+                'service_leaf_type' => 'sports_jersey_printing',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => 1000,
                 'min_order_qty' => 10,
                 'estimated_days' => 14,
                 'is_active' => true,
-                'image_url' => 'https://images.unsplash.com/photo-1587280501635-68a0e82cd5ff?q=80&w=800&auto=format&fit=crop',
+                'image_url' => '/catalog/custom-sublimation-jerseys-service.jpg',
                 'custom_fields' => [
                     [
                         'name' => 'fabric_preference',
@@ -232,6 +268,8 @@ class LocalTestSeeder extends Seeder
                 'category' => 'Custom Tailoring & Bespoke',
                 'department' => 'men',
                 'categories' => ['Suit & Tuxedo Tailoring', 'Formal & Cultural Wear'],
+                'service_category' => 'custom_tailoring',
+                'service_leaf_type' => 'formal_wear_tailoring',
                 'service_types' => ['custom_tailoring'],
                 'base_price' => 3500,
                 'estimated_days' => 15,
@@ -284,6 +322,8 @@ class LocalTestSeeder extends Seeder
                 'description' => 'Classic Filipiniana formal wear, hand-tailored to fit. Choose from plain cotton, jusi, or premium piña fabric. Includes one fitting session before final delivery.',
                 'department' => 'men',
                 'categories' => ['Barong Tagalog Tailoring', 'Formal & Cultural Wear'],
+                'service_category' => 'custom_tailoring',
+                'service_leaf_type' => 'traditional_wear_tailoring',
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 1500,
                 'estimated_days' => 10,
@@ -297,8 +337,13 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Bridal & Wedding Gown Design',
                 'description' => 'Custom-designed wedding gowns from sketch to final fitting. Two fitting sessions included.',
-                'department' => 'wedding',
+                // 'wedding' isn't a valid department anymore (Categories.md
+                // demotes Wedding to a filter, not a department) — bridal
+                // gowns are women's formal wear.
+                'department' => 'women',
                 'categories' => ['Custom Bridal Tailoring', 'Gown & Evening Wear Designing', 'Formal & Cultural Wear'],
+                'service_category' => 'custom_tailoring',
+                'service_leaf_type' => 'formal_wear_tailoring',
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 8000,
                 'estimated_days' => 30,
@@ -312,8 +357,10 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'School & Organization Uniform Sewing',
                 'description' => 'Bulk uniform sewing for schools and organizations, sized per student roster.',
-                'department' => 'office',
+                'department' => null,
                 'categories' => ['School Uniforms', 'Institutional & Uniform Wear', 'Corporate & Team Uniforms'],
+                'service_category' => 'uniform_production',
+                'service_leaf_type' => 'school_uniforms',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 20,
@@ -328,6 +375,8 @@ class LocalTestSeeder extends Seeder
                 'name' => 'Garment Alterations & Repair Services',
                 'description' => 'Resizing, hemming, and repair work on existing garments.',
                 'categories' => ['General Clothing Alterations', 'Alterations & Adjustments'],
+                'service_category' => 'alterations_repairs',
+                'service_leaf_type' => 'garment_repair_restoration',
                 'service_types' => ['alteration_repair'],
                 'base_price' => null,
                 'estimated_days' => 3,
@@ -342,8 +391,10 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Corporate & Team Jersey Printing',
                 'description' => 'Sublimation-printed jerseys for corporate teams and events.',
-                'department' => 'office',
+                'department' => null,
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
+                'service_category' => 'printing_sublimation',
+                'service_leaf_type' => 'teamwear_printing',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 12,
@@ -356,8 +407,10 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Embroidery & Logo Digitizing',
                 'description' => 'Custom embroidery for logos, names, and designs on garments, uniforms, jackets, and accessories. New logo designs include one-time digitizing to convert artwork into a stitchable file.',
-                'department' => 'office',
+                'department' => null,
                 'categories' => ['Embroidered Logos & Team Names', 'Custom Apparel, Printing & Embroidery'],
+                'service_category' => 'printing_sublimation',
+                'service_leaf_type' => 'custom_apparel_printing',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 4,
@@ -367,6 +420,25 @@ class LocalTestSeeder extends Seeder
                     ['label' => 'Team Name / Text Embroidery', 'amount' => 200],
                     ['label' => 'Large Design / Patch Embroidery', 'amount' => 350],
                     ['label' => 'Custom Logo Digitizing (one-time setup)', 'amount' => 500],
+                ],
+            ],
+            [
+                // Covers the Services > Custom Costume Creation header menu,
+                // which otherwise led to an empty results page.
+                'name' => 'Cultural & Stage Costume Tailoring',
+                'description' => 'Made-to-order costumes for school programs, cultural dance troupes, and stage productions — Buwan ng Wika attire, folk dance ensembles, and character costumes.',
+                'department' => null,
+                'categories' => ['Costume Tailoring', 'Formal & Cultural Wear'],
+                'service_category' => 'custom_costume_creation',
+                'service_leaf_type' => 'cultural_dance_costumes',
+                'service_types' => ['custom_tailoring'],
+                'base_price' => null,
+                'estimated_days' => 14,
+                'image_url' => '/images/categories/filipiniana.jpg',
+                'tiers' => [
+                    ['label' => 'Buwan ng Wika Attire (Kids)', 'amount' => 900],
+                    ['label' => 'Folk Dance Costume Set', 'amount' => 1800],
+                    ['label' => 'Stage / Character Costume', 'amount' => 2500],
                 ],
             ],
         ];
@@ -389,38 +461,24 @@ class LocalTestSeeder extends Seeder
             }
         }
 
-        // 7. Seed 2 Additional Store Branches (making it 3 branches in total)
-        $branch2 = StoreBranch::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Lanang Branch'],
-            [
-                'slug' => Str::slug('Lanang Branch').'-'.uniqid(),
-                'address' => 'Lanang Business Park, J.P. Laurel Ave',
-                'city' => 'Davao City',
-                // Lanang is a real barangay under Buhangin district.
-                'district' => 'Buhangin',
-                'latitude' => 7.0988,
-                'longitude' => 125.6312,
-                'contact_number' => '+63 917 100 0002',
-                'guide_image_url' => '/images/shop_storefront.jpg',
-                'is_main' => false,
-            ]
-        );
-
-        $branch3 = StoreBranch::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Matina Branch'],
-            [
-                'slug' => Str::slug('Matina Branch').'-'.uniqid(),
-                'address' => 'Matina Crossing, MacArthur Highway',
-                'city' => 'Davao City',
-                // Matina is a real barangay under Talomo district.
-                'district' => 'Talomo',
-                'latitude' => 7.0543,
-                'longitude' => 125.5891,
-                'contact_number' => '+63 917 100 0003',
-                'guide_image_url' => '/images/tailor_at_work.jpg',
-                'is_main' => false,
-            ]
-        );
+        // 7. Single-branch shop: Thread & Needle runs from Poblacion (Main)
+        // only. The old Lanang/Matina satellites are retired — their orders
+        // and appointments move to Main (never nulled out), then the branch
+        // rows go. $branch2/$branch3 stay as aliases of Main so the demo
+        // jobs/appointments below still seed, just all at Main.
+        $retiredBranchIds = StoreBranch::where('store_id', $store->id)
+            ->whereIn('name', ['Lanang Branch', 'Matina Branch'])
+            ->pluck('id');
+        if ($retiredBranchIds->isNotEmpty()) {
+            foreach ([Appointment::class, CatalogOrder::class, JobOrder::class, StaffProfile::class, StoreSpecialHour::class] as $model) {
+                $model::withoutGlobalScopes()
+                    ->whereIn('store_branch_id', $retiredBranchIds)
+                    ->update(['store_branch_id' => $mainBranch->id]);
+            }
+            StoreBranch::whereIn('id', $retiredBranchIds)->delete();
+        }
+        $branch2 = $mainBranch;
+        $branch3 = $mainBranch;
 
         // 8. Seed 2 Additional Tailoring Staff Members (making it 3 staff in total)
         $staffNames = [
@@ -455,12 +513,8 @@ class LocalTestSeeder extends Seeder
             $staffUsers[] = $sUser;
         }
 
-        // Branch managers for the two satellite branches (Lanang, Matina) —
-        // created live through the real branch-manager invite flow, not by
-        // this seeder. Job orders/stages below prefer them over $staffUsers
-        // (all Main Branch) so a Lanang/Matina job is staffed by someone who
-        // actually works there; falls back to a Main Branch staffer if this
-        // is a fresh install where those two accounts don't exist yet.
+        // Extra staff to spread the demo job stages across — prefers the two
+        // invite-flow accounts if they exist, otherwise Main Branch staffers.
         $lanangStaff = User::where('email', 'ferdinand.cruz@sutura.com')->first() ?? $staffUsers[1];
         $matinaStaff = User::where('email', 'rowena.aquino@sutura.com')->first() ?? $staffUsers[0];
 
@@ -490,6 +544,20 @@ class LocalTestSeeder extends Seeder
             // Sync with store customers
             $store->customers()->syncWithoutDetaching([$cUser->id]);
             $customers[] = $cUser;
+        }
+
+        // 9a. Booking testers — customers with NO appointments. Every customer above already holds
+        // an active appointment at this store, and a customer may only have one, so these are the
+        // logins for trying "Book an Appointment" from the store, a design, a service or a package.
+        foreach ([['booking.tester1@sutura.com', 'Tess Tester'], ['booking.tester2@sutura.com', 'Tomas Tester']] as [$tEmail, $tName]) {
+            $tester = User::firstOrCreate(
+                ['email' => $tEmail],
+                ['name' => $tName, 'password' => Hash::make('password'), 'email_verified_at' => now()]
+            );
+            if (! $tester->roles()->where('role_id', $customerRole->id)->exists()) {
+                $tester->roles()->attach($customerRole->id);
+            }
+            $store->customers()->syncWithoutDetaching([$tester->id]);
         }
 
         // 9b. Seed 3 more customers used specifically for the GCash/Bank Transfer
@@ -642,7 +710,7 @@ class LocalTestSeeder extends Seeder
 
         // 11. Seed 4 Job Orders (Custom Jobs)
         $jo1 = JobOrder::firstOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1001'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0001'],
             [
                 'tracking_code' => 'TNED8K2P',
                 'store_branch_id' => $mainBranch->id,
@@ -661,7 +729,7 @@ class LocalTestSeeder extends Seeder
         );
 
         $jo2 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1002'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0002'],
             [
                 'tracking_code' => 'TNED4M7B',
                 'store_branch_id' => $branch2->id,
@@ -695,7 +763,7 @@ class LocalTestSeeder extends Seeder
         );
 
         $jo3 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1003'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0003'],
             [
                 'tracking_code' => 'TNED9X3A',
                 'store_branch_id' => $branch3->id,
@@ -719,7 +787,7 @@ class LocalTestSeeder extends Seeder
         $jo3->forceFill(['ready_for_pickup_at' => now()->subDays(21)])->save();
 
         $jo4 = JobOrder::firstOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1004'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0004'],
             [
                 'tracking_code' => 'TNED2V5H',
                 'store_branch_id' => $mainBranch->id,
@@ -752,7 +820,7 @@ class LocalTestSeeder extends Seeder
         // Fitting/Final Adjustments/QC & Ironing/the bulk-order Mass Cutting
         // & Printing override) so every Kanban column has at least one card.
         $jo5 = JobOrder::firstOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1005'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0005'],
             [
                 'tracking_code' => 'TNED7N4K',
                 'store_branch_id' => $mainBranch->id,
@@ -785,7 +853,7 @@ class LocalTestSeeder extends Seeder
         );
 
         $jo6 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1006'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0006'],
             [
                 'tracking_code' => 'TNED6W9E',
                 'store_branch_id' => $branch2->id,
@@ -825,7 +893,7 @@ class LocalTestSeeder extends Seeder
         );
 
         $jo7 = JobOrder::firstOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1007'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0007'],
             [
                 'tracking_code' => 'TNED3P8T',
                 'store_branch_id' => $mainBranch->id,
@@ -844,7 +912,7 @@ class LocalTestSeeder extends Seeder
         );
 
         $jo8 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1008'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0008'],
             [
                 'tracking_code' => 'TNED5R2Y',
                 'store_branch_id' => $branch3->id,
@@ -869,7 +937,7 @@ class LocalTestSeeder extends Seeder
         // reseeding always left those two widgets empty, which read as
         // "broken" even though the feature itself worked fine.
         $jo9 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1009'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0009'],
             [
                 'tracking_code' => 'TNED8L3X',
                 'store_branch_id' => $mainBranch->id,
@@ -888,7 +956,7 @@ class LocalTestSeeder extends Seeder
         );
 
         $jo10 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1010'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0010'],
             [
                 'tracking_code' => 'TNED2J7M',
                 'store_branch_id' => $branch2->id,
@@ -906,13 +974,13 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // jo2 (JO-1002) starts unpaid above but receives a partial payment
+        // jo2 (ORD-0002) starts unpaid above but receives a partial payment
         // later in this same seeder (a deliberate "started unpaid, later
         // paid something" scenario) — so nothing genuinely stays unpaid
         // without this one, leaving the "no downpayment collected" alert
         // permanently empty on every reseed.
         $jo11 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'JO-1011'],
+            ['store_id' => $store->id, 'order_number' => 'ORD-0011'],
             [
                 'tracking_code' => 'TNED9B6S',
                 'store_branch_id' => $mainBranch->id,
@@ -1059,7 +1127,7 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // Update JO-1002 balance after payment
+        // Update ORD-0002 balance after payment
         $jo2->update([
             'balance' => 3250.00,
             'payment_status' => 'partial',
@@ -1097,56 +1165,16 @@ class LocalTestSeeder extends Seeder
 
         $this->call(CatalogItemsSeeder::class);
 
-        // 13b. Two specific real catalog items (not part of CatalogItemsSeeder's
-        // auto-generated set) needed for the GCash/Bank Transfer catalog-order
-        // demo scenarios below. NOTE: this does not replace CatalogItemsSeeder's
-        // auto-generated 48 items — those still seed alongside these two. Fully
-        // matching the real, hand-curated 48-item catalog would mean rewriting
-        // CatalogItemsSeeder itself, which hasn't been done yet.
-        $gown1 = CatalogItem::updateOrCreate(
-            ['store_id' => $store->id, 'name' => 'Off-Shoulder Floral Tulle A-Line Gown'],
-            [
-                'price' => 4500,
-                'estimated_days' => 10,
-                'material' => 'Chiffon & Tulle',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'is_active' => true,
-                'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
-                'size_chart_rows' => [
-                    ['size' => 'Small', 'values' => ['32', '25', '35']],
-                    ['size' => 'Medium', 'values' => ['34', '27', '37']],
-                    ['size' => 'Large', 'values' => ['36', '29', '39']],
-                ],
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $gown1->id, 'image_url' => '/catalog/gown-off-shoulder-tulle-floral.webp'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
-        $gown2 = CatalogItem::updateOrCreate(
-            ['store_id' => $store->id, 'name' => 'Long-Train Wedding Gown'],
-            [
-                'price' => 4500,
-                'estimated_days' => 14,
-                'material' => 'Chiffon & Tulle',
-                'garment_type' => 'gown',
-                'department' => 'wedding',
-                'listing_type' => 'made_to_order',
-                'is_active' => true,
-                'size_chart_columns' => ['Bust (in)', 'Waist (in)', 'Hip (in)'],
-                'size_chart_rows' => [
-                    ['size' => 'Small', 'values' => ['32', '25', '35']],
-                    ['size' => 'Medium', 'values' => ['34', '27', '37']],
-                    ['size' => 'Large', 'values' => ['36', '29', '39']],
-                ],
-            ]
-        );
-        CatalogImage::firstOrCreate(
-            ['catalog_item_id' => $gown2->id, 'image_url' => '/catalog/Shop Long Tail Wedding Gown.jpg'],
-            ['view_angle' => 'front', 'is_primary' => true]
-        );
+        // 13b. The two gowns the GCash/Bank Transfer catalog-order demo below
+        // uses. These used to be created here as their own rows ("Off-Shoulder
+        // Floral Tulle A-Line Gown", "Long-Train Wedding Gown"), but each was
+        // the same photo as an item CatalogItemsSeeder already creates — two
+        // listings for one design. Look up the canonical items instead;
+        // CatalogItemsSeeder merges the old duplicate rows into these.
+        $gown1 = CatalogItem::where('store_id', $store->id)
+            ->where('name', CatalogItemsSeeder::ANDREA_LEO_NAME)->firstOrFail();
+        $gown2 = CatalogItem::where('store_id', $store->id)
+            ->where('name', 'Long-Tail White Wedding Gown')->firstOrFail();
 
         // 13c. Seed 2 pending catalog orders paid via GCash/Bank Transfer,
         // awaiting the owner's manual receipt verification — same "GCash &
@@ -1183,8 +1211,20 @@ class LocalTestSeeder extends Seeder
         );
 
         // Link seeded job orders to catalog items to show earnings/performance data
-        $item1 = CatalogItem::where('name', 'Andrea & Leo A1237 Off Shoulder Slit Leg Floral Tulle A Line Gown')->first();
+        $item1 = CatalogItem::where('name', CatalogItemsSeeder::ANDREA_LEO_NAME)->first();
         $item2 = CatalogItem::where('name', 'Pro-Fit Cycling Jersey - Team Kit')->first();
+
+        // Two of the online bookings seeded in step 10b were made from a
+        // design's own "Book an Appointment" button — link them to that
+        // design (plus the size/color picked on its page), the same way
+        // PublicBookingController records a real one. Done here rather than
+        // in 10b because the catalog doesn't exist yet at that point.
+        $suitDesign = CatalogItem::where('store_id', $store->id)
+            ->where('name', 'Bespoke Two-Piece Suit - Charcoal Wool')->first();
+        Appointment::where('store_id', $store->id)->where('payment_reference', 'GC-2201394857')
+            ->update(['catalog_item_id' => $suitDesign?->id, 'selected_size' => '40', 'selected_color' => 'Black']);
+        Appointment::where('store_id', $store->id)->where('payment_reference', 'BDO-88213340')
+            ->update(['catalog_item_id' => $item1?->id, 'selected_size' => 'M', 'selected_color' => 'Sky Blue']);
 
         if ($item1 && isset($jo1)) {
             $jo1->update(['catalog_item_id' => $item1->id]);
@@ -1212,30 +1252,20 @@ class LocalTestSeeder extends Seeder
                 ]
             );
 
-            // 2. Ready-for-pickup walk-in order, with a repeat-customer discount applied
-            $discountedCatalogOrder = CatalogOrder::updateOrCreate(
+            // 2. Ready-for-pickup walk-in order, paid in full at the listed price.
+            CatalogOrder::updateOrCreate(
                 ['store_id' => $store->id, 'catalog_item_id' => $item1->id, 'customer_id' => $customers[0]->id, 'status' => 'ready'],
                 [
                     'type' => 'walkin',
                     'store_branch_id' => $branch2->id,
-                    'total_amount' => 4200.00,
-                    'discount_amount' => 300.00,
+                    'total_amount' => 4500.00,
+                    'discount_amount' => 0,
                     'payment_status' => 'paid',
                     'payment_method' => 'gcash',
                     'intake_channel' => 'walk_in',
                     'fulfillment_type' => 'pickup',
                 ]
             );
-            // Manual discount demo — mirrors CatalogOrderController::applyDiscount's
-            // audit trail so the feature has a real example from first seed.
-            AuditLog::firstOrCreate(
-                ['store_id' => $store->id, 'model_type' => CatalogOrder::class, 'model_id' => $discountedCatalogOrder->id, 'action' => 'discount_applied'],
-                [
-                    'user_id' => $store->owner_id,
-                    'payload' => ['amount' => 300.00, 'reason' => 'Repeat customer — 4th order this year'],
-                ]
-            );
-
             // 3. Still being prepped, GCash payment awaiting owner verification.
             // 'partial' isn't a real CatalogOrder payment_status value — that's
             // a JobOrder-only concept (unpaid/partial/paid); CatalogOrderController
@@ -1310,25 +1340,24 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // 15. Seed a manual per-order discount example (replaces the old
-        // Coupons/promo-code feature) — a one-time, in-the-moment discount
-        // the owner grants a repeat customer, logged to the audit trail.
-        // Mirrors JobOrderController::applyDiscount's effect: balance goes
-        // down by the discount amount, discount_amount accumulates.
-        if (isset($jo2)) {
-            $jo2DiscountAmount = 500.00;
+        // 15. No discounts in the demo data. Earlier seeds applied a repeat-customer
+        // discount to one walk-in order and one job order; undo those on re-seed
+        // (restore the balance, drop the audit entries) so the numbers match the
+        // listed prices. Only the seeded job order is touched, never real ones.
+        if (isset($jo2) && (float) $jo2->discount_amount === 500.00) {
             $jo2->update([
-                'balance' => max(0, (float) $jo2->balance - $jo2DiscountAmount),
-                'discount_amount' => $jo2DiscountAmount,
+                'balance' => (float) $jo2->balance + 500.00,
+                'discount_amount' => 0,
             ]);
-            AuditLog::firstOrCreate(
-                ['store_id' => $store->id, 'model_type' => JobOrder::class, 'model_id' => $jo2->id, 'action' => 'discount_applied'],
-                [
-                    'user_id' => $store->owner_id,
-                    'payload' => ['amount' => $jo2DiscountAmount, 'reason' => 'Repeat customer — bulk jersey order'],
-                ]
-            );
         }
+        CatalogOrder::where('store_id', $store->id)->where('discount_amount', '>', 0)->get()->each(function (CatalogOrder $order) {
+            // Walk-in totals are stored net of discount, so add it back.
+            $order->update([
+                'total_amount' => (float) $order->total_amount + (float) $order->discount_amount,
+                'discount_amount' => 0,
+            ]);
+        });
+        AuditLog::where('store_id', $store->id)->where('action', 'discount_applied')->delete();
 
         // 16. Seed a Service Package (bundle) — combines two existing services.
         $barongService = Service::where('name', 'Barong Tagalog Tailoring')->first();
@@ -1336,9 +1365,10 @@ class LocalTestSeeder extends Seeder
             $package = ServicePackage::updateOrCreate(
                 ['store_id' => $store->id, 'name' => 'Groom & Entourage Package'],
                 [
-                    'description' => 'Bespoke suit for the groom plus Barong Tagalog tailoring for the entourage, bundled at a discount.',
+                    'description' => 'Bespoke suit for the groom plus Barong Tagalog tailoring for the entourage, bundled as one package.',
                     'bundle_price' => 12000,
                     'is_active' => true,
+                    'image_url' => '/catalog/groom-entourage-package.jpg',
                 ]
             );
             $package->services()->syncWithoutDetaching([$service2->id, $barongService->id]);
@@ -1535,157 +1565,27 @@ class LocalTestSeeder extends Seeder
             $n->save();
         }
 
-        // 21. Second Store Owner account — a separate login for testing
-        // multi-tenant isolation (does this store ever leak Thread & Needle's
-        // data or vice versa?) and lower-tier plan behavior (Basic here vs.
-        // Premium above, e.g. the single-branch limit gate). Deliberately
-        // light — one store, one branch, no jobs/catalog — this is a login
-        // fixture, not a second fully-populated demo store.
-        $owner2 = User::firstOrCreate(
-            ['email' => 'owner2@sutura.com'],
-            [
-                'name' => 'Ana Bautista',
-                'password' => Hash::make('password'),
-                'email_verified_at' => now(),
-            ]
-        );
-        if (! $owner2->roles()->where('role_id', $ownerRole->id)->exists()) {
-            $owner2->roles()->attach($ownerRole->id);
-        }
+        // Keep the walk-in order rows consistent: each one belongs to a branch
+        // (single-branch shop → Main) and records the size that was ordered
+        // (cycled through the design's own sizes), so a design's Orders &
+        // Sales table never shows blank branch/size cells.
+        CatalogOrder::where('store_id', $store->id)
+            ->whereNull('store_branch_id')
+            ->update(['store_branch_id' => $mainBranch->id]);
+        CatalogOrder::where('store_id', $store->id)
+            ->whereNull('selected_size')
+            ->with('catalogItem:id,sizes')
+            ->get()
+            ->each(function (CatalogOrder $order) {
+                $sizes = array_values((array) ($order->catalogItem?->sizes ?? []));
+                if ($sizes !== []) {
+                    $order->update(['selected_size' => $sizes[$order->id % count($sizes)]]);
+                }
+            });
 
-        $store2 = Store::firstOrCreate(
-            ['owner_id' => $owner2->id],
-            [
-                'name' => 'Bautista Custom Tailors',
-                'slug' => 'bautista-tailors',
-                'store_code' => 'BAUT',
-                'description' => 'Everyday tailoring and school uniform specialists.',
-                'specializations' => ['uniform', 'alteration_repair'],
-                'address' => '45 Bonifacio Street',
-                'city' => 'Davao City',
-                'province' => 'Davao del Sur',
-                'email' => 'hello@bautistatailors.com',
-                'phone' => '+639111111111',
-                'status' => 'approved',
-                'approved_at' => now(),
-                'operating_hours' => [
-                    'monday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
-                    'tuesday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
-                    'wednesday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
-                    'thursday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
-                    'friday' => ['is_open' => true, 'open' => '08:00', 'close' => '17:00'],
-                    'saturday' => ['is_open' => true, 'open' => '08:00', 'close' => '12:00'],
-                    'sunday' => ['is_open' => false, 'open' => '08:00', 'close' => '17:00'],
-                ],
-                'logo_path' => Storage::url('logos/bautista_tailors_logo.jpg'),
-                'banner_path' => Storage::url('banners/bautista_tailors_banner.jpg'),
-            ]
-        );
-
-        $basicPlan = SubscriptionPlan::where('slug', 'basic')->first();
-        if ($basicPlan && ! $store2->subscription()->exists()) {
-            StoreSubscription::create([
-                'store_id' => $store2->id,
-                'plan_id' => $basicPlan->id,
-                'status' => 'trial',
-                'starts_at' => now(),
-                'ends_at' => now()->addDays(30),
-                'trial_ends_at' => now()->addDays(30),
-            ]);
-        }
-
-        StoreBranch::firstOrCreate(
-            ['store_id' => $store2->id, 'name' => 'Main Branch'],
-            [
-                'slug' => Str::slug('Main Branch').'-'.uniqid(),
-                'address' => '45 Bonifacio Street',
-                'city' => 'Davao City',
-                // Bonifacio Street is in the Poblacion district (downtown).
-                'district' => 'Poblacion',
-                'latitude' => 7.0644,
-                'longitude' => 125.6108,
-                'contact_number' => '+63 911 111 1111',
-                'is_main' => true,
-                'guide_image_url' => Storage::url('banners/bautista_tailors_banner.jpg'),
-            ]
-        );
-
-        // 22. Third Store Owner account — completes one login per plan tier
-        // (owner@ = Premium, owner2@ = Basic, owner3@ = Pro), so all three
-        // subscription tiers have a real account to log into and test
-        // against instead of only the two extremes.
-        $owner3 = User::firstOrCreate(
-            ['email' => 'owner3@sutura.com'],
-            [
-                'name' => 'Carlos Villanueva',
-                'password' => Hash::make('password'),
-                'email_verified_at' => now(),
-            ]
-        );
-        if (! $owner3->roles()->where('role_id', $ownerRole->id)->exists()) {
-            $owner3->roles()->attach($ownerRole->id);
-        }
-
-        $store3 = Store::firstOrCreate(
-            ['owner_id' => $owner3->id],
-            [
-                'name' => 'Villanueva Bespoke Atelier',
-                'slug' => 'villanueva-atelier',
-                'description' => 'Formal wear and bridal atelier serving multiple branches.',
-                'specializations' => ['gown', 'suit', 'filipiniana'],
-                'address' => '78 J.P. Laurel Avenue',
-                'city' => 'Davao City',
-                'province' => 'Davao del Sur',
-                'email' => 'hello@villanuevaatelier.com',
-                'phone' => '+639222222222',
-                'status' => 'approved',
-                'approved_at' => now(),
-                'operating_hours' => [
-                    'monday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
-                    'tuesday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
-                    'wednesday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
-                    'thursday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
-                    'friday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
-                    'saturday' => ['is_open' => true, 'open' => '10:00', 'close' => '19:00'],
-                    'sunday' => ['is_open' => false, 'open' => '10:00', 'close' => '19:00'],
-                ],
-                'logo_path' => Storage::url('logos/villanueva_atelier_logo.jpg'),
-                'banner_path' => Storage::url('banners/villanueva_atelier_banner.jpg'),
-            ]
-        );
-
-        $proPlan = SubscriptionPlan::where('slug', 'pro')->first();
-        if ($proPlan && ! $store3->subscription()->exists()) {
-            StoreSubscription::create([
-                'store_id' => $store3->id,
-                'plan_id' => $proPlan->id,
-                'status' => 'trial',
-                'starts_at' => now(),
-                'ends_at' => now()->addDays(30),
-                'trial_ends_at' => now()->addDays(30),
-            ]);
-        }
-
-        StoreBranch::firstOrCreate(
-            ['store_id' => $store3->id, 'name' => 'Main Branch'],
-            [
-                'slug' => Str::slug('Main Branch').'-'.uniqid(),
-                'address' => '78 J.P. Laurel Avenue',
-                'city' => 'Davao City',
-                // J.P. Laurel Avenue runs through the Bajada corridor, part
-                // of Buhangin district. This used to be stuck on 7.0731,
-                // 125.6128 — the exact hardcoded "Davao City" map fallback
-                // constant in DiscoveryMap.tsx, not this street's real
-                // location — which put this store's pin stacked on top of
-                // Bautista Custom Tailors' unrelated Poblacion/downtown
-                // branch on the discovery map. Real Bajada-corridor coords.
-                'district' => 'Buhangin',
-                'latitude' => 7.0951,
-                'longitude' => 125.6127,
-                'contact_number' => '+63 922 222 2222',
-                'is_main' => true,
-                'guide_image_url' => Storage::url('banners/villanueva_atelier_banner.jpg'),
-            ]
-        );
+        // 21/22. The second and third store owners (owner2@ Bautista Custom
+        // Tailors, owner3@ Villanueva Bespoke Atelier) were removed on
+        // request — the demo is Thread & Needle Tailoring only. Recreating
+        // them here would silently undo that on the next db:seed.
     }
 }

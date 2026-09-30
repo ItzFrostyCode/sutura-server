@@ -125,4 +125,18 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Shop Login Domain
+    |--------------------------------------------------------------------------
+    |
+    | Admin-issued shop logins live on this domain (e.g. myshop@sutura.shop)
+    | so they can never collide with a customer's personal email. It is a
+    | sign-in identifier only — mail for shop accounts goes to the owner's
+    | contact_email (see User::routeNotificationForMail).
+    |
+    */
+
+    'shop_login_domain' => env('SHOP_LOGIN_DOMAIN', 'sutura.shop'),
+
 ];

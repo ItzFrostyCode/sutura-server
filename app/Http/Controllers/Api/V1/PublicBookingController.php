@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Models\CatalogItem;
 use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
@@ -111,6 +112,13 @@ class PublicBookingController extends Controller
                 ? ['required', Rule::exists('store_branches', 'id')->where('store_id', $store->id)]
                 : ['nullable', Rule::exists('store_branches', 'id')->where('store_id', $store->id)],
             'service_id' => ['nullable', Rule::exists('services', 'id')->where('store_id', $store->id)],
+            // The catalog design this booking came from (the "Book an
+            // Appointment" button on a design's page), scoped to this store.
+            'catalog_item_id' => ['nullable', Rule::exists('catalog_items', 'id')->where('store_id', $store->id)],
+            // The combo package this booking came from ("Book this package"), scoped to this store.
+            'service_package_id' => ['nullable', Rule::exists('service_packages', 'id')->where('store_id', $store->id)],
+            'selected_size' => ['nullable', 'string', 'max:50'],
+            'selected_color' => ['nullable', 'string', 'max:100'],
             'scheduled_at' => ['required', 'date', 'after:now'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
             'notes' => ['nullable', 'string', 'max:2000'],
@@ -124,6 +132,12 @@ class PublicBookingController extends Controller
         ]);
 
         $type = $validated['appointment_type'];
+
+        // A package stands in for its services: when the type needs a service and
+        // none was picked, the package's first service is used.
+        if (! empty($validated['service_package_id']) && empty($validated['service_id'])) {
+            $validated['service_id'] = \App\Models\ServicePackage::find($validated['service_package_id'])?->services()->value('services.id');
+        }
 
         // ── Conditional service_id required ───────────────────────────────────
         if (
@@ -266,6 +280,10 @@ class PublicBookingController extends Controller
                 'customer_id' => $customer->id,
                 'store_branch_id' => $branchId,
                 'service_id' => $validated['service_id'] ?? null,
+                'catalog_item_id' => $validated['catalog_item_id'] ?? null,
+                'service_package_id' => $validated['service_package_id'] ?? null,
+                'selected_size' => $validated['selected_size'] ?? null,
+                'selected_color' => $validated['selected_color'] ?? null,
                 'appointment_type' => $type,
                 'intake_channel' => 'online',
                 'scheduled_at' => $validated['scheduled_at'],

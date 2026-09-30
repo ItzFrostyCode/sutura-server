@@ -104,8 +104,11 @@ class JobOrder extends Model
         'customer_request', 'store_unable_to_fulfill', 'forfeited_deposit_abandoned', 'other',
     ];
 
+    // Every view of an order (owner, staff, customer, public tracker) names the combo it's for.
+    protected $with = ['servicePackage:id,name,bundle_price,service_category', 'servicePackage.services:id,name'];
+
     protected $fillable = [
-        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id',
+        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id', 'service_package_id',
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'quantity', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
@@ -150,6 +153,12 @@ class JobOrder extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class)->withTrashed();
+    }
+
+    /** Set when the order is a whole combo package (one job order for the set). */
+    public function servicePackage(): BelongsTo
+    {
+        return $this->belongsTo(ServicePackage::class);
     }
 
     public function catalogItem(): BelongsTo

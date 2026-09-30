@@ -14,7 +14,7 @@ class ServiceController extends Controller
     public function index(Request $request, Store $store): JsonResponse
     {
         $query = $store->services()->with('pricing')
-            ->withCount(['reviews', 'jobOrders', 'saves'])
+            ->withCount(['reviews', 'saves', 'jobOrders' => fn ($q) => $q->whereNull('service_package_id')])
             ->withAvg('reviews', 'rating')
             // Discount-aware, same formula as CatalogController::index()'s
             // own total_revenue (discount_amount reduces balance, not
@@ -24,13 +24,11 @@ class ServiceController extends Controller
             // a catalog item's orders are that item's own revenue even
             // when the item links back to this service, so summing both
             // would double-count the same money under two different names.
-            ->withSum('jobOrders as job_revenue', 'total_amount')
-            ->withSum('jobOrders as job_balance_sum', 'balance')
-            ->withSum('jobOrders as job_discount_sum', 'discount_amount');
-
-        if ($request->boolean('trashed')) {
-            $query->onlyTrashed();
-        }
+            // Orders for a whole combo package belong to the package (its own revenue in
+            // ServicePackageController::index), not to the service its job row points at.
+            ->withSum(['jobOrders as job_revenue' => fn ($q) => $q->whereNull('service_package_id')], 'total_amount')
+            ->withSum(['jobOrders as job_balance_sum' => fn ($q) => $q->whereNull('service_package_id')], 'balance')
+            ->withSum(['jobOrders as job_discount_sum' => fn ($q) => $q->whereNull('service_package_id')], 'discount_amount');
 
         $services = $query->get();
         $services->each(function ($service) {
@@ -84,10 +82,30 @@ class ServiceController extends Controller
             });
         }
 
-        // Same men/women/wedding/office axis as CatalogController's own
+        // Same men/women/children axis as CatalogController's own
         // publicShowroom() — see CatalogItem::DEPARTMENTS.
         if ($request->filled('department')) {
-            $query->whereRaw('LOWER(department) = ?', [strtolower($request->string('department'))]);
+            $dept = strtolower(trim((string) $request->string('department')));
+            if ($dept !== 'services' && $dept !== 'service') {
+                $query->whereRaw('LOWER(department) = ?', [$dept]);
+            }
+        }
+
+        // Canonical Services.md taxonomy — the SERVICES header mega-menu and
+        // /search?tab=services filter on these, distinct from the free-text
+        // category/categories search above.
+        if ($request->filled('service_category')) {
+            $query->whereRaw('LOWER(service_category) = ?', [strtolower($request->string('service_category'))]);
+        }
+        if ($request->filled('service_leaf_type')) {
+            $query->whereRaw('LOWER(service_leaf_type) = ?', [strtolower($request->string('service_leaf_type'))]);
+        }
+
+        if ($request->filled('min_price')) {
+            $query->where('base_price', '>=', $request->float('min_price'));
+        }
+        if ($request->filled('max_price')) {
+            $query->where('base_price', '<=', $request->float('max_price'));
         }
 
         match ($request->string('sort_by')->toString()) {
@@ -152,7 +170,7 @@ class ServiceController extends Controller
                 // sibling item-detail lookup already embeds catalog reviews.
                 'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest(),
             ])
-            ->get(['id', 'name', 'description', 'categories', 'service_types', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
+            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'service_leaf_type', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
             ->each(function (Service $service) {
                 // withAvg() returns a numeric string, not a float — round it
                 // the same way ServiceController::publicShowroom does.
@@ -165,39 +183,6 @@ class ServiceController extends Controller
             'success' => true,
             'data' => $services,
         ]);
-    }
-
-    /**
-     * A dedicated, minimal endpoint for the "Set Sale Price" quick action —
-     * update()'s StoreServiceRequest requires the full pricing_tiers array on
-     * every save, which a lightweight sale-only action shouldn't have to
-     * reconstruct just to toggle a discount.
-     */
-    public function updateSale(Request $request, Store $store, Service $service): JsonResponse
-    {
-        if ($service->store_id !== $store->id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
-
-        $validated = $request->validate([
-            // A sale price that isn't actually below base_price isn't a
-            // sale — the frontend's own Set Sale Price modal already blocks
-            // this client-side, but nothing stopped it being set directly
-            // via the API, storing a "discount" that discounts nothing.
-            'sale_price' => ['nullable', 'numeric', 'min:0', 'lt:'.(float) $service->base_price],
-            'sale_starts_at' => ['nullable', 'date'],
-            'sale_ends_at' => ['nullable', 'date', 'after_or_equal:sale_starts_at'],
-        ], [
-            'sale_price.lt' => 'The sale price must be lower than the base price (₱'.number_format((float) $service->base_price, 2).').',
-        ]);
-
-        $service->update([
-            'sale_price' => $validated['sale_price'] ?? null,
-            'sale_starts_at' => $validated['sale_starts_at'] ?? null,
-            'sale_ends_at' => $validated['sale_ends_at'] ?? null,
-        ]);
-
-        return response()->json(['success' => true, 'data' => $service->fresh('pricing')]);
     }
 
     public function store(StoreServiceRequest $request, Store $store): JsonResponse
@@ -231,7 +216,7 @@ class ServiceController extends Controller
         $service->update($validated);
 
         // The main edit form doesn't touch sale_price at all (that's
-        // updateSale()'s job, which already validates sale_price < base_price
+        // the old sale endpoint's job (now removed)
         // at write time) — but editing base_price here can silently leave a
         // previously-valid sale_price stale and inverted (e.g. base_price
         // drops from ₱1000 to ₱700 while a ₱800 sale_price from before is
@@ -246,7 +231,9 @@ class ServiceController extends Controller
 
         $this->syncPricingTiers($service, $tiers);
 
-        return response()->json(['success' => true, 'data' => $service->fresh('pricing')]);
+        $paused = $service->is_active ? [] : $service->pausePackagesLeftTooSmall();
+
+        return response()->json(['success' => true, 'data' => $service->fresh('pricing'), 'paused_packages' => $paused]);
     }
 
     /**
@@ -283,29 +270,8 @@ class ServiceController extends Controller
         ]);
 
         $service->delete();
+        $paused = $service->pausePackagesLeftTooSmall();
 
-        return response()->json(['success' => true]);
-    }
-
-    public function restore(Request $request, Store $store, int $serviceId): JsonResponse
-    {
-        $service = Service::onlyTrashed()->where('id', $serviceId)->first();
-
-        if (! $service || $service->store_id !== $store->id) {
-            return response()->json(['success' => false, 'message' => 'Deleted service not found.'], 404);
-        }
-
-        $service->restore();
-
-        $store->auditLogs()->create([
-            'user_id' => $request->user()->id,
-            'action' => 'service_restored',
-            'model_type' => Service::class,
-            'model_id' => $service->id,
-            'payload' => ['name' => $service->name],
-            'ip_address' => $request->ip(),
-        ]);
-
-        return response()->json(['success' => true, 'data' => $service->load('pricing')]);
+        return response()->json(['success' => true, 'paused_packages' => $paused]);
     }
 }

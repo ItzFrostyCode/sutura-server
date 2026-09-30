@@ -67,6 +67,25 @@ class ServiceReviewController extends Controller
     }
 
     /**
+     * The owner's feed of ratings across all of this store's services (read-only: ratings are
+     * star-only, so there is nothing to reply to or moderate).
+     */
+    public function indexForStore(Store $store, Request $request): JsonResponse
+    {
+        $query = \App\Models\ServiceReview::whereHas('service', fn ($q) => $q->where('store_id', $store->id))
+            ->with(['user:id,name', 'service:id,name']);
+
+        if ($request->filled('rating')) {
+            $query->where('rating', (int) $request->input('rating'));
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $query->latest()->paginate((int) $request->input('per_page', 10)),
+        ]);
+    }
+
+    /**
      * Heart/save a Service — mirrors CatalogInteractionController::
      * toggleSave() exactly (same table shape, same toggle-on-repeat-call
      * behavior). Services never had a save/heart equivalent before this;
@@ -140,6 +159,7 @@ class ServiceReviewController extends Controller
                     'description' => $service->description,
                     'base_price' => $service->base_price,
                     'estimated_days' => $service->estimated_days,
+                    'estimated_days_max' => $service->estimated_days_max,
                     'image_url' => $service->image_url,
                     'reviews_count' => $service->reviews_count,
                     'reviews_avg_rating' => $service->reviews_avg_rating !== null ? round((float) $service->reviews_avg_rating, 1) : null,

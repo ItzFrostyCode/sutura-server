@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Models\ServicePricing;
 use App\Models\StaffProfile;
 use App\Models\Store;
+use App\Support\OrderNumber;
 use App\Models\User;
 use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\CustomerPaymentRejectedNotification;
@@ -97,29 +98,12 @@ class JobOrderController extends Controller
     }
 
     /**
-     * "JO-{year}-{sequential}" (e.g. JO-2026-0503) instead of an opaque
-     * random string — matches the format already shown throughout the
-     * dashboard/print ticket/receipts, and lets an owner recognize order
-     * numbers as sequential the way real invoice books work. Scoped per
-     * store and per year; includes soft-deleted orders so a number is never
-     * reused once issued.
+     * "ORD-0001", "ORD-0002", … — the store's single order series, shared with
+     * walk-in catalog orders (see App\Support\OrderNumber).
      */
     private function generateOrderNumber(Store $store): string
     {
-        $year = now()->year;
-        $prefix = "JO-{$year}-";
-
-        // Use a single SQL query instead of loading all job orders into memory.
-        // SUBSTRING extracts the numeric part after the prefix, CAST to integer,
-        // and MAX() finds the highest number — all in one database round-trip
-        // regardless of how many orders exist.
-        $lastNumber = $store->jobOrders()
-            ->withTrashed()
-            ->where('order_number', 'like', $prefix.'%')
-            ->selectRaw('MAX(CAST(SUBSTR(order_number, ?) AS INTEGER)) as max_num', [strlen($prefix) + 1])
-            ->value('max_num') ?? 0;
-
-        return $prefix.str_pad((string) ($lastNumber + 1), 4, '0', STR_PAD_LEFT);
+        return OrderNumber::next($store->id);
     }
 
     /**
@@ -668,6 +652,9 @@ class JobOrderController extends Controller
                 if (empty($validated['garment_category']) && ! empty($appointment->garment_category)) {
                     $validated['garment_category'] = $appointment->garment_category;
                 }
+                if (empty($validated['service_package_id']) && ! empty($appointment->service_package_id)) {
+                    $validated['service_package_id'] = $appointment->service_package_id;
+                }
             }
         }
 
@@ -733,7 +720,7 @@ class JobOrderController extends Controller
             ]);
         }
 
-        $jobOrder->load(['customer:id,name', 'service', 'assignedStaff:id,name', 'staffStages', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images']);
+        $jobOrder->load(['customer:id,name', 'service', 'servicePackage:id,name,bundle_price,service_category', 'servicePackage.services:id,name', 'assignedStaff:id,name', 'staffStages', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images']);
 
         // Notify store owner of the new job order
         $storeOwner = $store->owner;

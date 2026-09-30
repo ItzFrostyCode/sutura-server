@@ -152,7 +152,7 @@ class CatalogOrderController extends Controller
             if ($dupJobOrder) {
                 $duplicateReferenceWarning = "This reference number was already used on job order {$dupJobOrder->order_number} — double-check this isn't a reused receipt before accepting.";
             } elseif ($dupCatalogOrder) {
-                $duplicateReferenceWarning = "This reference number was already used on order #{$dupCatalogOrder->id} — double-check this isn't a reused receipt before accepting.";
+                $duplicateReferenceWarning = "This reference number was already used on order {$dupCatalogOrder->order_number} — double-check this isn't a reused receipt before accepting.";
             } elseif ($dupAppointment) {
                 $duplicateReferenceWarning = "This reference number was already used on an appointment deposit — double-check this isn't a reused receipt before accepting.";
             }
