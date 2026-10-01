@@ -22,6 +22,7 @@ class SupportTicketAdminController extends Controller
             // it directly (Admin\ModerationController) — null for other types.
             'catalogItem:id,store_id,name,admin_hidden_at',
             'submittedBy:id,name,email',
+            'submittedBy.roles:id,name',
             'assignedTo:id,name',
         ])->orderByDesc('created_at');
 
@@ -52,6 +53,7 @@ class SupportTicketAdminController extends Controller
             // it directly (Admin\ModerationController) — null for other types.
             'catalogItem:id,store_id,name,admin_hidden_at',
             'submittedBy:id,name,email',
+            'submittedBy.roles:id,name',
             'replies.user:id,name,email',
             'assignedTo:id,name',
         ])->findOrFail($ticketId);

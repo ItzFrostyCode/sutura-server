@@ -448,6 +448,15 @@ class JobOrderController extends Controller
             $query->where('assigned_staff_id', $request->assigned_staff_id);
         }
 
+        // "My jobs": ones I'm attributed to (I moved them into a production stage) or hold as the assigned staff.
+        if ($request->boolean('mine')) {
+            $myUserId = $request->user()->id;
+            $query->where(function ($q) use ($myUserId) {
+                $q->where('assigned_staff_id', $myUserId)
+                    ->orWhereIn('job_orders.id', DB::table('job_order_staff')->where('user_id', $myUserId)->select('job_order_id'));
+            });
+        }
+
         if ($request->boolean('trashed')) {
             $query->onlyTrashed();
         }
@@ -565,6 +574,29 @@ class JobOrderController extends Controller
             }
         }
 
+        // Plain staff may only open a job order from an appointment of their own
+        // shop and branch (the thesis flow: staff create job orders from scheduled
+        // fittings). They never collect money or discount, so the order starts unpaid.
+        $creator = $request->user();
+        if (! $creator->hasRole('store_owner') && ! $creator->hasRole('branch_manager')) {
+            $fromAppointment = $request->filled('appointment_id') ? Appointment::find($request->appointment_id) : null;
+            $staffBranch = $creator->staffProfile?->store_branch_id;
+            if (
+                ! $fromAppointment
+                || $fromAppointment->store_id !== $store->id
+                || ! in_array($fromAppointment->status, ['confirmed', 'in_progress', 'completed'], true)
+                || $fromAppointment->job_order_id
+                || ($staffBranch && $fromAppointment->store_branch_id && (int) $staffBranch !== (int) $fromAppointment->store_branch_id)
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Staff can create a job order from an approved appointment in their own branch, one per appointment.',
+                ], 403);
+            }
+            $validated['balance'] = $validated['total_amount'];
+            unset($validated['discount_amount'], $validated['payment_method']);
+        }
+
         $validated['order_number'] = $this->generateOrderNumber($store);
         $validated['tracking_code'] = $this->generateTrackingCode($store, $validated['order_number']);
         $validated['order_type'] = $validated['order_type'] ?? 'walk_in';
@@ -651,6 +683,9 @@ class JobOrderController extends Controller
                 }
                 if (empty($validated['garment_category']) && ! empty($appointment->garment_category)) {
                     $validated['garment_category'] = $appointment->garment_category;
+                }
+                if (empty($validated['catalog_item_id']) && ! empty($appointment->catalog_item_id)) {
+                    $validated['catalog_item_id'] = $appointment->catalog_item_id;
                 }
                 if (empty($validated['service_package_id']) && ! empty($appointment->service_package_id)) {
                     $validated['service_package_id'] = $appointment->service_package_id;

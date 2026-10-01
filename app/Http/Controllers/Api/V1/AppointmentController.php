@@ -69,6 +69,22 @@ class AppointmentController extends Controller
      * reason: the owner performing the change themselves already knows what
      * they just did, so this only fires for other actors.
      */
+    /**
+     * Tells the staff member an appointment is assigned to about a change to
+     * it (new time, cancelled) — they planned their day around it. Never the
+     * person who made the change.
+     */
+    private function notifyAssignedStaff(Request $request, Appointment $appointment, string $type, string $title, string $message): void
+    {
+        $staffId = $appointment->assigned_staff_id;
+        if (! $staffId || (int) $staffId === (int) $request->user()->id) {
+            return;
+        }
+        \App\Models\User::find($staffId)?->notify(new StoreActivityNotification(
+            $type, $title, $message, '/dashboard/appointments', ['appointment_id' => $appointment->id]
+        ));
+    }
+
     private function notifyOwnerOfActivity(Request $request, Store $store, array $payload): void
     {
         if ($request->user()->hasRole('store_owner')) {
@@ -173,6 +189,7 @@ class AppointmentController extends Controller
 
         $store = $appointment->store;
         if ($store) {
+            $this->notifyAssignedStaff($request, $appointment, 'appointment_cancelled', 'Appointment Cancelled', "{$request->user()->name} cancelled their appointment.");
             $this->notifyOwnerOfActivity($request, $store, [
                 'type' => 'appointment_cancelled',
                 'title' => 'Appointment Cancelled',
@@ -254,6 +271,7 @@ class AppointmentController extends Controller
             $appointment->forceFill(['reminder_sent_at' => null])->save();
         }
 
+        $this->notifyAssignedStaff($request, $appointment, 'appointment_rescheduled', 'Appointment Time Changed', "{$request->user()->name} moved their appointment to ".$scheduledAt->format('M j, Y g:i A').'.');
         $this->notifyOwnerOfActivity($request, $store, [
             'type' => 'appointment_rescheduled',
             'title' => 'Customer Picked a New Time',
@@ -788,6 +806,7 @@ class AppointmentController extends Controller
                         ));
                     }
                     if ($isRescheduled) {
+                        $this->notifyAssignedStaff($request, $appointment, 'appointment_rescheduled', 'Appointment Time Changed', "Appointment for {$customer->name} is now ".$appointment->scheduled_at?->format('M j, Y g:i A').'.');
                         $customer->notify(new AppointmentStatusNotification($appointment, 'rescheduled', null, $request->user()));
                         $this->notifyOwnerOfActivity($request, $store, [
                             'type' => 'appointment_rescheduled',
@@ -995,6 +1014,7 @@ class AppointmentController extends Controller
             $customer = $appointment->customer;
             if ($customer) {
                 $customer->notify(new AppointmentStatusNotification($appointment, 'cancelled', null, $request->user()));
+                $this->notifyAssignedStaff($request, $appointment, 'appointment_cancelled', 'Appointment Cancelled', "Appointment for {$customer->name} was cancelled.");
                 $this->notifyOwnerOfActivity($request, $store, [
                     'type' => 'appointment_cancelled',
                     'title' => 'Appointment Cancelled',

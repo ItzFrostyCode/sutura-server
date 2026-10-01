@@ -22,6 +22,8 @@ class StoreMeasurementRequest extends FormRequest
             'photo_urls' => ['nullable', 'array', 'max:6'],
             'photo_urls.*' => ['string', 'max:2048'],
             'notes' => ['nullable', 'string'],
+            // finalized = ready to cut from; pending_fitting = needs a fitting check first.
+            'status' => ['nullable', 'in:finalized,pending_fitting'],
         ];
     }
 }
