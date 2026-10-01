@@ -30,7 +30,17 @@ class Appointment extends Model
     ];
 
     /** Valid statuses */
-    public const STATUSES = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show'];
+    public const STATUSES = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show', 'rejected'];
+
+    /** Why a shop may decline a pending request (code => label shown to the customer). */
+    public const REJECTION_REASONS = [
+        'schedule_unavailable' => 'Schedule unavailable',
+        'staff_unavailable' => 'Staff unavailable',
+        'service_unavailable' => 'Service unavailable',
+        'capacity_reached' => 'Shop capacity reached',
+        'cannot_accommodate' => 'Request cannot be accommodated',
+        'other' => 'Other',
+    ];
 
     /**
      * Minimum gap a customer needs between the END of one appointment and
@@ -61,12 +71,13 @@ class Appointment extends Model
      * Key = current status, value = allowed next statuses.
      */
     public const TRANSITIONS = [
-        'pending' => ['confirmed', 'cancelled'],
+        'pending' => ['confirmed', 'cancelled', 'rejected'],
         'confirmed' => ['in_progress', 'cancelled', 'no_show'],
         'in_progress' => ['completed', 'cancelled'],
         'completed' => [],   // terminal — no further transitions
         'cancelled' => [],   // terminal
         'no_show' => [],   // terminal
+        'rejected' => [],   // terminal — the shop declined the request
     ];
 
     protected $fillable = [
@@ -100,6 +111,8 @@ class Appointment extends Model
         'garment_category',
         'fitting_notes',
         'cancellation_reason',
+        'rejection_reason_code',
+        'rejection_note',
         'rebooking_blocked',
         // Not yet written by any current controller — this is the
         // read-side/schema half of the Staff Check-In action
@@ -193,7 +206,7 @@ class Appointment extends Model
      */
     public function isTerminal(): bool
     {
-        return in_array($this->status, ['completed', 'cancelled', 'no_show']);
+        return in_array($this->status, ['completed', 'cancelled', 'no_show', 'rejected']);
     }
 
     /**

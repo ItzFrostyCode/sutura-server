@@ -9,6 +9,8 @@ use App\Http\Requests\Store\UpdateAppointmentRequest;
 use App\Models\Appointment;
 use App\Models\JobOrder;
 use App\Models\Store;
+use App\Models\StaffProfile;
+use App\Notifications\AppointmentAssignedNotification;
 use App\Notifications\AppointmentBookedNotification;
 use App\Notifications\AppointmentPaymentStatusNotification;
 use App\Notifications\AppointmentStatusNotification;
@@ -118,6 +120,8 @@ class AppointmentController extends Controller
             'selected_color' => $appointment->selected_color,
             'payment_status' => $appointment->payment_status,
             'cancellation_reason' => $appointment->cancellation_reason,
+            'rejection_reason' => $appointment->rejection_reason_code ? (Appointment::REJECTION_REASONS[$appointment->rejection_reason_code] ?? 'Other') : null,
+            'rejection_note' => $appointment->rejection_note,
             'rebooking_blocked' => (bool) $appointment->rebooking_blocked,
             // A walk-in took this request's slot: the customer must pick a new time.
             'needs_new_time' => $appointment->status === 'pending' && $appointment->outcome === 'rescheduled',
@@ -303,6 +307,8 @@ class AppointmentController extends Controller
                 'store_branch_id' => $appointment->store_branch_id,
                 'store_id' => $appointment->store_id,
                 'cancellation_reason' => $appointment->cancellation_reason,
+            'rejection_reason' => $appointment->rejection_reason_code ? (Appointment::REJECTION_REASONS[$appointment->rejection_reason_code] ?? 'Other') : null,
+            'rejection_note' => $appointment->rejection_note,
                 'rebooking_blocked' => (bool) $appointment->rebooking_blocked,
                 'store' => $appointment->store ? [
                     'name' => $appointment->store->name,
@@ -915,6 +921,11 @@ class AppointmentController extends Controller
 
     private function validateAndEnforceRole(Appointment $appointment, bool $isStaff, ?string $newStatus): ?string
     {
+        // A decline always carries a reason — it only goes through the reject action.
+        if ($newStatus === 'rejected') {
+            return 'Use the Reject action — a reason is required.';
+        }
+
         if ($isStaff) {
             $staffAllowed = ['in_progress', 'completed'];
             if ($newStatus && ! in_array($newStatus, $staffAllowed)) {
@@ -997,6 +1008,100 @@ class AppointmentController extends Controller
             'success' => true,
             'message' => 'Appointment cancelled.',
             'data' => $appointment,
+        ]);
+    }
+
+    // ─── Reject a pending request (owner/manager only) ────────────────────────
+
+    public function reject(Request $request, Store $store, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+        if ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
+        }
+        if (! $appointment->canTransitionTo('rejected')) {
+            return response()->json(['success' => false, 'message' => 'Only a pending request can be rejected.'], 422);
+        }
+
+        $validated = $request->validate([
+            'reason_code' => ['required', Rule::in(array_keys(Appointment::REJECTION_REASONS))],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $appointment->update([
+            'status' => 'rejected',
+            'rejection_reason_code' => $validated['reason_code'],
+            'rejection_note' => $validated['note'] ?? null,
+        ]);
+
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id,
+            'action' => 'appointment_rejected',
+            'model_type' => Appointment::class,
+            'model_id' => $appointment->id,
+            'payload' => ['reason' => Appointment::REJECTION_REASONS[$validated['reason_code']], 'note' => $validated['note'] ?? null],
+            'ip_address' => $request->ip(),
+        ]);
+
+        $appointment->load(['store:id,name,slug,logo_path', 'customer:id,name,email,phone']);
+        $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'rejected', null, $request->user()));
+
+        return response()->json(['success' => true, 'message' => 'Appointment rejected.', 'data' => $appointment]);
+    }
+
+    // ─── Assign (or unassign) the staff who handles an appointment ────────────
+
+    public function assign(Request $request, Store $store, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+        if ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
+        }
+        if ($appointment->isTerminal()) {
+            return response()->json(['success' => false, 'message' => "A {$appointment->status} appointment can't be assigned."], 422);
+        }
+
+        $validated = $request->validate(['staff_id' => ['nullable', 'integer']]);
+        $staffId = $validated['staff_id'] ?? null;
+
+        if ($staffId !== null) {
+            $profile = StaffProfile::where('user_id', $staffId)->where('store_id', $store->id)->first();
+            if (! $profile) {
+                return response()->json(['success' => false, 'message' => 'That staff member is not part of this store.'], 422);
+            }
+            // A branch appointment is handled by someone from that branch (owner may still pick anyone from the store).
+            if ($appointment->store_branch_id && $profile->store_branch_id
+                && (int) $profile->store_branch_id !== (int) $appointment->store_branch_id
+                && ! $request->user()->hasRole('store_owner')) {
+                return response()->json(['success' => false, 'message' => 'Choose staff from this appointment\'s branch.'], 422);
+            }
+        }
+
+        $changed = (int) ($appointment->assigned_staff_id ?? 0) !== (int) ($staffId ?? 0);
+        $appointment->update(['assigned_staff_id' => $staffId]);
+
+        if ($changed) {
+            $store->auditLogs()->create([
+                'user_id' => $request->user()->id,
+                'action' => 'appointment_staff_assigned',
+                'model_type' => Appointment::class,
+                'model_id' => $appointment->id,
+                'payload' => ['staff_id' => $staffId],
+                'ip_address' => $request->ip(),
+            ]);
+            if ($staffId !== null) {
+                \App\Models\User::find($staffId)?->notify(new AppointmentAssignedNotification($appointment));
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $staffId ? 'Staff assigned.' : 'Staff unassigned.',
+            'data' => $appointment->load(['customer:id,name,email,phone', 'assignedStaff:id,name']),
         ]);
     }
 
