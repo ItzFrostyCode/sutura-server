@@ -17,9 +17,11 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // The demo seeders create real logins with the password "password" (admin included). They
-        // must never run against a live database — production only gets roles and plans.
-        if (app()->environment('production')) {
-            $this->command?->warn('Production: seeded roles and subscription plans only (demo accounts skipped).');
+        // must never run against a live database by accident — production only gets roles and plans.
+        // For a defense/demo deployment, set ALLOW_DEMO_SEED=true for that one run (then remove it
+        // and change every password).
+        if (app()->environment('production') && ! filter_var(env('ALLOW_DEMO_SEED', false), FILTER_VALIDATE_BOOL)) {
+            $this->command?->warn('Production: seeded roles and subscription plans only (demo accounts skipped). Set ALLOW_DEMO_SEED=true to seed the demo shop.');
 
             return;
         }

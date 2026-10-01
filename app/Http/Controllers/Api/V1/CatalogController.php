@@ -128,6 +128,20 @@ class CatalogController extends Controller
      * above is always scoped to one store; this pulls active items across
      * every approved, non-hidden store for the homepage's catalog grid.
      */
+    /**
+     * Km from the customer to the nearest ACTIVE branch of the shop that owns the row. One expression
+     * reused for the select, the radius filter and the sort: Postgres (unlike MySQL) does not let WHERE /
+     * HAVING / an ORDER BY expression refer to a SELECT alias. The cosine is clamped to [-1, 1] because
+     * Postgres raises an error for ACOS() of a value that rounding pushes just past 1.
+     */
+    private static function distanceSql(string $shopIdColumn): string
+    {
+        return '(SELECT MIN(6371 * ACOS(LEAST(1.0, GREATEST(-1.0, '
+            .'COS(RADIANS(?)) * COS(RADIANS(store_branches.latitude)) * COS(RADIANS(store_branches.longitude) - RADIANS(?)) '
+            .'+ SIN(RADIANS(?)) * SIN(RADIANS(store_branches.latitude)))))) '
+            .'FROM store_branches WHERE store_branches.store_id = '.$shopIdColumn." AND store_branches.status = 'active')";
+    }
+
     public function publicShowroom(Request $request): JsonResponse
     {
         $query = CatalogItem::query()
@@ -236,28 +250,25 @@ class CatalogController extends Controller
             $query->where('price', '<=', $request->float('max_price'));
         }
         if ($request->filled('min_rating')) {
-            $query->havingRaw('reviews_avg_rating >= ?', [$request->float('min_rating')]);
+            // Same AVG as withAvg() above, repeated: a select alias cannot be used in WHERE/HAVING on Postgres.
+            $query->whereRaw('(SELECT AVG(r.rating) FROM catalog_item_reviews r WHERE r.catalog_item_id = catalog_items.id) >= ?', [$request->float('min_rating')]);
         }
 
-        // Haversine distance from customer coords to store's nearest active branch
+        // Haversine distance from customer coords to the store's nearest active branch
+        $distanceSql = null;
+        $distanceBind = [];
         if ($request->filled('lat') && $request->filled('lng')) {
             $lat = $request->float('lat');
             $lng = $request->float('lng');
+            $distanceSql = self::distanceSql('catalog_items.store_id');
+            $distanceBind = [$lat, $lng, $lat];
 
-            $query->selectRaw('catalog_items.*, (
-                SELECT MIN(6371 * ACOS(
-                    LEAST(1.0, GREATEST(-1.0,
-                        COS(RADIANS(?)) * COS(RADIANS(store_branches.latitude)) *
-                        COS(RADIANS(store_branches.longitude) - RADIANS(?)) +
-                        SIN(RADIANS(?)) * SIN(RADIANS(store_branches.latitude))
-                    ))
-                ))
-                FROM store_branches
-                WHERE store_branches.store_id = catalog_items.store_id AND store_branches.status = \'active\'
-            ) as distance_km', [$lat, $lng, $lat]);
+            // No "catalog_items.*," prefix: withCount()/withAvg() above already add it implicitly, and
+            // repeating it made paginate()'s COUNT subquery fail with "Duplicate column name 'id'".
+            $query->selectRaw("($distanceSql) as distance_km", $distanceBind);
 
             if ($request->filled('radius_km')) {
-                $query->having('distance_km', '<=', $request->float('radius_km'));
+                $query->whereRaw("$distanceSql <= ?", [...$distanceBind, $request->float('radius_km')]);
             }
         }
 
@@ -276,8 +287,10 @@ class CatalogController extends Controller
             // No real relevance-scoring infra exists (no search-rank column,
             // no full-text index) -- "Top Sales" is the one sort here with
             // an honest signal to order by.
-            'top_sales' => $query->orderByRaw('(catalog_orders_count + job_orders_count) desc'),
-            'distance' => $query->orderByRaw('distance_km IS NULL, distance_km ASC'),
+            'top_sales' => $query->orderByRaw('((SELECT COUNT(*) FROM catalog_orders co WHERE co.catalog_item_id = catalog_items.id) + (SELECT COUNT(*) FROM job_orders jo WHERE jo.catalog_item_id = catalog_items.id AND jo.deleted_at IS NULL)) DESC'),
+            'distance' => $distanceSql
+                ? $query->orderByRaw("$distanceSql IS NULL, $distanceSql ASC", [...$distanceBind, ...$distanceBind])
+                : $query->latest(),
             default => $query->latest(),
         };
 
