@@ -302,6 +302,9 @@ Route::prefix('v1')->group(function () {
                 // reading the resulting payment_status, never setting it.
                 Route::post('/appointments', [AppointmentController::class, 'store']);
                 Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy']);
+                Route::get('/decision-queue', [\App\Http\Controllers\Api\V1\DecisionQueueController::class, 'show']);
+                Route::post('/appointments/{appointment}/reject', [AppointmentController::class, 'reject']);
+                Route::put('/appointments/{appointment}/assign', [AppointmentController::class, 'assign']);
                 Route::put('/appointments/{appointment}/verify-payment', [AppointmentController::class, 'verifyPayment']);
 
                 // Analytics
