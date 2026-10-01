@@ -101,7 +101,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/catalog/{store:slug}/{catalog}', [CatalogController::class, 'show']);
     Route::post('/catalog/{store:slug}/{catalogItem}/view', [CatalogInteractionController::class, 'incrementViews']);
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'throttle:authed'])->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
 
@@ -163,7 +163,7 @@ Route::prefix('v1')->group(function () {
         // user's own id as customer_id, same as /auth/me isn't role-gated.
         Route::get('/my-orders', [JobOrderTrackingController::class, 'myOrders']);
         Route::get('/my-orders/{jobOrder}', [JobOrderTrackingController::class, 'myOrderDetail']);
-        Route::post('/my-orders/{jobOrder}/payments', [\App\Http\Controllers\Api\V1\CustomerPaymentController::class, 'store']);
+        Route::post('/my-orders/{jobOrder}/payments', [\App\Http\Controllers\Api\V1\CustomerPaymentController::class, 'store'])->middleware('throttle:sensitive-writes');
         Route::get('/my-appointments', [AppointmentController::class, 'myAppointments']);
         Route::get('/my-appointments/{appointment}', [AppointmentController::class, 'myAppointmentDetail']);
         // Self-service cancel — distinct from the owner/manager destroy()
@@ -187,9 +187,9 @@ Route::prefix('v1')->group(function () {
 
         // Profile Settings (Any authenticated user)
         Route::put('/profile/personal', [ProfileController::class, 'updatePersonal']);
-        Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+        Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->middleware('throttle:sensitive-writes');
         Route::put('/profile/availability', [ProfileController::class, 'toggleAvailability']);
-        Route::post('/profile/upload', [ProfileController::class, 'uploadImage']);
+        Route::post('/profile/upload', [ProfileController::class, 'uploadImage'])->middleware('throttle:uploads');
 
         // Store Owner & Staff Routes
         Route::prefix('stores/{store}')->group(function () {
@@ -199,11 +199,11 @@ Route::prefix('v1')->group(function () {
                 Route::get('/staff-overview', [\App\Http\Controllers\Api\V1\StaffOverviewController::class, 'show']);
                 // Support Tickets (Shop owner, branch manager and staff → System Admin; non-owners see only their own)
                 Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
-                Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);
+                Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store'])->middleware('throttle:sensitive-writes');
                 Route::get(TICKETS_DETAIL_ROUTE, [SupportTicketController::class, 'show']);
                 Route::post('/tickets/{ticket}/reply', [SupportTicketController::class, 'reply']);
                 Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close']);
-                Route::post('/support/upload', [FileUploadController::class, 'uploadSupportAttachment']);
+                Route::post('/support/upload', [FileUploadController::class, 'uploadSupportAttachment'])->middleware('throttle:uploads');
                 // Measurements
                 Route::get('/measurements', [MeasurementController::class, 'index']);
                 Route::get(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'show']);
@@ -325,7 +325,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/analytics', [AnalyticsController::class, 'index']);
 
                 // File Uploads
-                Route::post('/upload', [FileUploadController::class, 'store']);
+                Route::post('/upload', [FileUploadController::class, 'store'])->middleware('throttle:uploads');
 
                 // Staff Management (list/read is granted to all store members
                 // above) — a branch manager can hire/edit/deactivate staff too,
@@ -366,7 +366,10 @@ Route::prefix('v1')->group(function () {
                 // list itself was left owner-only, so a branch manager's
                 // Catalog page 403'd just loading the item list they were
                 // otherwise fully permitted to manage.
-                Route::get('/catalog', [CatalogController::class, 'index']);
+                // GET /catalog (list) and GET /catalog/{catalog} are served by the public routes at the
+                // bottom of this file: CatalogController itself shows owners/staff of THIS store the full
+                // data and everyone else active items only. A second GET here would be silently
+                // overridden by that one (same method + URI), so it is not repeated.
                 Route::post('/catalog', [CatalogController::class, 'store']);
                 Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
                 Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
@@ -378,7 +381,7 @@ Route::prefix('v1')->group(function () {
                 // can't express that; store()/setMain()/destroy() stay
                 // owner-only above (bigger structural decisions).
                 Route::put('/branches/{branch}', [StoreBranchController::class, 'update']);
-                Route::post('/branches/resolve-maps-link', [StoreBranchController::class, 'resolveMapsLink']);
+                Route::post('/branches/resolve-maps-link', [StoreBranchController::class, 'resolveMapsLink'])->middleware('throttle:sensitive-writes');
             });
 
             // Owner Only Access
@@ -512,8 +515,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/posts', [StorePostController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/reviews', [StoreReviewController::class, 'publicIndex']);
-    Route::post('/public/stores/{store:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt']);
-    Route::post('/public/stores/{store:slug}/upload-reference-image', [FileUploadController::class, 'uploadPublicReferenceImage']);
+    Route::post('/public/stores/{store:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt'])->middleware('throttle:uploads');
+    Route::post('/public/stores/{store:slug}/upload-reference-image', [FileUploadController::class, 'uploadPublicReferenceImage'])->middleware('throttle:uploads');
     Route::get('/stores/{store}/catalog', [CatalogController::class, 'index']);
     Route::get('/stores/{store}/catalog/{catalog}', [CatalogController::class, 'show']);
 });

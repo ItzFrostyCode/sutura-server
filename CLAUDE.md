@@ -126,6 +126,15 @@ Built to match the thesis' Tailoring Staff Module, on top of the existing branch
 - **Measurement `status`** (`finalized` default | `pending_fitting`), carried across versions, visible to the customer in My Measurements.
 - **"Mine" filters:** `GET /jobs?mine=1` (assigned to me or attributed to me via a production stage) and `GET /customers?mine=1` (assigned appointment or a job I am on).
 
+## Security hardening (2026-10-01) — see sutura-client/docs/API-SECURITY-AUDIT.md
+
+- Tenant isolation is `CheckRole` (role **and** membership of `{store}`); keep new shop routes inside the role groups. Cross-shop IDOR sweep over all nested routes: 0 leaks.
+- Public tracker accepts the random **tracking code only** (never the sequential order number); new codes are prefix + 6 random chars.
+- Links users type in (`social_links`, job `reference_link`) go through `App\Rules\SafeLink`; the client renders them with `safeHref()`.
+- Rate limiters: `authed` (300/min, every signed-in route), `uploads`, `sensitive-writes` (AppServiceProvider). Put new upload/payment/ticket endpoints under them.
+- Sanctum tokens expire after 7 days; changing the password revokes the other sessions. `GoogleMapsLinkResolver` follows redirects by hand, https + allowed Google hosts only.
+- `DatabaseSeeder` skips the demo accounts when `APP_ENV=production`.
+
 ## Domain models (current, not the paper's ERD)
 
 `Appointment`, `AuditLog`, `CatalogImage`, `CatalogItem`, `CatalogItemReview`, `CatalogItemSave`, `CatalogOrder`, `CatalogRecommendation`, `JobOrder`, `JobOrderStaff`, `Measurement`, `Payment`, `Role`, `Service`, `ServicePackage`, `ServicePricing`, `Shop`, `ShopBranch`, `ShopPost`, `ShopReview`, `ShopSpecialHour`, `ShopSubscription`, `StaffProfile`, `SubscriptionPlan`, `SupportTicket`, `SupportTicketReply`, `User`.

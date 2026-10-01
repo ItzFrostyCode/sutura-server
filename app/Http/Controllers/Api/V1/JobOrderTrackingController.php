@@ -207,17 +207,17 @@ class JobOrderTrackingController extends Controller
         $raw = strtoupper(trim($trackingCode));
         $normalized = str_replace(['-', ' '], '', $raw);
 
+        // The random tracking code only. The order number (ORD-0001, 0002, …) is sequential and
+        // repeats per shop, so accepting it would let anyone walk through other customers' orders.
         $jobOrder = JobOrder::where('tracking_code', $raw)
             ->orWhereRaw("REPLACE(REPLACE(tracking_code, '-', ''), ' ', '') = ?", [$normalized])
-            ->orWhere('order_number', $raw)
-            ->orWhereRaw("REPLACE(REPLACE(order_number, '-', ''), ' ', '') = ?", [$normalized])
             ->with(['store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name', 'staffStages'])
             ->first();
 
         if (! $jobOrder) {
             return response()->json([
                 'success' => false,
-                'message' => 'No order found for that tracking code or order number. Double-check the code and try again.',
+                'message' => 'No order found for that tracking code. Double-check the code and try again.',
             ], 404);
         }
 

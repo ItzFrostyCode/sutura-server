@@ -92,7 +92,7 @@ class UpdateJobOrderRequest extends FormRequest
             // get a reference photo/link attached after the fact, not just at creation.
             'reference_images' => ['nullable', 'array', 'max:10'],
             'reference_images.*' => ['string', 'max:1000'],
-            'reference_link' => ['nullable', 'string', 'max:500'],
+            'reference_link' => ['nullable', 'string', 'max:500', new \App\Rules\SafeLink],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
             'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
             'hold_reason' => ['nullable', 'string', 'max:2000'],

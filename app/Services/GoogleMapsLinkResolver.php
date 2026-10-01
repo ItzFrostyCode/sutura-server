@@ -28,6 +28,34 @@ class GoogleMapsLinkResolver
         'maps.google.com',
     ];
 
+    private const MAX_REDIRECTS = 5;
+
+    /** https only, on an allowed host, no embedded credentials or custom port. */
+    private static function isAllowed(string $url): bool
+    {
+        $parts = parse_url($url);
+        if (! $parts || strtolower($parts['scheme'] ?? '') !== 'https' || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
+            return false;
+        }
+
+        return in_array(strtolower($parts['host'] ?? ''), self::ALLOWED_HOSTS, true);
+    }
+
+    /** Resolves a Location header (absolute, scheme-relative or path-only) against the URL it came from. */
+    private static function absolute(string $base, string $location): string
+    {
+        if (preg_match('#^https?://#i', $location)) {
+            return $location;
+        }
+        $parts = parse_url($base);
+        $origin = ($parts['scheme'] ?? 'https').'://'.($parts['host'] ?? '');
+        if (str_starts_with($location, '//')) {
+            return ($parts['scheme'] ?? 'https').':'.$location;
+        }
+
+        return $origin.(str_starts_with($location, '/') ? '' : '/').$location;
+    }
+
     /**
      * @return array{latitude: float, longitude: float}|null null when the
      *   URL isn't a recognized/allowed Google Maps link, or no coordinates
@@ -36,30 +64,32 @@ class GoogleMapsLinkResolver
     public static function resolve(string $url): ?array
     {
         $url = trim($url);
-        $host = parse_url($url, PHP_URL_HOST);
-        if (! $host || ! in_array(strtolower($host), self::ALLOWED_HOSTS, true)) {
+        if (! self::isAllowed($url)) {
             return null;
         }
 
         // A short link (maps.app.goo.gl, goo.gl/maps/...) carries no
         // coordinates itself — they only appear in the full URL it
         // redirects to (…/@lat,lng,zoom/… or a …!3dlat!4dlng… data blob).
-        // A direct google.com/maps URL usually already has them, but
-        // resolving unconditionally is harmless (a no-redirect URL just
-        // resolves to itself) and means one code path handles both.
+        //
+        // Redirects are followed by hand, never automatically: an allowlisted host
+        // (google.com has open redirects) could otherwise bounce the server to an
+        // internal or attacker-chosen address. Every hop must itself be an allowed
+        // https Google host, or the chain stops there.
         $finalUrl = $url;
         try {
-            $response = Http::withOptions([
-                'allow_redirects' => ['max' => 5, 'track_redirects' => true],
-                'timeout' => 8,
-            ])->get($url);
-
-            $history = $response->header('X-Guzzle-Redirect-History');
-            if ($history) {
-                $hops = array_filter(array_map('trim', explode(',', $history)));
-                if (! empty($hops)) {
-                    $finalUrl = end($hops);
+            $current = $url;
+            for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
+                $response = Http::withoutRedirecting()->timeout(8)->get($current);
+                $location = $response->redirect() ? $response->header('Location') : null;
+                if (! $location) {
+                    break;
                 }
+                $next = self::absolute($current, $location);
+                if (! self::isAllowed($next)) {
+                    break;
+                }
+                $current = $finalUrl = $next;
             }
         } catch (\Throwable $e) {
             // Network hiccup or the link no longer resolves — fall back to
