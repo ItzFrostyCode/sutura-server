@@ -13,9 +13,21 @@ class SupportTicketController extends Controller
     /**
      * List all tickets for the authenticated store owner.
      */
+    /**
+     * The shop owner sees every ticket of the shop. A branch manager or staff
+     * member can report a problem to the system admin too, but only ever sees
+     * and answers their own tickets.
+     */
+    private function ticketsFor(Request $request, $storeId)
+    {
+        $query = SupportTicket::where('store_id', $storeId);
+
+        return $request->user()->hasRole('store_owner') ? $query : $query->where('user_id', $request->user()->id);
+    }
+
     public function index(Request $request, $storeId)
     {
-        $tickets = SupportTicket::where('store_id', $storeId)
+        $tickets = $this->ticketsFor($request, $storeId)
             ->with(['submittedBy:id,name,email', 'replies'])
             ->orderByDesc('created_at')
             ->get();
@@ -57,9 +69,9 @@ class SupportTicketController extends Controller
     /**
      * Show a single ticket with all replies.
      */
-    public function show($storeId, $ticketId)
+    public function show(Request $request, $storeId, $ticketId)
     {
-        $ticket = SupportTicket::where('store_id', $storeId)
+        $ticket = $this->ticketsFor($request, $storeId)
             ->with(['submittedBy:id,name,email', 'replies.user:id,name,email', 'assignedTo:id,name'])
             ->findOrFail($ticketId);
 
@@ -74,7 +86,7 @@ class SupportTicketController extends Controller
      */
     public function reply(Request $request, $storeId, $ticketId)
     {
-        $ticket = SupportTicket::where('store_id', $storeId)->findOrFail($ticketId);
+        $ticket = $this->ticketsFor($request, $storeId)->findOrFail($ticketId);
 
         $validated = $request->validate([
             'message' => 'required|string',
@@ -105,9 +117,9 @@ class SupportTicketController extends Controller
     /**
      * Close a ticket from store owner side.
      */
-    public function close($storeId, $ticketId)
+    public function close(Request $request, $storeId, $ticketId)
     {
-        $ticket = SupportTicket::where('store_id', $storeId)->findOrFail($ticketId);
+        $ticket = $this->ticketsFor($request, $storeId)->findOrFail($ticketId);
         $ticket->update(['status' => 'closed']);
 
         return response()->json([

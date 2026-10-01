@@ -196,6 +196,14 @@ Route::prefix('v1')->group(function () {
 
             // Shared Access (Owner, Manager, Staff)
             Route::middleware('role:store_owner,branch_manager,staff')->group(function () {
+                Route::get('/staff-overview', [\App\Http\Controllers\Api\V1\StaffOverviewController::class, 'show']);
+                // Support Tickets (Shop owner, branch manager and staff → System Admin; non-owners see only their own)
+                Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
+                Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);
+                Route::get(TICKETS_DETAIL_ROUTE, [SupportTicketController::class, 'show']);
+                Route::post('/tickets/{ticket}/reply', [SupportTicketController::class, 'reply']);
+                Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close']);
+                Route::post('/support/upload', [FileUploadController::class, 'uploadSupportAttachment']);
                 // Measurements
                 Route::get('/measurements', [MeasurementController::class, 'index']);
                 Route::get(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'show']);
@@ -206,6 +214,8 @@ Route::prefix('v1')->group(function () {
                 // Job Orders — staff can view and progress a job's stage/status,
                 // but cannot delete it or reassign who's working on it (that's a
                 // supervisory action reserved for the owner/branch manager below).
+                // Staff may open a job order only from an appointment (e.g. a fitting) — see JobOrderController::store.
+                Route::post('/jobs', [JobOrderController::class, 'store']);
                 Route::get('/jobs', [JobOrderController::class, 'index']);
                 Route::get(JOB_DETAIL_ROUTE, [JobOrderController::class, 'show']);
                 Route::put(JOB_DETAIL_ROUTE, [JobOrderController::class, 'update']);
@@ -278,7 +288,6 @@ Route::prefix('v1')->group(function () {
             // Owner & Branch Manager Access
             Route::middleware('role:store_owner,branch_manager')->group(function () {
                 // Job Orders (Owner/Manager specific actions)
-                Route::post('/jobs', [JobOrderController::class, 'store']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
@@ -410,13 +419,6 @@ Route::prefix('v1')->group(function () {
                 Route::put('/posts/{post}', [StorePostController::class, 'update']);
                 Route::delete('/posts/{post}', [StorePostController::class, 'destroy']);
 
-                // Support Tickets (Store Owner → Admin)
-                Route::get(TICKETS_ROUTE, [SupportTicketController::class, 'index']);
-                Route::post(TICKETS_ROUTE, [SupportTicketController::class, 'store']);
-                Route::get(TICKETS_DETAIL_ROUTE, [SupportTicketController::class, 'show']);
-                Route::post('/tickets/{ticket}/reply', [SupportTicketController::class, 'reply']);
-                Route::post('/tickets/{ticket}/close', [SupportTicketController::class, 'close']);
-                Route::post('/support/upload', [FileUploadController::class, 'uploadSupportAttachment']);
             });
         });
 

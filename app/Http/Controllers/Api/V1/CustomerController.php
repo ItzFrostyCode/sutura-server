@@ -28,6 +28,17 @@ class CustomerController extends Controller
 
         $customerIds = collect(array_merge($jobCustomerIds, $pivotCustomerIds))->unique();
 
+        // "My customers": the ones with an appointment assigned to me or a job I'm on.
+        if ($request->boolean('mine')) {
+            $me = $request->user()->id;
+            $mine = $store->appointments()->where('assigned_staff_id', $me)->pluck('customer_id')
+                ->merge($store->jobOrders()->where(function ($q) use ($me) {
+                    $q->where('assigned_staff_id', $me)
+                        ->orWhereIn('job_orders.id', \Illuminate\Support\Facades\DB::table('job_order_staff')->where('user_id', $me)->select('job_order_id'));
+                })->pluck('customer_id'));
+            $customerIds = $customerIds->intersect($mine->unique())->values();
+        }
+
         // Store-specific notes live on the store_customers pivot, not the User
         // row — fetched once here (keyed by user id) rather than per-customer,
         // same N+1-avoidance reasoning as the jobOrders/appointments eager loads.

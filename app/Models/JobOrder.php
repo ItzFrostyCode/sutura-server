@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Notifications\StoreActivityNotification;
 use App\Support\OrderRequirements;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -295,6 +297,25 @@ class JobOrder extends Model
                 if (! array_key_exists($field, $job->getAttributes())) {
                     $job->{$field} = $value;
                 }
+            }
+        });
+
+        // Tell the branch's staff a new order has landed (their "new order assignment"):
+        // everyone on the floor at that branch, never the person who made it.
+        static::created(function (JobOrder $job) {
+            $staff = User::whereHas('staffProfile', function ($q) use ($job) {
+                $q->where('store_id', $job->store_id)->where('is_branch_manager', false)
+                    ->when($job->store_branch_id, fn ($q2) => $q2->where('store_branch_id', $job->store_branch_id));
+            })->where('id', '!=', Auth::id() ?? 0)->get();
+
+            foreach ($staff as $member) {
+                $member->notify(new StoreActivityNotification(
+                    'job_new_for_branch',
+                    'New Order',
+                    "Order {$job->order_number} was added".($job->due_date ? ' — due '.\Illuminate\Support\Carbon::parse($job->due_date)->format('M j') : '').'.',
+                    '/dashboard/jobs/'.$job->id,
+                    ['job_order_id' => $job->id]
+                ));
             }
         });
 

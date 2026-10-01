@@ -97,6 +97,7 @@ class MeasurementController extends Controller
             'notes' => 'nullable|string',
             'photo_urls' => 'nullable|array|max:6',
             'photo_urls.*' => 'string|max:2048',
+            'status' => 'nullable|in:finalized,pending_fitting',
         ]);
 
         if (isset($validated['measurements'])) {
@@ -119,6 +120,7 @@ class MeasurementController extends Controller
             'metrics' => $validated['metrics'] ?? $measurement->metrics,
             'notes' => array_key_exists('notes', $validated) ? $validated['notes'] : $measurement->notes,
             'photo_urls' => array_key_exists('photo_urls', $validated) ? $validated['photo_urls'] : $measurement->photo_urls,
+            'status' => $validated['status'] ?? $measurement->status,
         ]);
 
         return response()->json([

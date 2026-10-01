@@ -16,10 +16,27 @@ class SupportTicket extends Model
         'type', 'priority', 'status', 'assigned_to', 'resolved_at', 'catalog_item_id',
     ];
 
+    protected $appends = ['submitted_by_role'];
+
     protected $casts = [
         'resolved_at' => 'datetime',
         'attachments' => 'array',
     ];
+
+    /** Which kind of account filed it, for the admin's list: owner / branch manager / staff / customer. */
+    public function getSubmittedByRoleAttribute(): ?string
+    {
+        $names = $this->relationLoaded('submittedBy') && $this->submittedBy?->relationLoaded('roles')
+            ? $this->submittedBy->roles->pluck('name')->all()
+            : [];
+        foreach (['store_owner', 'branch_manager', 'staff', 'customer'] as $role) {
+            if (in_array($role, $names, true)) {
+                return $role;
+            }
+        }
+
+        return null;
+    }
 
     public function catalogItem(): BelongsTo
     {
