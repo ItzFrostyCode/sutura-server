@@ -163,6 +163,7 @@ Route::prefix('v1')->group(function () {
         // user's own id as customer_id, same as /auth/me isn't role-gated.
         Route::get('/my-orders', [JobOrderTrackingController::class, 'myOrders']);
         Route::get('/my-orders/{jobOrder}', [JobOrderTrackingController::class, 'myOrderDetail']);
+        Route::post('/my-orders/{jobOrder}/payments', [\App\Http\Controllers\Api\V1\CustomerPaymentController::class, 'store']);
         Route::get('/my-appointments', [AppointmentController::class, 'myAppointments']);
         Route::get('/my-appointments/{appointment}', [AppointmentController::class, 'myAppointmentDetail']);
         // Self-service cancel — distinct from the owner/manager destroy()
@@ -304,6 +305,10 @@ Route::prefix('v1')->group(function () {
                 Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy']);
                 Route::get('/decision-queue', [\App\Http\Controllers\Api\V1\DecisionQueueController::class, 'show']);
                 Route::post('/appointments/{appointment}/reject', [AppointmentController::class, 'reject']);
+                Route::get('/payment-methods', [\App\Http\Controllers\Api\V1\PaymentMethodController::class, 'index']);
+                Route::post('/payment-methods', [\App\Http\Controllers\Api\V1\PaymentMethodController::class, 'store']);
+                Route::put('/payment-methods/{paymentMethod}', [\App\Http\Controllers\Api\V1\PaymentMethodController::class, 'update']);
+                Route::delete('/payment-methods/{paymentMethod}', [\App\Http\Controllers\Api\V1\PaymentMethodController::class, 'destroy']);
                 Route::put('/appointments/{appointment}/assign', [AppointmentController::class, 'assign']);
                 Route::put('/appointments/{appointment}/verify-payment', [AppointmentController::class, 'verifyPayment']);
 
@@ -500,6 +505,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/service-packages', [ServicePackageController::class, 'publicShowroom']);
     Route::get('/public/stores/{store:slug}', [StoreController::class, 'publicProfile']);
     Route::get('/public/stores/{store:slug}/services', [ServiceController::class, 'publicIndex']);
+    Route::get('/public/stores/{store:slug}/payment-methods', [\App\Http\Controllers\Api\V1\PaymentMethodController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/service-packages', [ServicePackageController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/posts', [StorePostController::class, 'publicIndex']);

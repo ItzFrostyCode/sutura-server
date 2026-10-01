@@ -22,6 +22,7 @@ class UpdateAppointmentRequest extends FormRequest
             // Customer and appointment details updatable by owner/manager
             'customer_id' => ['sometimes', 'required', 'integer', 'exists:users,id'],
             'appointment_type' => ['sometimes', 'required', 'in:'.implode(',', Appointment::TYPES)],
+            'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'service_id' => [
                 'sometimes', 'nullable', 'integer',
                 Rule::exists('services', 'id')->where('store_id', $store?->id),

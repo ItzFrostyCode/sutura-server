@@ -25,7 +25,7 @@ class AppointmentAssignedNotification extends Notification
         $a = $this->appointment->loadMissing(['customer:id,name', 'service:id,name', 'catalogItem:id,name', 'servicePackage:id,name', 'branch:id,name']);
         $what = $a->catalogItem?->name ?? $a->servicePackage?->name ?? $a->service?->name;
         $when = $a->scheduled_at ? Carbon::parse($a->scheduled_at)->format('M d, Y h:i A') : 'a scheduled time';
-        $type = str_replace('_', ' ', (string) $a->appointment_type);
+        $type = $a->appointment_type === 'other' && $a->purpose_label ? $a->purpose_label : str_replace('_', ' ', (string) $a->appointment_type);
 
         return [
             'type' => 'appointment_assigned',

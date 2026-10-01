@@ -99,6 +99,10 @@ class ServicePackageController extends Controller
             'image_url' => $validated['image_url'] ?? null,
             'bundle_price' => $validated['bundle_price'] ?? null,
             'is_active' => $validated['is_active'] ?? true,
+            'measurement_requirement' => $validated['measurement_requirement'] ?? null,
+            'fitting_requirement' => $validated['fitting_requirement'] ?? null,
+            'payment_policy' => $validated['payment_policy'] ?? null,
+            'payment_policy_percent' => $validated['payment_policy_percent'] ?? null,
         ]);
 
         $package->services()->sync($validated['service_ids']);
@@ -124,6 +128,10 @@ class ServicePackageController extends Controller
             'image_url' => $validated['image_url'] ?? null,
             'bundle_price' => $validated['bundle_price'] ?? null,
             'is_active' => $validated['is_active'] ?? $servicePackage->is_active,
+            'measurement_requirement' => array_key_exists('measurement_requirement', $validated) ? $validated['measurement_requirement'] : $servicePackage->measurement_requirement,
+            'fitting_requirement' => array_key_exists('fitting_requirement', $validated) ? $validated['fitting_requirement'] : $servicePackage->fitting_requirement,
+            'payment_policy' => array_key_exists('payment_policy', $validated) ? $validated['payment_policy'] : $servicePackage->payment_policy,
+            'payment_policy_percent' => array_key_exists('payment_policy_percent', $validated) ? $validated['payment_policy_percent'] : $servicePackage->payment_policy_percent,
         ]);
 
         $servicePackage->services()->sync($validated['service_ids']);
@@ -152,6 +160,7 @@ class ServicePackageController extends Controller
     private function validatePackage(Request $request, Store $store): array
     {
         return $request->validate([
+            ...\App\Support\OrderRequirements::offeringRules(),
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'image_url' => ['nullable', 'string', 'max:255'],

@@ -28,6 +28,7 @@ class StoreAppointmentRequest extends FormRequest
             // hasSchedulingConflict()), leaking a stack trace in the response.
             'customer_id' => ['required', 'integer', 'exists:users,id'],
             'appointment_type' => ['required', 'in:'.implode(',', Appointment::TYPES)],
+            'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'service_id' => [
                 'nullable', 'integer',
                 Rule::exists('services', 'id')->where('store_id', $store?->id),

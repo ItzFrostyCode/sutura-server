@@ -36,6 +36,7 @@ class DecisionQueueController extends Controller
                 'customer' => $a->customer?->name,
                 'what' => $a->catalogItem?->name ?? $a->servicePackage?->name ?? $a->service?->name,
                 'appointment_type' => $a->appointment_type,
+                'purpose_label' => $a->purpose_label,
                 'scheduled_at' => $a->scheduled_at,
                 'branch' => $a->branch?->name,
                 'intake_channel' => $a->intake_channel,

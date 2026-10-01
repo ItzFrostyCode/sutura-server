@@ -10,6 +10,9 @@ class Payment extends Model
         'job_order_id',
         'amount',
         'payment_method',
+        'source',
+        'type',
+        'payment_method_id',
         'reference',
         'recorded_by',
         'notes',
@@ -29,6 +32,33 @@ class Payment extends Model
     ];
 
     protected $appends = ['status'];
+
+    public const SOURCES = ['online', 'walk_in'];
+
+    public const TYPES = ['deposit', 'partial', 'full', 'balance'];
+
+    /** Stored values: Maya is kept as 'paymaya' (the value existing data already uses). */
+    public const METHODS = ['cash', 'gcash', 'paymaya', 'bank_transfer', 'other'];
+
+    /**
+     * What a payment is for, worked out from where the order stands when it is made:
+     * the first one is a deposit (or the full amount if it clears the order), later ones are
+     * partial payments until one clears what is left — that one is the balance.
+     */
+    public static function inferType(JobOrder $job, float $amount): string
+    {
+        $pending = (float) $job->payments()->whereNull('verified_at')->whereNull('rejected_at')->sum('amount');
+        $outstanding = max(0.0, (float) $job->balance - $pending);
+        $clears = $amount >= $outstanding - 0.005;
+        $hasPrior = $job->payments()->whereNull('rejected_at')->exists();
+
+        return $hasPrior ? ($clears ? 'balance' : 'partial') : ($clears ? 'full' : 'deposit');
+    }
+
+    public function method()
+    {
+        return $this->belongsTo(PaymentMethod::class, 'payment_method_id');
+    }
 
     public function jobOrder()
     {

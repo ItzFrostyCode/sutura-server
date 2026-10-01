@@ -21,6 +21,7 @@ class Store extends Model
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
         'fitting_fee', 'fitting_limit', 'fitting_limit_policy', 'repair_requires_downpayment',
+        'default_measurement_requirement', 'default_fitting_requirement', 'default_payment_policy', 'default_payment_percent',
         'specializations', 'is_featured', 'is_hidden',
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
         'gcash_qr_path', 'bank_qr_path',
@@ -104,6 +105,11 @@ class Store extends Model
     public function services(): HasMany
     {
         return $this->hasMany(Service::class);
+    }
+
+    public function paymentMethods(): HasMany
+    {
+        return $this->hasMany(PaymentMethod::class);
     }
 
     public function servicePackages(): HasMany

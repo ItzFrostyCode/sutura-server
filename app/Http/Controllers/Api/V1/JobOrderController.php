@@ -826,10 +826,34 @@ class JobOrderController extends Controller
             // committed yet at those stages, only once Pattern Making (or
             // its Bulk Order Override, Mass Cutting & Printing) starts.
             // Repairs skip this unless the shop opted in (requiresDownpaymentFor).
-            if ($jobOrder->requiresDownpaymentFor($newStatus) && $amountDue > 0 && $paidSoFar < ($amountDue * 0.5)) {
+            // The required share is this job's snapshotted payment policy
+            // (none / full / deposit / custom percent), not a fixed 50%.
+            $fraction = $jobOrder->requiredDepositFraction();
+            if ($jobOrder->requiresDownpaymentFor($newStatus) && $amountDue > 0 && $paidSoFar + 0.005 < ($amountDue * $fraction)) {
+                $label = $fraction >= 1 ? 'The full payment' : 'A '.(int) round($fraction * 100).'% downpayment';
                 return response()->json([
                     'success' => false,
-                    'message' => 'A 50% downpayment must be collected before production can start on this job.',
+                    'message' => $label.' must be collected before production can start on this job.',
+                ], 422);
+            }
+
+            // Final fitting, per this job's snapshotted requirement. 'none' means the
+            // shop does not fit this order, so it never enters the fitting stage;
+            // 'required' means it cannot be handed over before a fitting is done.
+            if ($newStatus === 'ready_for_fitting' && $jobOrder->fitting_requirement === 'none') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This order does not need a final fitting. Move it to QC / Ironing or Ready for Pickup instead.',
+                ], 422);
+            }
+            if (
+                in_array($newStatus, ['ready_for_pickup', 'completed'], true)
+                && $jobOrder->fitting_requirement === 'required'
+                && ! $jobOrder->appointments()->where('appointment_type', 'fitting')->where('status', 'completed')->exists()
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'A final fitting is required for this order. Complete the fitting appointment before handing it over.',
                 ], 422);
             }
 
@@ -1133,15 +1157,19 @@ class JobOrderController extends Controller
 
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
-            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya',
+            'payment_method' => 'sometimes|string|in:'.implode(',', \App\Models\Payment::METHODS),
+            // Where it was made and what it is for — both optional (type is worked out when absent).
+            'source' => 'sometimes|in:'.implode(',', \App\Models\Payment::SOURCES),
+            'type' => 'sometimes|nullable|in:'.implode(',', \App\Models\Payment::TYPES),
+            'payment_method_id' => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('payment_methods', 'id')->where('store_id', $store->id)],
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             // A GCash/PayMaya payment is the artifact being verified against —
             // required, not optional, now that it actually gates something
             // (see the pending-verification handling below). Cash needs no
             // proof: the money is physically in hand at the counter.
-            'receipt_path' => ['required_if:payment_method,gcash,paymaya', 'nullable', 'string', 'max:2048'],
-            'cash_tendered' => ['required_if:payment_method,cash', 'nullable', 'numeric', 'min:0'],
+            'receipt_path' => [\Illuminate\Validation\Rule::requiredIf(fn () => $request->input('payment_method', 'cash') !== 'cash'), 'nullable', 'string', 'max:2048'],
+            'cash_tendered' => [\Illuminate\Validation\Rule::requiredIf(fn () => $request->input('payment_method', 'cash') === 'cash'), 'nullable', 'numeric', 'min:0'],
         ]);
 
         $paymentMethod = $validated['payment_method'] ?? 'cash';
@@ -1217,6 +1245,9 @@ class JobOrderController extends Controller
                 $locked->payments()->create([
                     'amount' => $paymentAmount,
                     'payment_method' => $paymentMethod,
+                    'source' => $validated['source'] ?? 'walk_in',
+                    'type' => $validated['type'] ?? \App\Models\Payment::inferType($locked, $paymentAmount),
+                    'payment_method_id' => $validated['payment_method_id'] ?? null,
                     'reference' => $validated['reference'] ?? null,
                     'recorded_by' => $request->user()->id,
                     'notes' => $validated['notes'] ?? null,

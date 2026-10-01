@@ -106,6 +106,7 @@ class AppointmentController extends Controller
         $appointments->getCollection()->transform(fn (Appointment $appointment) => [
             'id' => $appointment->id,
             'appointment_type' => $appointment->appointment_type,
+            'purpose_label' => $appointment->purpose_label,
             'intake_channel' => $appointment->intake_channel,
             'status' => $appointment->status,
             'scheduled_at' => $appointment->scheduled_at,
@@ -284,6 +285,7 @@ class AppointmentController extends Controller
             'data' => [
                 'id' => $appointment->id,
                 'appointment_type' => $appointment->appointment_type,
+            'purpose_label' => $appointment->purpose_label,
                 'intake_channel' => $appointment->intake_channel,
                 'status' => $appointment->status,
                 'scheduled_at' => $appointment->scheduled_at,
@@ -355,6 +357,9 @@ class AppointmentController extends Controller
 
         if ($request->filled('customer_id')) {
             $query->where('customer_id', $request->customer_id);
+        }
+        if ($request->input('assigned_to') === 'me') {
+            $query->where('assigned_staff_id', $request->user()->id);
         }
         if ($request->filled('status')) {
             $query->where('status', $request->status);

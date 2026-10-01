@@ -31,6 +31,7 @@ class StoreServiceRequest extends FormRequest
             : ['nullable', 'string', Rule::in(CanonicalTaxonomy::allServiceTypeSlugs())];
 
         return [
+            ...\App\Support\OrderRequirements::offeringRules(),
             'name' => ['required', 'string', 'max:191'],
             'description' => ['nullable', 'string'],
             'categories' => ['nullable', 'array'],

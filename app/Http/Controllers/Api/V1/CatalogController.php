@@ -336,6 +336,7 @@ class CatalogController extends Controller
             : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
 
         $validated = $request->validate([
+            ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',
@@ -394,6 +395,10 @@ class CatalogController extends Controller
             // retail/rental system.
             'listing_type' => 'made_to_order',
             'is_active' => $validated['is_active'] ?? true,
+            'measurement_requirement' => $validated['measurement_requirement'] ?? null,
+            'fitting_requirement' => $validated['fitting_requirement'] ?? null,
+            'payment_policy' => $validated['payment_policy'] ?? null,
+            'payment_policy_percent' => $validated['payment_policy_percent'] ?? null,
             'size_chart_image_url' => $validated['size_chart_image_url'] ?? null,
             'size_chart_columns' => $validated['size_chart_columns'] ?? null,
             'size_chart_rows' => $validated['size_chart_rows'] ?? null,
@@ -544,6 +549,7 @@ class CatalogController extends Controller
             : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
 
         $validated = $request->validate([
+            ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'sometimes|string|max:255',
             'price' => 'sometimes|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',
@@ -613,6 +619,10 @@ class CatalogController extends Controller
             'features' => array_key_exists('features', $validated) ? $validated['features'] : $catalog->features,
             'care_instructions' => array_key_exists('care_instructions', $validated) ? $validated['care_instructions'] : $catalog->care_instructions,
             'external_gallery_url' => array_key_exists('external_gallery_url', $validated) ? $validated['external_gallery_url'] : $catalog->external_gallery_url,
+            'measurement_requirement' => array_key_exists('measurement_requirement', $validated) ? $validated['measurement_requirement'] : $catalog->measurement_requirement,
+            'fitting_requirement' => array_key_exists('fitting_requirement', $validated) ? $validated['fitting_requirement'] : $catalog->fitting_requirement,
+            'payment_policy' => array_key_exists('payment_policy', $validated) ? $validated['payment_policy'] : $catalog->payment_policy,
+            'payment_policy_percent' => array_key_exists('payment_policy_percent', $validated) ? $validated['payment_policy_percent'] : $catalog->payment_policy_percent,
         ]);
 
         if (isset($validated['images'])) {
