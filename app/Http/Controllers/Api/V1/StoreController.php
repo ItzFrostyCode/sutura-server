@@ -89,6 +89,20 @@ class StoreController extends Controller
      * a pending/unapproved store publicly reachable by direct slug lookup.
      * A listing surface shouldn't repeat that gap.
      */
+    /**
+     * Km from the customer to the nearest ACTIVE branch of the shop that owns the row. One expression
+     * reused for the select, the radius filter and the sort: Postgres (unlike MySQL) does not let WHERE /
+     * HAVING / an ORDER BY expression refer to a SELECT alias. The cosine is clamped to [-1, 1] because
+     * Postgres raises an error for ACOS() of a value that rounding pushes just past 1.
+     */
+    private static function distanceSql(string $shopIdColumn): string
+    {
+        return '(SELECT MIN(6371 * ACOS(LEAST(1.0, GREATEST(-1.0, '
+            .'COS(RADIANS(?)) * COS(RADIANS(store_branches.latitude)) * COS(RADIANS(store_branches.longitude) - RADIANS(?)) '
+            .'+ SIN(RADIANS(?)) * SIN(RADIANS(store_branches.latitude)))))) '
+            .'FROM store_branches WHERE store_branches.store_id = '.$shopIdColumn." AND store_branches.status = 'active')";
+    }
+
     public function publicIndex(Request $request): JsonResponse
     {
         $query = Store::query()
@@ -214,9 +228,11 @@ class StoreController extends Controller
                         // JSON_UNQUOTE always yields a string, even for a JSON
                         // boolean.
                         $qq->whereNull('today_special.store_id')
-                            ->whereRaw("stores.operating_hours->>'$.\"{$day}\".is_open' = 'true'")
-                            ->whereRaw("stores.operating_hours->>'$.\"{$day}\".open' <= ?", [$time])
-                            ->whereRaw("stores.operating_hours->>'$.\"{$day}\".close' > ?", [$time]);
+                            // Laravel's JSON-path where() compiles to the right syntax on MySQL and Postgres
+                            // ($day is one of the seven weekday names, never user input).
+                            ->where("stores.operating_hours->{$day}->is_open", true)
+                            ->where("stores.operating_hours->{$day}->open", '<=', $time)
+                            ->where("stores.operating_hours->{$day}->close", '>', $time);
                     })->orWhere(function ($qq) use ($time) {
                         // Override exists today and it's not a full closure —
                         // check the special hours instead of the regular ones.
@@ -281,7 +297,8 @@ class StoreController extends Controller
         }
 
         if ($request->filled('min_rating')) {
-            $query->havingRaw('reviews_avg_rating >= ?', [$request->float('min_rating')]);
+            // Same AVG as withAvg() above, repeated: a select alias cannot be used in WHERE/HAVING on Postgres.
+            $query->whereRaw('(SELECT AVG(r.rating) FROM store_reviews r WHERE r.store_id = stores.id) >= ?', [$request->float('min_rating')]);
         }
 
         if ($request->filled('lat') && $request->filled('lng')) {
@@ -293,18 +310,11 @@ class StoreController extends Controller
             // No "stores.*," prefix here — withCount()/withAvg() above already
             // add it implicitly; repeating it caused a "duplicate column
             // 'id'" error once paginate() wrapped this into a COUNT subquery.
-            $query->selectRaw('(
-                SELECT MIN(6371 * ACOS(
-                    COS(RADIANS(?)) * COS(RADIANS(store_branches.latitude)) *
-                    COS(RADIANS(store_branches.longitude) - RADIANS(?)) +
-                    SIN(RADIANS(?)) * SIN(RADIANS(store_branches.latitude))
-                ))
-                FROM store_branches
-                WHERE store_branches.store_id = stores.id AND store_branches.status = \'active\'
-            ) as distance_km', [$lat, $lng, $lat]);
+            $distanceSql = self::distanceSql('stores.id');
+            $query->selectRaw("($distanceSql) as distance_km", [$lat, $lng, $lat]);
 
             if ($request->filled('radius_km')) {
-                $query->having('distance_km', '<=', $request->float('radius_km'));
+                $query->whereRaw("$distanceSql <= ?", [$lat, $lng, $lat, $request->float('radius_km')]);
             }
         }
 
