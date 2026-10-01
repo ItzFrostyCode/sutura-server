@@ -441,7 +441,14 @@ class StoreController extends Controller
             if (! $isOwnerViewer) {
                 $query->where('status', 'active');
             }
-        }, 'owner:id,name,email,profile_picture']);
+        }, 'owner:id,name,profile_picture']);
+
+        // The owner's login email is the account identifier — never part of a public storefront
+        // (the shop's own business email/phone are already on the store itself). Admin-side
+        // bookkeeping (who approved it, rejection / takedown reasons) is for the owner and admin only.
+        if (! $isOwnerViewer) {
+            $store->makeHidden(['approved_by', 'rejection_reason', 'admin_hidden_reason', 'deleted_at']);
+        }
 
         return response()->json([
             'success' => true,

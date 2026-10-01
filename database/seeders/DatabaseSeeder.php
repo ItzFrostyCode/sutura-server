@@ -14,6 +14,17 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RoleSeeder::class,
             SubscriptionPlanSeeder::class,
+        ]);
+
+        // The demo seeders create real logins with the password "password" (admin included). They
+        // must never run against a live database — production only gets roles and plans.
+        if (app()->environment('production')) {
+            $this->command?->warn('Production: seeded roles and subscription plans only (demo accounts skipped).');
+
+            return;
+        }
+
+        $this->call([
             LocalTestSeeder::class,
             // Demo data for payment methods, requirements, staff and the newer appointment/measurement states.
             StaffAndPaymentsDemoSeeder::class,

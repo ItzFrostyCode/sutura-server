@@ -21,6 +21,16 @@ class ProfileController extends Controller
      */
     public function publicShow(int $id): JsonResponse
     {
+        // Only people who already show up publicly — someone who wrote a review, or a shop
+        // owner — can be opened. Otherwise this would list the name and photo of every
+        // account (customers, staff, admins) just by counting ids upward.
+        $isPublic = \App\Models\StoreReview::where('user_id', $id)->exists()
+            || \App\Models\ServiceReview::where('user_id', $id)->exists()
+            || \App\Models\CatalogItemReview::where('user_id', $id)->exists()
+            || \App\Models\ServicePackageReview::where('user_id', $id)->exists()
+            || \App\Models\Store::where('owner_id', $id)->where('status', 'approved')->exists();
+        abort_unless($isPublic, 404);
+
         $user = User::select('id', 'name', 'profile_picture')->findOrFail($id);
 
         return response()->json([
@@ -84,6 +94,10 @@ class ProfileController extends Controller
             'password' => Hash::make($validated['password']),
             'must_change_password' => false,
         ])->save();
+
+        // A changed password signs out every other device/tab (a stolen token dies with the
+        // old password); the session making the change stays signed in.
+        $request->user()->tokens()->where('id', '!=', $request->user()->currentAccessToken()?->id)->delete();
 
         return response()->json([
             'success' => true,

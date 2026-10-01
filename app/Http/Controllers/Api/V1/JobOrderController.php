@@ -147,7 +147,9 @@ class JobOrderController extends Controller
 
         while (true) {
             $suffix = '';
-            for ($i = 0; $i < 4; $i++) {
+            // 6 random characters (~1 billion combinations) after the shop prefix: the code is the
+            // only thing standing between the public tracker and someone else's order.
+            for ($i = 0; $i < 6; $i++) {
                 $suffix .= $charset[random_int(0, strlen($charset) - 1)];
             }
             // Ensure combination of letters and numbers

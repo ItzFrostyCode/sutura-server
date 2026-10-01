@@ -45,7 +45,7 @@ class UpdateStoreRequest extends FormRequest
             'max_appointments_per_day' => ['nullable', 'integer', 'min:1'],
             'latitude' => ['nullable', 'numeric'],
             'longitude' => ['nullable', 'numeric'],
-            'social_links' => ['nullable', 'array'],
+            'social_links' => ['nullable', 'array', 'max:12', new \App\Rules\SafeLink],
             'operating_hours' => ['nullable', 'array'],
             // How many fitting appointments a job order gets before the store
             // starts charging an extra fitting fee — see JobOrderController's

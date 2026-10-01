@@ -110,7 +110,7 @@ class StoreJobOrderRequest extends FormRequest
             // acceptable directly so a job with no appointment_id can still carry one.
             'reference_images' => ['nullable', 'array', 'max:10'],
             'reference_images.*' => ['string', 'max:1000'],
-            'reference_link' => ['nullable', 'string', 'max:500'],
+            'reference_link' => ['nullable', 'string', 'max:500', new \App\Rules\SafeLink],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
             'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
             'is_rush' => ['nullable', 'boolean'],
