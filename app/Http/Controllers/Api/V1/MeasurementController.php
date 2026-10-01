@@ -55,7 +55,9 @@ class MeasurementController extends Controller
 
     public function store(StoreMeasurementRequest $request, Store $store): JsonResponse
     {
-        $measurement = $store->measurements()->create($request->validated());
+        $data = $request->validated();
+        $data['metrics'] = $data['metrics'] ?? []; // photo-only profiles carry no typed values
+        $measurement = $store->measurements()->create($data);
 
         return response()->json([
             'success' => true,
@@ -93,6 +95,8 @@ class MeasurementController extends Controller
             'metrics' => 'sometimes|array',
             'measurements' => 'sometimes|array',
             'notes' => 'nullable|string',
+            'photo_urls' => 'nullable|array|max:6',
+            'photo_urls.*' => 'string|max:2048',
         ]);
 
         if (isset($validated['measurements'])) {
@@ -114,6 +118,7 @@ class MeasurementController extends Controller
             'version' => $measurement->version + 1,
             'metrics' => $validated['metrics'] ?? $measurement->metrics,
             'notes' => array_key_exists('notes', $validated) ? $validated['notes'] : $measurement->notes,
+            'photo_urls' => array_key_exists('photo_urls', $validated) ? $validated['photo_urls'] : $measurement->photo_urls,
         ]);
 
         return response()->json([

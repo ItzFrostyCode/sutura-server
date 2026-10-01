@@ -108,6 +108,7 @@ class PublicBookingController extends Controller
 
             // Booking details
             'appointment_type' => ['required', 'in:'.implode(',', Appointment::TYPES)],
+            'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'store_branch_id' => $branchCount > 1
                 ? ['required', Rule::exists('store_branches', 'id')->where('store_id', $store->id)]
                 : ['nullable', Rule::exists('store_branches', 'id')->where('store_id', $store->id)],
@@ -285,6 +286,7 @@ class PublicBookingController extends Controller
                 'selected_size' => $validated['selected_size'] ?? null,
                 'selected_color' => $validated['selected_color'] ?? null,
                 'appointment_type' => $type,
+                'purpose_label' => $type === 'other' ? trim((string) ($validated['purpose_label'] ?? '')) : null,
                 'intake_channel' => 'online',
                 'scheduled_at' => $validated['scheduled_at'],
                 'duration_minutes' => $durationMinutes,

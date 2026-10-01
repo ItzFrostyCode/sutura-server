@@ -17,7 +17,10 @@ class StoreMeasurementRequest extends FormRequest
             'customer_id' => ['required', 'integer', 'exists:users,id'],
             'source' => ['nullable', 'in:store_owner,customer'],
             'profile_name' => ['required', 'string', 'max:100'],
-            'metrics' => ['required', 'array'],
+            // Typed values, photos of the paper sheet, or both — at least one of them.
+            'metrics' => ['required_without:photo_urls', 'nullable', 'array'],
+            'photo_urls' => ['nullable', 'array', 'max:6'],
+            'photo_urls.*' => ['string', 'max:2048'],
             'notes' => ['nullable', 'string'],
         ];
     }

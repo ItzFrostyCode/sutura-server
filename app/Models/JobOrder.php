@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\OrderRequirements;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -112,6 +113,7 @@ class JobOrder extends Model
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'quantity', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
+        'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
         'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source', 'garment_category',
         'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
@@ -240,11 +242,17 @@ class JobOrder extends Model
             return false;
         }
 
-        if ($this->isRepairOnly()) {
-            return (bool) $this->store?->repair_requires_downpayment;
+        if ($this->isRepairOnly() && ! $this->store?->repair_requires_downpayment) {
+            return false;
         }
 
-        return true;
+        return $this->requiredDepositFraction() > 0;
+    }
+
+    /** Share of the amount due that must be paid before production (snapshotted policy). */
+    public function requiredDepositFraction(): float
+    {
+        return OrderRequirements::depositFraction($this->payment_policy ?? 'deposit', (int) ($this->payment_policy_percent ?? 50));
     }
 
     public function isRepairOnly(): bool
@@ -265,6 +273,31 @@ class JobOrder extends Model
      */
     protected static function booted(): void
     {
+        // Snapshot the requirements at creation (design -> linked service -> store;
+        // combo -> own else store). Every creation path goes through here.
+        static::creating(function (JobOrder $job) {
+            $store = $job->store_id ? Store::find($job->store_id) : null;
+            if (! $store) {
+                return;
+            }
+            $chain = [];
+            if ($job->service_package_id) {
+                $chain = [ServicePackage::find($job->service_package_id)];
+            } else {
+                $item = $job->catalog_item_id ? CatalogItem::find($job->catalog_item_id) : null;
+                $chain = [$item, $item?->service_id ? Service::find($item->service_id) : null];
+                if (! $item && $job->service_id) {
+                    $chain[] = Service::find($job->service_id);
+                }
+            }
+            $resolved = OrderRequirements::resolve($store, $chain);
+            foreach ($resolved as $field => $value) {
+                if (! array_key_exists($field, $job->getAttributes())) {
+                    $job->{$field} = $value;
+                }
+            }
+        });
+
         static::deleting(function (self $jobOrder) {
             DatabaseNotification::whereJsonContains('data->job_order_id', $jobOrder->id)->delete();
         });

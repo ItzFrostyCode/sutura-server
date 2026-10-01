@@ -35,6 +35,7 @@ class StoreFollowUpAppointmentRequest extends FormRequest
                 Rule::exists('job_orders', 'id')->where('store_id', $store?->id),
             ],
             'appointment_type' => ['required', 'in:'.implode(',', Appointment::TYPES)],
+            'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'scheduled_at' => ['required', 'date', 'after_or_equal:today'],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
             'store_branch_id' => $branchCount > 1

@@ -31,6 +31,7 @@ class Service extends Model
     ];
 
     protected $fillable = [
+        'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
         'store_id', 'name', 'description', 'category', 'categories', 'department', 'service_type', 'service_types', 'tags',
         // service_category/service_leaf_type: the new canonical Services.md
         // taxonomy (Custom Tailoring > Bespoke Tailoring, etc) — additive to,

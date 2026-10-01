@@ -11,6 +11,7 @@ class ServicePackage extends Model
 {
     protected $fillable = [
         'store_id', 'name', 'description', 'service_category', 'image_url', 'bundle_price', 'is_active',
+        'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
     ];
 
     protected $casts = [

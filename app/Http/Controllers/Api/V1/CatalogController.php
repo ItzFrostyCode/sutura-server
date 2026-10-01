@@ -336,6 +336,7 @@ class CatalogController extends Controller
             : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
 
         $validated = $request->validate([
+            ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',
@@ -544,6 +545,7 @@ class CatalogController extends Controller
             : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
 
         $validated = $request->validate([
+            ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'sometimes|string|max:255',
             'price' => 'sometimes|numeric|min:0',
             'estimated_days' => 'nullable|integer|min:1',

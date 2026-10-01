@@ -12,7 +12,7 @@ use Illuminate\Notifications\DatabaseNotification;
 class Appointment extends Model
 {
     /** Valid appointment types */
-    public const TYPES = ['consultation', 'measurement', 'fitting', 'alteration', 'pickup'];
+    public const TYPES = ['consultation', 'measurement', 'fitting', 'alteration', 'pickup', 'other'];
 
     /**
      * Default duration (minutes) per appointment type — the Schedule
@@ -23,10 +23,11 @@ class Appointment extends Model
      */
     public const TYPE_DEFAULT_DURATIONS = [
         'consultation' => 30,
-        'measurement' => 45,
-        'fitting' => 45,
+        'measurement' => 60,
+        'fitting' => 60,
         'alteration' => 30,
-        'pickup' => 15,
+        'pickup' => 30,
+        'other' => 30,
     ];
 
     /** Valid statuses */
@@ -90,6 +91,7 @@ class Appointment extends Model
         'selected_size',
         'selected_color',
         'appointment_type',
+        'purpose_label',
         'intake_channel',
         'scheduled_at',
         'duration_minutes',

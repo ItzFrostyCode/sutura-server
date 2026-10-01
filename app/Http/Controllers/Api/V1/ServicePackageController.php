@@ -152,6 +152,7 @@ class ServicePackageController extends Controller
     private function validatePackage(Request $request, Store $store): array
     {
         return $request->validate([
+            ...\App\Support\OrderRequirements::offeringRules(),
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'image_url' => ['nullable', 'string', 'max:255'],

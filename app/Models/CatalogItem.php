@@ -47,6 +47,7 @@ class CatalogItem extends Model
         'features', 'care_instructions', 'garment_type', 'department',
         'subcategory', 'garment_structure', 'listing_type', 'external_gallery_url',
         'is_active',
+        'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
     ];
 
     // admin_hidden_at/admin_hidden_reason are deliberately NOT fillable —

@@ -79,9 +79,9 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
             ? Carbon::parse($this->appointment->scheduled_at)->format('M d, Y h:i A')
             : 'N/A';
 
-        $purpose = $this->appointment->appointment_type
-            ? str_replace('_', ' ', $this->appointment->appointment_type)
-            : 'store';
+        $purpose = $this->appointment->appointment_type === 'other' && $this->appointment->purpose_label
+            ? strtolower($this->appointment->purpose_label)
+            : ($this->appointment->appointment_type ? str_replace('_', ' ', $this->appointment->appointment_type) : 'store');
 
         $storeName = $this->appointment->store?->name ?? 'the store';
 

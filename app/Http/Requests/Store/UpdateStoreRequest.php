@@ -18,6 +18,7 @@ class UpdateStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
+            ...\App\Support\OrderRequirements::storeRules(),
             'name' => ['sometimes', 'required', 'string', 'max:191'],
             'description' => ['nullable', 'string'],
             'logo_path' => ['nullable', 'string'],
