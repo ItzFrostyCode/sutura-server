@@ -29,7 +29,7 @@ class StaffAndPaymentsDemoSeeder extends Seeder
             return;
         }
         $main = $store->branches()->where('is_main', true)->first();
-        $staff = User::where('email', 'staff@sutura.com')->first();
+        $staff = User::where('email', 'juan.delacruz@sutura.com')->first();
         $admin = User::where('email', 'admin@sutura.com')->first();
 
         $this->paymentMethods($store);
@@ -104,7 +104,7 @@ class StaffAndPaymentsDemoSeeder extends Seeder
         }
 
         // A request the shop declined, with a preset reason (rejected never blocks a new booking).
-        if ($tester = User::where('email', 'booking.tester2@sutura.com')->first()) {
+        if ($tester = User::where('email', 'tomas.tester@gmail.com')->first()) {
             Appointment::updateOrCreate(
                 ['store_id' => $store->id, 'customer_id' => $tester->id, 'appointment_type' => 'consultation', 'status' => 'rejected'],
                 $base + [
