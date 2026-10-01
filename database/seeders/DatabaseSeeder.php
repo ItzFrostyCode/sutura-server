@@ -15,6 +15,8 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             SubscriptionPlanSeeder::class,
             LocalTestSeeder::class,
+            // Demo data for payment methods, requirements, staff and the newer appointment/measurement states.
+            StaffAndPaymentsDemoSeeder::class,
             // Deliberately disabled (2026-09-29) — the owner wants the local
             // demo down to a single shop (Thread & Needle Tailoring / Maria
             // Cruz) only, and had the other 4 shops this seeder creates

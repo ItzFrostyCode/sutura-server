@@ -38,8 +38,43 @@ use Illuminate\Support\Str;
 
 class LocalTestSeeder extends Seeder
 {
+    /**
+     * The demo logins used to be generic (staff@, manager@, customer@, booking.testerN@sutura.com).
+     * They are named after the person now — rename an existing database's rows in place, so a
+     * re-seed keeps their history instead of creating a second set of accounts.
+     */
+    private const RENAMED_ACCOUNTS = [
+        'staff@sutura.com' => 'juan.delacruz@sutura.com',
+        'manager@sutura.com' => 'miguel.manager@sutura.com',
+        'customer@sutura.com' => 'juan.delacruz@gmail.com',
+        'booking.tester1@sutura.com' => 'tess.tester@gmail.com',
+        'booking.tester2@sutura.com' => 'tomas.tester@gmail.com',
+    ];
+
+    private function renameLegacyAccounts(): void
+    {
+        foreach (self::RENAMED_ACCOUNTS as $old => $new) {
+            if (User::where('email', $old)->exists() && ! User::where('email', $new)->exists()) {
+                User::where('email', $old)->update(['email' => $new]);
+            }
+        }
+
+        // The display name matches the account, whatever an older seed called it.
+        foreach ([
+            'juan.delacruz@sutura.com' => 'Juan Dela Cruz',
+            'miguel.manager@sutura.com' => 'Miguel Manager',
+            'juan.delacruz@gmail.com' => 'Juan dela Cruz',
+            'tess.tester@gmail.com' => 'Tess Tester',
+            'tomas.tester@gmail.com' => 'Tomas Tester',
+        ] as $email => $name) {
+            User::where('email', $email)->update(['name' => $name]);
+        }
+    }
+
     public function run(): void
     {
+        $this->renameLegacyAccounts();
+
         $adminRole = Role::where('name', 'admin')->first();
         $ownerRole = Role::where('name', 'store_owner')->first();
         $staffRole = Role::where('name', 'staff')->first();
@@ -136,7 +171,7 @@ class LocalTestSeeder extends Seeder
 
         // 4. Create a Tailoring Staff Member
         $staff = User::firstOrCreate(
-            ['email' => 'staff@sutura.com'],
+            ['email' => 'juan.delacruz@sutura.com'],
             [
                 'name' => 'Juan Dela Cruz',
                 'password' => Hash::make('password'),
@@ -167,11 +202,11 @@ class LocalTestSeeder extends Seeder
             ]);
         }
 
-        // 4b. Branch Manager demo login — kept separate from staff@sutura.com (which is plain
+        // 4b. Branch Manager demo login — kept separate from juan.delacruz@sutura.com (which is plain
         // Staff) so testers can compare the two roles side by side.
         $branchManagerRole = Role::where('name', 'branch_manager')->first();
         $manager = User::firstOrCreate(
-            ['email' => 'manager@sutura.com'],
+            ['email' => 'miguel.manager@sutura.com'],
             ['name' => 'Miguel Manager', 'password' => Hash::make('password'), 'email_verified_at' => now()]
         );
         if ($branchManagerRole && ! $manager->roles()->where('role_id', $branchManagerRole->id)->exists()) {
@@ -522,7 +557,7 @@ class LocalTestSeeder extends Seeder
         $customerRole = Role::where('name', 'customer')->first();
         $customers = [];
         $customerNames = [
-            ['email' => 'customer@sutura.com', 'name' => 'Juan dela Cruz'],
+            ['email' => 'juan.delacruz@gmail.com', 'name' => 'Juan dela Cruz'],
             ['email' => 'jose.rizal@gmail.com', 'name' => 'Jose Rizal'],
             ['email' => 'andres.b@gmail.com', 'name' => 'Andres Bonifacio'],
             ['email' => 'maria.clara@gmail.com', 'name' => 'Maria Clara'],
@@ -549,7 +584,7 @@ class LocalTestSeeder extends Seeder
         // 9a. Booking testers — customers with NO appointments. Every customer above already holds
         // an active appointment at this store, and a customer may only have one, so these are the
         // logins for trying "Book an Appointment" from the store, a design, a service or a package.
-        foreach ([['booking.tester1@sutura.com', 'Tess Tester'], ['booking.tester2@sutura.com', 'Tomas Tester']] as [$tEmail, $tName]) {
+        foreach ([['tess.tester@gmail.com', 'Tess Tester'], ['tomas.tester@gmail.com', 'Tomas Tester']] as [$tEmail, $tName]) {
             $tester = User::firstOrCreate(
                 ['email' => $tEmail],
                 ['name' => $tName, 'password' => Hash::make('password'), 'email_verified_at' => now()]

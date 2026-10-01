@@ -55,9 +55,9 @@ For first-time setup, follow the instructions in [README.md](./README.md) in eac
 | Role | Email | Password |
 |---|---|---|
 | Shop Owner | `maria.cruz@gmail.com` | `password` |
-| Staff | `staff@sutura.com` | `password` |
-| Branch Manager | `manager@sutura.com` | `password` |
+| Staff | `juan.delacruz@sutura.com` | `password` |
+| Branch Manager | `miguel.manager@sutura.com` | `password` |
 | Admin | `admin@sutura.com` | `password` |
-| Customer | `customer@sutura.com` | `password` |
-| Customer (no bookings yet — use this one to test booking) | `booking.tester1@sutura.com` | `password` |
+| Customer | `juan.delacruz@gmail.com` | `password` |
+| Customer (no bookings yet — use this one to test booking) | `tess.tester@gmail.com` | `password` |
 | Customer | `jose.rizal@gmail.com` | `password` |
