@@ -42,6 +42,7 @@ class StoreApplicationRequest extends FormRequest
             'address' => ['required', 'string', 'max:255'],
             'city' => ['required', 'string', 'max:100'],
             'province' => ['required', 'string', 'max:100'],
+            'barangay' => ['nullable', 'string', 'max:100'],
             'district' => ['nullable', 'string', 'max:100'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],

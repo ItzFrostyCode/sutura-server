@@ -56,7 +56,7 @@ class PublicBookingController extends Controller
                 'operating_hours' => $store->operating_hours,
                 'active_special_hours' => $store->active_special_hours,
                 'special_hours' => $store->specialHours()->get(),
-                'branches' => $store->branches()->get(['id', 'slug', 'name', 'address', 'city', 'latitude', 'longitude']),
+                'branches' => $store->branches()->get(['id', 'slug', 'name', 'address', 'barangay', 'city', 'latitude', 'longitude']),
                 // service_types/min_order_qty/custom_fields let the booking
                 // wizard pick purposes and roster columns from the real
                 // functional taxonomy instead of guessing from the name.
