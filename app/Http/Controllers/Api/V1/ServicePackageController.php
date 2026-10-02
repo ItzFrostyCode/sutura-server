@@ -64,7 +64,7 @@ class ServicePackageController extends Controller
             ->withAvg('reviews', 'rating')
             ->with([
                 'services:id,name,base_price',
-                'store' => fn ($q) => $q->select('id', 'name', 'slug')->with(['branches' => fn ($b) => $b->where('status', 'active')->select('id', 'store_id', 'district', 'city')]),
+                'store' => fn ($q) => $q->select('id', 'name', 'slug')->with(['branches' => fn ($b) => $b->live()->select('id', 'store_id', 'district', 'city')]),
             ]);
 
         if ($request->filled('q')) {
@@ -77,7 +77,7 @@ class ServicePackageController extends Controller
         }
         if ($request->filled('district')) {
             $district = $request->string('district')->toString();
-            $query->whereHas('store.branches', fn ($b) => $b->where('district', $district)->where('status', 'active'));
+            $query->whereHas('store.branches', fn ($b) => $b->where('district', $district)->live());
         }
 
         $packages = $query->latest()->limit(24)->get(['id', 'store_id', 'name', 'description', 'service_category', 'image_url', 'bundle_price'])

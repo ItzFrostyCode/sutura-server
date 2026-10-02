@@ -61,7 +61,7 @@ class ServiceController extends Controller
             ->with([
                 'store' => fn ($q) => $q->with([
                     'owner:id,name',
-                    'branches' => fn ($bq) => $bq->where('status', 'active'),
+                    'branches' => fn ($bq) => $bq->live(),
                 ]),
             ]);
 
@@ -78,7 +78,7 @@ class ServiceController extends Controller
         if ($request->filled('district')) {
             $district = $request->string('district')->toString();
             $query->whereHas('store.branches', function ($bq) use ($district) {
-                $bq->where('district', $district)->where('status', 'active');
+                $bq->where('district', $district)->live();
             });
         }
 

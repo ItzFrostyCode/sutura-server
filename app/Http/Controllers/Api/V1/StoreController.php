@@ -100,7 +100,7 @@ class StoreController extends Controller
         return '(SELECT MIN(6371 * ACOS(LEAST(1.0, GREATEST(-1.0, '
             .'COS(RADIANS(?)) * COS(RADIANS(store_branches.latitude)) * COS(RADIANS(store_branches.longitude) - RADIANS(?)) '
             .'+ SIN(RADIANS(?)) * SIN(RADIANS(store_branches.latitude)))))) '
-            .'FROM store_branches WHERE store_branches.store_id = '.$shopIdColumn." AND store_branches.status = 'active')";
+            .'FROM store_branches WHERE store_branches.store_id = '.$shopIdColumn." AND store_branches.status = 'active' AND store_branches.verification_status = 'verified')";
     }
 
     public function publicIndex(Request $request): JsonResponse
@@ -187,7 +187,7 @@ class StoreController extends Controller
         if ($request->filled('district')) {
             $district = $request->string('district')->toString();
             $query->whereHas('branches', function ($bq) use ($district) {
-                $bq->where('district', $district)->where('status', 'active');
+                $bq->where('district', $district)->live();
             });
         }
 
@@ -356,7 +356,7 @@ class StoreController extends Controller
         }
 
         $stores = $query->with([
-            'branches' => fn ($q) => $q->where('status', 'active'),
+            'branches' => fn ($q) => $q->live(),
             'services' => fn ($q) => $q->where('is_active', true)->withCount('reviews')->withAvg('reviews', 'rating'),
             'owner:id,name',
             'catalogItems' => function ($cq) use ($request) {
@@ -451,7 +451,7 @@ class StoreController extends Controller
         $isOwnerViewer = $viewer && $viewer->id === $store->owner_id;
         $store->load(['branches' => function ($query) use ($isOwnerViewer) {
             if (! $isOwnerViewer) {
-                $query->where('status', 'active');
+                $query->live();
             }
         }, 'owner:id,name,profile_picture']);
 

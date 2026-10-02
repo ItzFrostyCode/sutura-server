@@ -114,6 +114,7 @@ class StoreApplicationController extends Controller
                 'contact_number' => $request->contact_number,
                 'is_main' => true,
                 'status' => 'active',
+                'verification_status' => 'pending',   // verified when the admin approves the application
             ]);
 
             StoreApplication::create([

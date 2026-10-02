@@ -111,6 +111,8 @@ class StoreBranchController extends Controller
             'longitude' => $request->longitude,
             'operating_hours' => $request->operating_hours,
             'status' => 'active',
+            // Not on the public map until the System Admin has checked the location.
+            'verification_status' => 'pending',
             'is_main' => $branchCount === 0,
             'guide_image_url' => $request->guide_image_url,
         ]);
@@ -167,6 +169,8 @@ class StoreBranchController extends Controller
             'manager_id' => 'nullable',
         ]);
 
+        $before = $branch->only(['address', 'barangay', 'city', 'district', 'latitude', 'longitude']);
+
         $branch->update([
             'name' => $request->name,
             'address' => $request->address,
@@ -181,6 +185,12 @@ class StoreBranchController extends Controller
             'status' => $request->status ?? $branch->status,
             'guide_image_url' => $request->filled('guide_image_url') ? $request->guide_image_url : ($request->guide_image_url === '' ? null : $branch->guide_image_url),
         ]);
+
+        // Moving the pin or changing where the branch is sends it back for the admin to check again; editing hours,
+        // contact or the manager does not.
+        if ($branch->verification_status !== 'pending' && $this->locationChanged($before, $branch)) {
+            $branch->update(['verification_status' => 'pending', 'verified_at' => null, 'verified_by' => null, 'verification_note' => null]);
+        }
 
         if ($request->has('manager_id')) {
             $managerId = $request->input('manager_id');
@@ -310,5 +320,25 @@ class StoreBranchController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $coords]);
+    }
+
+    /**
+     * Did the place move? Text fields are compared as text, the pin numerically (about 1 metre) — "7.0911" and the stored
+     * "7.09110000" are the same spot and must not send a verified branch back for checking.
+     */
+    private function locationChanged(array $before, StoreBranch $branch): bool
+    {
+        foreach (['address', 'barangay', 'city', 'district'] as $field) {
+            if (trim((string) ($before[$field] ?? '')) !== trim((string) $branch->{$field})) {
+                return true;
+            }
+        }
+        foreach (['latitude', 'longitude'] as $field) {
+            if (abs((float) ($before[$field] ?? 0) - (float) $branch->{$field}) > 0.00001) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -142,6 +142,10 @@ Built to match the thesis' Tailoring Staff Module, on top of the existing branch
 - **`App\Support\PlanGate`** is the server-side plan check (`basic < pro < premium`); use it for anything a higher plan unlocks.
 - Deliberate `abort(4xx, 'message')` messages now reach the client (bootstrap/app.php); 404/405/5xx stay generic.
 
+## Branch verification (2026-10-02)
+
+Every branch needs `latitude`/`longitude` and `barangay`. `store_branches.verification_status` is `pending|verified|rejected` (+ `verified_at/by`, `verification_note`). New branches and a changed address/barangay/city/district/pin (`StoreBranchController::locationChanged`) go back to `pending`; `StoreBranch::live()` (`status=active` AND `verified`) is what every public query uses. The admin queue is `GET /admin/branches`, `PUT /admin/branches/{id}/verify|reject` (`Admin\BranchVerificationController`), and approving a shop verifies its pending main branch. Don't add a public branch query that skips `live()`.
+
 ## Domain models (current, not the paper's ERD)
 
 `Appointment`, `AuditLog`, `CatalogImage`, `CatalogItem`, `CatalogItemReview`, `CatalogItemSave`, `CatalogOrder`, `CatalogRecommendation`, `JobOrder`, `JobOrderStaff`, `Measurement`, `Payment`, `Role`, `Service`, `ServicePackage`, `ServicePricing`, `Shop`, `ShopBranch`, `ShopPost`, `ShopReview`, `ShopSpecialHour`, `ShopSubscription`, `StaffProfile`, `SubscriptionPlan`, `SupportTicket`, `SupportTicketReply`, `User`.

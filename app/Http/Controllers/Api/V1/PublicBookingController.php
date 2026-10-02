@@ -56,7 +56,7 @@ class PublicBookingController extends Controller
                 'operating_hours' => $store->operating_hours,
                 'active_special_hours' => $store->active_special_hours,
                 'special_hours' => $store->specialHours()->get(),
-                'branches' => $store->branches()->get(['id', 'slug', 'name', 'address', 'barangay', 'city', 'latitude', 'longitude']),
+                'branches' => $store->branches()->live()->get(['id', 'slug', 'name', 'address', 'barangay', 'city', 'latitude', 'longitude']),
                 // service_types/min_order_qty/custom_fields let the booking
                 // wizard pick purposes and roster columns from the real
                 // functional taxonomy instead of guessing from the name.
@@ -98,7 +98,10 @@ class PublicBookingController extends Controller
      */
     public function submit(Request $request, Store $store): JsonResponse
     {
-        $branchCount = $store->branches()->count();
+        $branchCount = $store->branches()->live()->count();
+        if ($branchCount === 0) {
+            return response()->json(['success' => false, 'message' => 'This shop has no verified branch to book at yet.'], 422);
+        }
 
         $validated = $request->validate([
             // Customer info
@@ -110,8 +113,8 @@ class PublicBookingController extends Controller
             'appointment_type' => ['required', 'in:'.implode(',', Appointment::TYPES)],
             'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'store_branch_id' => $branchCount > 1
-                ? ['required', Rule::exists('store_branches', 'id')->where('store_id', $store->id)]
-                : ['nullable', Rule::exists('store_branches', 'id')->where('store_id', $store->id)],
+                ? ['required', Rule::exists('store_branches', 'id')->where('store_id', $store->id)->where('status', 'active')->where('verification_status', 'verified')]
+                : ['nullable', Rule::exists('store_branches', 'id')->where('store_id', $store->id)->where('status', 'active')->where('verification_status', 'verified')],
             'service_id' => ['nullable', Rule::exists('services', 'id')->where('store_id', $store->id)],
             // The catalog design this booking came from (the "Book an
             // Appointment" button on a design's page), scoped to this store.
@@ -172,7 +175,7 @@ class PublicBookingController extends Controller
         // ── Resolve branch ─────────────────────────────────────────────────────
         $branchId = $validated['store_branch_id'] ?? null;
         if ($branchCount === 1) {
-            $branchId = $store->branches()->first()->id;
+            $branchId = $store->branches()->live()->first()->id;
         }
 
         // ── Double-booking check: checks both pending and confirmed appointments ───

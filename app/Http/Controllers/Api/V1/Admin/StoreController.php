@@ -54,6 +54,8 @@ class StoreController extends Controller
             'approved_at' => now(),
             'approved_by' => $request->user()->id,
         ]);
+        // The admin looked at the pinned location while reviewing — the shop's branches go live with it.
+        $store->branches()->where('verification_status', 'pending')->update(['verification_status' => 'verified', 'verified_at' => now(), 'verified_by' => $request->user()->id]);
 
         $store->owner?->notify(new StoreApplicationStatusNotification($store, 'approved'));
 
