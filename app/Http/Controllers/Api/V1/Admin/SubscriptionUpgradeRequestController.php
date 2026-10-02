@@ -38,11 +38,11 @@ class SubscriptionUpgradeRequestController extends Controller
     {
         $path = $upgradeRequest->payment_receipt_path;
 
-        if (! $path || ! Storage::disk('local')->exists($path)) {
+        if (! $path || ! Storage::disk(config('filesystems.private_disk', 'local'))->exists($path)) {
             return response()->json(['success' => false, 'message' => 'Receipt not found.'], 404);
         }
 
-        return Storage::disk('local')->response($path, null, ['Cache-Control' => 'private, no-store']);
+        return Storage::disk(config('filesystems.private_disk', 'local'))->response($path, null, ['Cache-Control' => 'private, no-store']);
     }
 
     public function approve(Request $request, SubscriptionUpgradeRequest $upgradeRequest): JsonResponse

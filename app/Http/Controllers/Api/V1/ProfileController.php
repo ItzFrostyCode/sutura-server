@@ -159,7 +159,11 @@ class ProfileController extends Controller
     // relative /storage/... fallback happen to line up), but drifts the
     // moment FILESYSTEM_DISK or the storage disk config changes — exactly
     // the bug class already fixed once in FileUploadController.
-    private const UPLOAD_DISK = 'public';
+    // Resolved at run time from config/filesystems.php (UPLOAD_DISK), not a constant, so production can use R2.
+    private static function uploadDisk(): string
+    {
+        return config('filesystems.upload_disk', 'public');
+    }
 
     /**
      * Upload Profile or Cover Picture.
@@ -177,8 +181,8 @@ class ProfileController extends Controller
         $user = $request->user();
         $file = $request->file('file');
 
-        $path = $file->store('users/'.$user->id, self::UPLOAD_DISK);
-        $url = Storage::disk(self::UPLOAD_DISK)->url($path);
+        $path = $file->store('users/'.$user->id, self::uploadDisk());
+        $url = Storage::disk(self::uploadDisk())->url($path);
 
         if ($request->type === 'avatar') {
             $user->update(['profile_picture' => $url]);

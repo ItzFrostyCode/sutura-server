@@ -32,13 +32,14 @@ class ReceiptFiles
             return ['absolute' => public_path($key), 'ext' => $ext];
         }
 
-        // Off-server bucket (S3 / Cloudflare R2): try the key as given, then without a leading bucket name.
-        if (config('filesystems.disks.s3.bucket')) {
-            $bucket = (string) config('filesystems.disks.s3.bucket');
-            foreach ([$key, preg_replace('#^'.preg_quote($bucket, '#').'/#', '', $key)] as $candidate) {
+        // Off-server upload disk (S3 / Cloudflare R2): try the key as given, then without a leading bucket name.
+        $diskName = (string) config('filesystems.upload_disk', 'public');
+        if ($diskName !== 'public' && config("filesystems.disks.{$diskName}")) {
+            $bucket = (string) config("filesystems.disks.{$diskName}.bucket");
+            foreach (array_unique([$key, $bucket ? preg_replace('#^'.preg_quote($bucket, '#').'/#', '', $key) : $key]) as $candidate) {
                 try {
-                    if ($candidate && Storage::disk('s3')->exists($candidate)) {
-                        return ['contents' => Storage::disk('s3')->get($candidate), 'ext' => $ext];
+                    if ($candidate && Storage::disk($diskName)->exists($candidate)) {
+                        return ['contents' => Storage::disk($diskName)->get($candidate), 'ext' => $ext];
                     }
                 } catch (\Throwable) {
                     // unreachable bucket — treated as "file not found" for this receipt

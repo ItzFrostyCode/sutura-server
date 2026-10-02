@@ -15,6 +15,13 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'local'),
 
+    // Where uploads live. The defaults are this server's own disk — fine on a laptop, but a host like Railway wipes
+    // the disk on every redeploy. In production point both at an off-server disk (Cloudflare R2 = the 's3' disk):
+    //   UPLOAD_DISK  public files: design / profile / receipt / reference photos (need a publicly readable bucket)
+    //   PRIVATE_DISK private files: shop application documents and subscription payment receipts (keep this bucket private)
+    'upload_disk' => env('UPLOAD_DISK', 'public'),
+    'private_disk' => env('PRIVATE_DISK', 'local'),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks
@@ -54,6 +61,20 @@ return [
             'region' => env('AWS_DEFAULT_REGION'),
             'bucket' => env('AWS_BUCKET'),
             'url' => env('AWS_URL'),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            'throw' => false,
+            'report' => false,
+        ],
+
+        // A second bucket on the same account for files that must never be public: shop application documents,
+        // subscription payment receipts and database backups. Set PRIVATE_DISK=s3_private and BACKUP_DISK=s3_private.
+        's3_private' => [
+            'driver' => 's3',
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('AWS_PRIVATE_BUCKET'),
             'endpoint' => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => false,

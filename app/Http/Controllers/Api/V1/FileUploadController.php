@@ -35,7 +35,11 @@ class FileUploadController extends Controller
     // drift apart again the way they did before (store() said 'public',
     // url() used the app's default disk instead, which happened to be a
     // *different* disk with no 'url' config of its own).
-    private const UPLOAD_DISK = 'public';
+    // Resolved at run time from config/filesystems.php (UPLOAD_DISK), not a constant, so production can use R2.
+    private static function uploadDisk(): string
+    {
+        return config('filesystems.upload_disk', 'public');
+    }
 
     public function store(Request $request, Store $store): JsonResponse
     {
@@ -48,12 +52,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::STORES_DIR.$store->id.'/catalog', self::UPLOAD_DISK);
+            $path = $file->store(self::STORES_DIR.$store->id.'/catalog', self::uploadDisk());
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path),
+                    'url' => Storage::disk(self::uploadDisk())->url($path),
                 ],
             ]);
         }
@@ -75,12 +79,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::STORES_DIR.$store->id.'/support', self::UPLOAD_DISK);
+            $path = $file->store(self::STORES_DIR.$store->id.'/support', self::uploadDisk());
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path),
+                    'url' => Storage::disk(self::uploadDisk())->url($path),
                 ],
             ]);
         }
@@ -99,12 +103,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::STORES_DIR.$store->id.'/receipts', self::UPLOAD_DISK);
+            $path = $file->store(self::STORES_DIR.$store->id.'/receipts', self::uploadDisk());
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path),
+                    'url' => Storage::disk(self::uploadDisk())->url($path),
                 ],
             ]);
         }
@@ -127,12 +131,12 @@ class FileUploadController extends Controller
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $path = $file->store(self::STORES_DIR.$store->id.'/references', self::UPLOAD_DISK);
+            $path = $file->store(self::STORES_DIR.$store->id.'/references', self::uploadDisk());
 
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'url' => Storage::disk(self::UPLOAD_DISK)->url($path),
+                    'url' => Storage::disk(self::uploadDisk())->url($path),
                 ],
             ]);
         }
