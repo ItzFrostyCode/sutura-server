@@ -465,6 +465,10 @@ Route::prefix('v1')->group(function () {
         // Admin Routes
         Route::prefix('admin')->middleware('role:admin')->group(function () {
             Route::get('/dashboard', [AdminDashboardController::class, 'overview']);
+            // Branch map-location checks (a new or moved branch stays off the public map until verified)
+            Route::get('/branches', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'index']);
+            Route::put('/branches/{branch}/verify', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'verify']);
+            Route::put('/branches/{branch}/reject', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'reject']);
             Route::get('/reports/subscriptions', [AdminDashboardController::class, 'subscriptionReport']);
             Route::get('/upgrade-requests', [AdminSubscriptionUpgradeRequestController::class, 'index']);
             Route::get('/upgrade-requests/{upgradeRequest}/receipt', [AdminSubscriptionUpgradeRequestController::class, 'receipt']);

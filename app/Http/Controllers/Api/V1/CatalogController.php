@@ -139,7 +139,7 @@ class CatalogController extends Controller
         return '(SELECT MIN(6371 * ACOS(LEAST(1.0, GREATEST(-1.0, '
             .'COS(RADIANS(?)) * COS(RADIANS(store_branches.latitude)) * COS(RADIANS(store_branches.longitude) - RADIANS(?)) '
             .'+ SIN(RADIANS(?)) * SIN(RADIANS(store_branches.latitude)))))) '
-            .'FROM store_branches WHERE store_branches.store_id = '.$shopIdColumn." AND store_branches.status = 'active')";
+            .'FROM store_branches WHERE store_branches.store_id = '.$shopIdColumn." AND store_branches.status = 'active' AND store_branches.verification_status = 'verified')";
     }
 
     public function publicShowroom(Request $request): JsonResponse
@@ -149,7 +149,7 @@ class CatalogController extends Controller
             ->whereHas('store', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
             ->with([
                 'store' => fn ($q) => $q->select('id', 'name', 'slug')->with([
-                    'branches' => fn ($bq) => $bq->select('id', 'store_id', 'name', 'is_main', 'district', 'city', 'latitude', 'longitude')->where('status', 'active'),
+                    'branches' => fn ($bq) => $bq->select('id', 'store_id', 'name', 'is_main', 'district', 'city', 'latitude', 'longitude')->live(),
                 ]),
                 // Not every seeded item has an image flagged is_primary (a
                 // data-entry gap, not a rule) -- CatalogController::index()'s
@@ -278,7 +278,7 @@ class CatalogController extends Controller
         // elsewhere in this controller for store-scoped visibility checks.
         if ($request->filled('district')) {
             $district = $request->string('district');
-            $query->whereHas('store.branches', fn ($q) => $q->where('district', $district));
+            $query->whereHas('store.branches', fn ($q) => $q->where('district', $district)->live());
         }
 
         match ($request->string('sort_by')->toString()) {
@@ -477,7 +477,7 @@ class CatalogController extends Controller
             // The "Find" location sheet needs somewhere to pin on the map —
             // same branch fields PublicBookingController::getSettings()
             // already exposes for the /book page's own map.
-            'store.branches:id,store_id,slug,name,address,barangay,city,latitude,longitude',
+            'store.branches' => fn ($q) => $q->live()->select('id', 'store_id', 'slug', 'name', 'address', 'barangay', 'city', 'latitude', 'longitude'),
             // Whether this item can be Bulk Ordered depends entirely on
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.

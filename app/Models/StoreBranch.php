@@ -8,7 +8,16 @@ class StoreBranch extends Model
 {
     protected $fillable = [
         'store_id', 'name', 'slug', 'address', 'landmark', 'barangay', 'city', 'district', 'latitude', 'longitude', 'contact_number', 'is_main', 'operating_hours', 'status', 'guide_image_url',
+        'verification_status', 'verified_at', 'verified_by', 'verification_note',
     ];
+
+    protected $casts = ['verified_at' => 'datetime'];
+
+    /** What the public may see: switched on by the shop AND location-checked by the System Admin. */
+    public function scopeLive($query)
+    {
+        return $query->where('status', 'active')->where('verification_status', 'verified');
+    }
 
     public function store()
     {

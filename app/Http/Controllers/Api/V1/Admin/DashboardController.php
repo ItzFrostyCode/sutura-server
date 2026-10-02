@@ -37,6 +37,7 @@ class DashboardController extends Controller
                 ],
                 'stores' => Store::query()->selectRaw('status, COUNT(*) as total')->groupBy('status')->pluck('total', 'status'),
                 'active_subscriptions' => $this->activeSubscriptions()->count(),
+                'pending_branches' => \App\Models\StoreBranch::where('verification_status', 'pending')->whereHas('store', fn ($q) => $q->where('status', 'approved'))->count(),
                 'open_tickets' => SupportTicket::whereIn('status', ['open', 'in_progress'])->count(),
                 'recent_applications' => Store::with('owner:id,name,email,contact_email')
                     ->where('status', 'pending')

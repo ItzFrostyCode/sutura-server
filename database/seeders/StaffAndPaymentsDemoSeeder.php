@@ -52,6 +52,7 @@ class StaffAndPaymentsDemoSeeder extends Seeder
         $this->staffNotifications($store, $staff);
         $this->receiptHistory($store, $main?->id);
         $this->smsDemo($store);
+        $this->pendingBranch($store);
     }
 
     /** Shop-wide GCash and Maya, plus a bank account for the main branch only. */
@@ -320,5 +321,18 @@ class StaffAndPaymentsDemoSeeder extends Seeder
                 SmsSender::send($m);
             }
         }
+    }
+
+    /** A second branch waiting for the System Admin's location check, so the admin queue and the owner's "awaiting check" badge have something to show. */
+    private function pendingBranch(Store $store): void
+    {
+        \App\Models\StoreBranch::firstOrCreate(
+            ['store_id' => $store->id, 'slug' => 'ubalde-agdao-branch'],
+            [
+                'name' => 'Ubalde Branch (Agdao)', 'address' => 'Jasmin St', 'barangay' => 'Ubalde', 'district' => 'Agdao', 'city' => 'Davao City',
+                'landmark' => 'Near the Ubalde chapel', 'latitude' => 7.0905, 'longitude' => 125.6144, 'contact_number' => '09000000011',
+                'operating_hours' => 'Mon-Sat 8:00 AM - 5:00 PM', 'status' => 'active', 'is_main' => false, 'verification_status' => 'pending',
+            ]
+        );
     }
 }
