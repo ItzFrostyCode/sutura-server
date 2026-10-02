@@ -21,7 +21,7 @@ use Laravel\Sanctum\HasApiTokens;
 // needing forceFill). Verified live: an upload returned success + a correct
 // URL, but the user record's profile_picture stayed null. The whole avatar
 // upload feature was unreachable for every role, not just newly broken.
-#[Fillable(['name', 'email', 'contact_email', 'password', 'password_set_at', 'phone', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery', 'profile_picture', 'cover_photo'])]
+#[Fillable(['name', 'email', 'contact_email', 'password', 'password_set_at', 'phone', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery', 'profile_picture', 'cover_photo', 'sms_opt_out'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -42,6 +42,7 @@ class User extends Authenticatable
             // Not fillable on purpose — only Admin\AccountController sets it.
             'suspended_at' => 'datetime',
             'must_change_password' => 'boolean',
+            'sms_opt_out' => 'boolean',
             'password' => 'hashed',
             'experience' => 'array',
             'education' => 'array',

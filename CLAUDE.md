@@ -135,6 +135,13 @@ Built to match the thesis' Tailoring Staff Module, on top of the existing branch
 - Sanctum tokens expire after 7 days; changing the password revokes the other sessions. `GoogleMapsLinkResolver` follows redirects by hand, https + allowed Google hosts only.
 - `DatabaseSeeder` skips the demo accounts when `APP_ENV=production`.
 
+## Statements, SMS and plan gating (2026-10-02)
+
+- **Statements:** `GET /stores/{store}/receipts` (ledger + totals), `/receipts/file?key=job:12` (one image), `/receipts/export?format=csv|zip` (Premium). `App\Services\ReceiptLedger` unions job payments, appointment deposits and catalog-order payments; `ReceiptFiles::locate()` resolves a stored path/URL to bytes (public disk, then s3). Branch managers are pinned to their branch. `Content-Disposition` is exposed in `config/cors.php` so the browser can read file names cross-origin.
+- **SMS:** every text goes `Notification → SmsChannel → SmsOutbox → (review) → SmsSender`. `stores.sms_mode` off|review|auto, `stores.sms_events` (null = `SmsTemplates::DEFAULT_ENABLED`), `users.sms_opt_out`. Templates are plain ASCII and ≤ 160 chars (`SmsText`); numbers go through `PhoneNumber::normalize`. `SmsSender` safety rails: driver `log` = test mode, allow-list outside production, per-shop daily cap. Pro plan feature.
+- **`App\Support\PlanGate`** is the server-side plan check (`basic < pro < premium`); use it for anything a higher plan unlocks.
+- Deliberate `abort(4xx, 'message')` messages now reach the client (bootstrap/app.php); 404/405/5xx stay generic.
+
 ## Domain models (current, not the paper's ERD)
 
 `Appointment`, `AuditLog`, `CatalogImage`, `CatalogItem`, `CatalogItemReview`, `CatalogItemSave`, `CatalogOrder`, `CatalogRecommendation`, `JobOrder`, `JobOrderStaff`, `Measurement`, `Payment`, `Role`, `Service`, `ServicePackage`, `ServicePricing`, `Shop`, `ShopBranch`, `ShopPost`, `ShopReview`, `ShopSpecialHour`, `ShopSubscription`, `StaffProfile`, `SubscriptionPlan`, `SupportTicket`, `SupportTicketReply`, `User`.

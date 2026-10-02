@@ -71,6 +71,12 @@ return Application::configure(basePath: dirname(__DIR__))
                 default => 'Something went wrong. Please try again.',
             };
 
+            // A deliberate abort(403|422|…, 'reason') carries a message written for the user — show it.
+            // (404 / 405 / 5xx stay generic so route names and internals never leak.)
+            if ($e instanceof HttpExceptionInterface && in_array($status, [400, 401, 403, 409, 422, 429], true) && trim($e->getMessage()) !== '') {
+                $message = $e->getMessage();
+            }
+
             return response()->json(['success' => false, 'message' => $message], $status);
         });
     })->create();

@@ -3,14 +3,13 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Storage;
 
 class BackupDatabase extends Command
 {
     protected $signature = 'app:backup-database';
 
     protected $description = 'Back up the application database (sqlite/mysql/pgsql) and prune backups older than 30 days.';
-
-    private const RETENTION_DAYS = 30;
 
     /**
      * Execute the console command.
@@ -34,6 +33,9 @@ class BackupDatabase extends Command
             default => $this->failUnsupported($connection),
         };
 
+        if ($ok) {
+            $ok = $this->shipOffServer($backupDir);
+        }
         $this->pruneOldBackups($backupDir);
 
         return $ok ? self::SUCCESS : self::FAILURE;
@@ -117,11 +119,50 @@ class BackupDatabase extends Command
     }
 
     /**
+     * Uploads today's dump to the configured off-server disk (BACKUP_DISK) and removes the local copy, so a
+     * redeploy cannot take the only backup with it. With the default 'local' disk nothing is moved.
+     */
+    private function shipOffServer(string $backupDir): bool
+    {
+        $diskName = config('backup.disk', 'local');
+        if ($diskName === 'local') {
+            return true;
+        }
+
+        $files = glob("{$backupDir}/backup-*");
+        if (! $files) {
+            return true;
+        }
+        usort($files, fn ($a, $b) => filemtime($b) <=> filemtime($a));
+        $latest = $files[0];
+
+        try {
+            $disk = Storage::disk($diskName);
+            $disk->put('backups/'.basename($latest), fopen($latest, 'r'));
+            $cutoff = now()->subDays((int) config('backup.retention_days', 30))->getTimestamp();
+            foreach ($disk->files('backups') as $remote) {
+                if ($disk->lastModified($remote) < $cutoff) {
+                    $disk->delete($remote);
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->error("Could not upload the backup to the '{$diskName}' disk: {$e->getMessage()} (the local copy was kept).");
+
+            return false;
+        }
+
+        unlink($latest);
+        $this->info("Backup uploaded to the '{$diskName}' disk: backups/".basename($latest));
+
+        return true;
+    }
+
+    /**
      * Keeps disk usage bounded — daily backups accumulate forever otherwise.
      */
     private function pruneOldBackups(string $backupDir): void
     {
-        $cutoff = now()->subDays(self::RETENTION_DAYS)->getTimestamp();
+        $cutoff = now()->subDays((int) config('backup.retention_days', 30))->getTimestamp();
         foreach (glob("{$backupDir}/backup-*") as $file) {
             if (is_file($file) && filemtime($file) < $cutoff) {
                 unlink($file);

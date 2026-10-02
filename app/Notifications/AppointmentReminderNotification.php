@@ -4,6 +4,8 @@ namespace App\Notifications;
 
 use App\Models\Appointment;
 use Carbon\Carbon;
+use App\Notifications\Channels\SmsChannel;
+use App\Services\Sms\SmsTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -33,8 +35,14 @@ class AppointmentReminderNotification extends Notification implements ShouldQueu
         if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
             $channels[] = 'mail';
         }
+        $channels[] = SmsChannel::class;
 
         return $channels;
+    }
+
+    public function toSms(object $notifiable): array
+    {
+        return SmsTemplates::reminder($this->appointment) + ['store_id' => $this->appointment->store_id, 'related_type' => 'appointment', 'related_id' => $this->appointment->id];
     }
 
     private function scheduledLabel(): string
