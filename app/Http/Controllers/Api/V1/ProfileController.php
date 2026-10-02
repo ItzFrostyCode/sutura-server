@@ -49,6 +49,26 @@ class ProfileController extends Controller
         .'as JPEG from Photos) before uploading.';
 
     /**
+     * The mobile number SMS goes to, and the switch to stop texts. A real Philippine mobile number is required —
+     * a made-up or landline number would just make the shop's drafts show up as "needs fixing".
+     */
+    public function updateTextMessages(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone' => ['nullable', 'string', 'max:30'],
+            'sms_opt_out' => ['sometimes', 'boolean'],
+        ]);
+        if (! empty($data['phone'])) {
+            $normalized = \App\Support\PhoneNumber::normalize($data['phone']);
+            abort_if($normalized === null, 422, 'Enter a Philippine mobile number, like 0917 123 4567.');
+            $data['phone'] = $normalized;
+        }
+        $request->user()->update($data);
+
+        return response()->json(['success' => true, 'data' => $request->user()->only(['phone', 'sms_opt_out'])]);
+    }
+
+    /**
      * Update the user's personal details.
      */
     public function updatePersonal(Request $request): JsonResponse

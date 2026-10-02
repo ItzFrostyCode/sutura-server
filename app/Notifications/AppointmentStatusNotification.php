@@ -5,6 +5,8 @@ namespace App\Notifications;
 use App\Models\Appointment;
 use App\Models\User;
 use Carbon\Carbon;
+use App\Notifications\Channels\SmsChannel;
+use App\Services\Sms\SmsTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -45,7 +47,25 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
      */
     public function via(object $notifiable): array
     {
-        return ['database'];
+        // In-app always; email too whenever the customer has a real address (walk-ins get a
+        // placeholder "walkin_…" login that cannot receive mail).
+        $channels = ['database'];
+        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
+            $channels[] = 'mail';
+        }
+        // A text only for the moments a customer must act on (the outbox decides whether it waits for review).
+        if (SmsTemplates::appointment($this->appointment, $this->statusType)) {
+            $channels[] = SmsChannel::class;
+        }
+
+        return $channels;
+    }
+
+    public function toSms(object $notifiable): ?array
+    {
+        $text = SmsTemplates::appointment($this->appointment, $this->statusType);
+
+        return $text ? $text + ['store_id' => $this->appointment->store_id, 'related_type' => 'appointment', 'related_id' => $this->appointment->id] : null;
     }
 
     private function titles(): array

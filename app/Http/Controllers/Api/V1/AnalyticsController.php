@@ -41,6 +41,10 @@ class AnalyticsController extends Controller
 
     public function branchComparison(Request $request, Store $store): JsonResponse
     {
+        if ($denied = \App\Support\PlanGate::require($store, 'premium', 'Sales reports and staff / branch analytics')) {
+            return $denied;
+        }
+
         @ini_set('max_execution_time', 120);
 
         [$startDate, $endDate] = $this->validateDateRange($request);
@@ -181,6 +185,10 @@ class AnalyticsController extends Controller
      */
     public function staffProductivity(Request $request, Store $store): JsonResponse
     {
+        if ($denied = \App\Support\PlanGate::require($store, 'premium', 'Sales reports and staff / branch analytics')) {
+            return $denied;
+        }
+
         @ini_set('max_execution_time', 120);
 
         [$startDate, $endDate] = $this->validateDateRange($request);

@@ -33,6 +33,18 @@ class StoreReviewController extends Controller
             }
         }
 
+        // "Verified customer reviews": only someone who actually dealt with this shop — a finished
+        // job order or a completed appointment — can rate it. Editing an existing review is unaffected.
+        $hasHistory = $store->jobOrders()->where('customer_id', $user->id)->where('status', 'completed')->exists()
+            || $store->appointments()->where('customer_id', $user->id)->where('status', 'completed')->exists();
+        $alreadyReviewed = StoreReview::where('store_id', $store->id)->where('user_id', $user->id)->exists();
+        if (! $hasHistory && ! $alreadyReviewed && (int) $request->input('rating', 0) > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You can review a shop after you have had a completed order or appointment with them.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'rating' => 'required|integer|min:0|max:5',
             'comment' => 'nullable|string|max:1000',

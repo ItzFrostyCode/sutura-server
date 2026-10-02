@@ -5,6 +5,8 @@ namespace App\Notifications;
 use App\Models\JobOrder;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
+use App\Notifications\Channels\SmsChannel;
+use App\Services\Sms\SmsTemplates;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -36,8 +38,16 @@ class OrderReadyNotification extends Notification implements ShouldQueue
         if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
             $channels[] = 'mail';
         }
+        $channels[] = SmsChannel::class;
 
         return $channels;
+    }
+
+    public function toSms(object $notifiable): ?array
+    {
+        $text = SmsTemplates::order($this->jobOrder, 'ready_for_pickup');
+
+        return $text ? $text + ['store_id' => $this->jobOrder->store_id, 'related_type' => 'job_order', 'related_id' => $this->jobOrder->id] : null;
     }
 
     /**

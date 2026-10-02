@@ -187,6 +187,7 @@ Route::prefix('v1')->group(function () {
 
         // Profile Settings (Any authenticated user)
         Route::put('/profile/personal', [ProfileController::class, 'updatePersonal']);
+        Route::put('/profile/text-messages', [ProfileController::class, 'updateTextMessages'])->middleware('throttle:sensitive-writes');
         Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->middleware('throttle:sensitive-writes');
         Route::put('/profile/availability', [ProfileController::class, 'toggleAvailability']);
         Route::post('/profile/upload', [ProfileController::class, 'uploadImage'])->middleware('throttle:uploads');
@@ -287,6 +288,19 @@ Route::prefix('v1')->group(function () {
 
             // Owner & Branch Manager Access
             Route::middleware('role:store_owner,branch_manager')->group(function () {
+                // SMS outbox: texts wait here for the shop to check the number and wording before anything is sent
+                Route::get('/sms', [\App\Http\Controllers\Api\V1\SmsController::class, 'index']);
+                Route::put('/sms/settings', [\App\Http\Controllers\Api\V1\SmsController::class, 'settings']);
+                Route::post('/sms/approve-all', [\App\Http\Controllers\Api\V1\SmsController::class, 'approveAll'])->middleware('throttle:sensitive-writes');
+                Route::put('/sms/{message}', [\App\Http\Controllers\Api\V1\SmsController::class, 'update']);
+                Route::post('/sms/{message}/approve', [\App\Http\Controllers\Api\V1\SmsController::class, 'approve'])->middleware('throttle:sensitive-writes');
+                Route::post('/sms/{message}/cancel', [\App\Http\Controllers\Api\V1\SmsController::class, 'cancel']);
+
+                // Statements: every payment record + receipt image, by period (bulk export is Premium)
+                Route::get('/receipts', [\App\Http\Controllers\Api\V1\ReceiptExportController::class, 'index']);
+                Route::get('/receipts/file', [\App\Http\Controllers\Api\V1\ReceiptExportController::class, 'file']);
+                Route::get('/receipts/export', [\App\Http\Controllers\Api\V1\ReceiptExportController::class, 'export']);
+
                 // Job Orders (Owner/Manager specific actions)
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);

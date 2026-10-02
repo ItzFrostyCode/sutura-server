@@ -15,7 +15,8 @@ return [
         : ['*'],
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['Authorization', 'Content-Type', 'Accept', 'X-Requested-With'],
-    'exposed_headers' => [],
+    // Content-Disposition carries the download's file name; without this a browser on another origin cannot read it.
+    'exposed_headers' => ['Content-Disposition'],
     'max_age' => 600,
     'supports_credentials' => false,
 ];
