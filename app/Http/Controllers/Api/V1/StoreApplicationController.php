@@ -104,6 +104,7 @@ class StoreApplicationController extends Controller
                 'name' => $request->store_name.' — Main',
                 'slug' => Str::slug($request->store_name).'-'.uniqid(),
                 'address' => $request->address,
+                'barangay' => $request->barangay,
                 // Only the 8 districts discovery filters on; a reverse-geocoded
                 // barangay name would never match that filter anyway.
                 'district' => in_array($request->district, self::DISTRICTS, true) ? $request->district : null,

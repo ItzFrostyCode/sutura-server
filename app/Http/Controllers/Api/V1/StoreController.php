@@ -122,6 +122,8 @@ class StoreController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
                     ->orWhereRaw('LOWER(specializations) LIKE ?', ['%'.$search.'%'])
+                    // "Ubalde" finds shops in that barangay; "Jasmin" finds the street.
+                    ->orWhereHas('branches', fn ($bq) => $bq->whereRaw('LOWER(barangay) LIKE ?', ['%'.$search.'%'])->orWhereRaw('LOWER(address) LIKE ?', ['%'.$search.'%']))
                     ->orWhereHas('services', function ($sq) use ($search) {
                         $sq->whereRaw('LOWER(category) LIKE ?', ['%'.$search.'%'])
                             ->orWhereRaw('LOWER(name) LIKE ?', ['%'.$search.'%']);

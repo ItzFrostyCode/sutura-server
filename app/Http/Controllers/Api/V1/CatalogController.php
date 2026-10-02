@@ -477,7 +477,7 @@ class CatalogController extends Controller
             // The "Find" location sheet needs somewhere to pin on the map —
             // same branch fields PublicBookingController::getSettings()
             // already exposes for the /book page's own map.
-            'store.branches:id,store_id,slug,name,address,city,latitude,longitude',
+            'store.branches:id,store_id,slug,name,address,barangay,city,latitude,longitude',
             // Whether this item can be Bulk Ordered depends entirely on
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.

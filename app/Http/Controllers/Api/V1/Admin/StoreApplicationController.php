@@ -62,7 +62,7 @@ class StoreApplicationController extends Controller
             'application.requestedPlan:id,name,price_monthly,price_yearly',
             'application.reviewer:id,name',
             'approvedBy:id,name',
-            'branches:id,store_id,name,address,district,city,latitude,longitude,is_main',
+            'branches:id,store_id,name,address,barangay,district,city,latitude,longitude,is_main',
             'subscription.plan:id,name',
         ]);
 

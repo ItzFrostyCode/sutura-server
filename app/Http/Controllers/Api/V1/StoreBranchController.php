@@ -67,6 +67,7 @@ class StoreBranchController extends Controller
             'name' => 'required|string|max:255',
             'address' => 'required|string|max:255',
             'landmark' => 'nullable|string|max:255',
+            'barangay' => 'nullable|string|max:100',
             'city' => 'required|string|max:255',
             // Same 8 Davao City districts the public discovery filter uses
             // (StoreController::publicIndex) — this is the only place a
@@ -74,8 +75,10 @@ class StoreBranchController extends Controller
             // every newly added branch stayed permanently unfilterable.
             'district' => 'nullable|in:Poblacion,Talomo,Buhangin,Agdao,Toril,Bunawan,Calinan,Tugbok',
             'contact_number' => 'nullable|string',
-            'latitude' => 'nullable|numeric|between:-90,90',
-            'longitude' => 'nullable|numeric|between:-180,180',
+            // A branch with no coordinates can never get a pin on the map or take part in "near me" — so they are required
+            // (paste the Google Maps link in the form and they fill themselves in).
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
             'operating_hours' => 'nullable|string|max:255',
             'guide_image_url' => 'nullable|string|max:500',
             'manager_id' => 'nullable|integer',
@@ -100,6 +103,7 @@ class StoreBranchController extends Controller
             'slug' => Str::slug($request->name).'-'.uniqid(),
             'address' => $request->address,
             'landmark' => $request->landmark,
+            'barangay' => $request->barangay,
             'city' => $request->city,
             'district' => $request->district,
             'contact_number' => $request->contact_number,
@@ -150,11 +154,13 @@ class StoreBranchController extends Controller
             'name' => 'required|string|max:255',
             'address' => 'required|string|max:255',
             'landmark' => 'nullable|string|max:255',
+            'barangay' => 'nullable|string|max:100',
             'city' => 'required|string|max:255',
             'district' => 'nullable|in:Poblacion,Talomo,Buhangin,Agdao,Toril,Bunawan,Calinan,Tugbok',
             'contact_number' => 'nullable|string',
-            'latitude' => 'nullable|numeric|between:-90,90',
-            'longitude' => 'nullable|numeric|between:-180,180',
+            // Present = must be valid; a branch saved before this rule and still without coordinates must supply them now.
+            'latitude' => [$branch->latitude === null ? 'required' : 'sometimes', 'numeric', 'between:-90,90'],
+            'longitude' => [$branch->longitude === null ? 'required' : 'sometimes', 'numeric', 'between:-180,180'],
             'operating_hours' => 'nullable|string|max:255',
             'status' => 'nullable|in:active,inactive',
             'guide_image_url' => 'nullable|string|max:500',
@@ -165,6 +171,7 @@ class StoreBranchController extends Controller
             'name' => $request->name,
             'address' => $request->address,
             'landmark' => $request->landmark,
+            'barangay' => $request->barangay,
             'city' => $request->city,
             'district' => $request->district,
             'contact_number' => $request->contact_number,
