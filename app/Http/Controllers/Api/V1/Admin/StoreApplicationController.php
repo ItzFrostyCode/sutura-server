@@ -87,11 +87,11 @@ class StoreApplicationController extends Controller
     {
         $path = $store->application?->pathFor($document);
 
-        if (! $path || ! Storage::disk('local')->exists($path)) {
+        if (! $path || ! Storage::disk(config('filesystems.private_disk', 'local'))->exists($path)) {
             return response()->json(['success' => false, 'message' => 'Document not found.'], 404);
         }
 
-        return Storage::disk('local')->response($path, null, ['Cache-Control' => 'private, no-store']);
+        return Storage::disk(config('filesystems.private_disk', 'local'))->response($path, null, ['Cache-Control' => 'private, no-store']);
     }
 
     public function approve(Request $request, Store $store): JsonResponse

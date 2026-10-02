@@ -19,7 +19,10 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class SubscriptionUpgradeRequestController extends Controller
 {
-    private const DISK = 'local';
+    private static function privateDisk(): string
+    {
+        return config('filesystems.private_disk', 'local');
+    }
 
     private function ownsStore(Request $request, Store $store): bool
     {
@@ -85,7 +88,7 @@ class SubscriptionUpgradeRequestController extends Controller
             'quoted_price' => $price,
             'payment_method' => 'gcash',
             'payment_reference' => $validated['payment_reference'] ?? null,
-            'payment_receipt_path' => $request->file('payment_receipt')->store('subscription-upgrades/receipts', self::DISK),
+            'payment_receipt_path' => $request->file('payment_receipt')->store('subscription-upgrades/receipts', self::privateDisk()),
         ]);
 
         return response()->json([
@@ -102,10 +105,10 @@ class SubscriptionUpgradeRequestController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
         }
 
-        if (! Storage::disk(self::DISK)->exists($upgradeRequest->payment_receipt_path)) {
+        if (! Storage::disk(self::privateDisk())->exists($upgradeRequest->payment_receipt_path)) {
             return response()->json(['success' => false, 'message' => 'Receipt not found.'], 404);
         }
 
-        return Storage::disk(self::DISK)->response($upgradeRequest->payment_receipt_path, null, ['Cache-Control' => 'private, no-store']);
+        return Storage::disk(self::privateDisk())->response($upgradeRequest->payment_receipt_path, null, ['Cache-Control' => 'private, no-store']);
     }
 }

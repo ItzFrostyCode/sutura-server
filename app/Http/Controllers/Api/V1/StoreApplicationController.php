@@ -31,7 +31,10 @@ use Illuminate\Support\Str;
  */
 class StoreApplicationController extends Controller
 {
-    private const DISK = 'local';
+    private static function privateDisk(): string
+    {
+        return config('filesystems.private_disk', 'local');
+    }
 
     private const DISTRICTS = ['Poblacion', 'Talomo', 'Buhangin', 'Agdao', 'Toril', 'Bunawan', 'Calinan', 'Tugbok'];
 
@@ -54,7 +57,7 @@ class StoreApplicationController extends Controller
             $this->createApplication($request, $paths, $plan);
         } catch (\Throwable $e) {
             // Don't leave orphaned government IDs on disk for a rolled-back row.
-            Storage::disk(self::DISK)->delete(collect($paths)->flatten()->filter()->all());
+            Storage::disk(self::privateDisk())->delete(collect($paths)->flatten()->filter()->all());
             throw $e;
         }
 
@@ -135,7 +138,7 @@ class StoreApplicationController extends Controller
     /** @return array<string, mixed> column => stored path */
     private function storeDocuments(StoreApplicationRequest $request): array
     {
-        $put = fn (UploadedFile $file, string $folder) => $file->store("store-applications/{$folder}", self::DISK);
+        $put = fn (UploadedFile $file, string $folder) => $file->store("store-applications/{$folder}", self::privateDisk());
 
         return [
             'landmark_image_path' => $put($request->file('landmark_image'), 'landmarks'),
