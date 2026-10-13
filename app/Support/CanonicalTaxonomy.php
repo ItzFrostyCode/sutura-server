@@ -151,10 +151,45 @@ class CanonicalTaxonomy
      */
     public static function storeSpecializations(): array
     {
-        return array_merge(
-            self::DEPARTMENTS,
-            array_values(array_diff(self::SERVICE_CATEGORIES, ['others'])),
-        );
+        return array_merge(self::DEPARTMENTS, self::STORE_SERVICE_TAGS);
+    }
+
+    /**
+     * The "services offered" a shop ticks at registration / in its profile —
+     * modelled on how Davao shops list them on their own signboards
+     * (Formal, Casual, Office, School, Maritime, Medical, Sports, Embroidery),
+     * plus the two core tailoring services. A store tag only: separate from
+     * SERVICE_CATEGORIES, which classifies individual services and packages.
+     */
+    public const STORE_SERVICE_TAGS = [
+        'custom_tailoring', 'alterations_repairs',
+        'formal', 'casual', 'office', 'school', 'maritime', 'medical', 'sports', 'embroidery',
+    ];
+
+    /**
+     * Tags no longer offered but still on shops that saved them earlier.
+     * Accepted on save so those shops can still update their profile.
+     */
+    public const LEGACY_STORE_SERVICE_TAGS = [
+        'uniform_production', 'printing_sublimation', 'custom_costume_creation', 'others',
+    ];
+
+    /**
+     * How a shop groups its own services on its storefront's Services tab
+     * ("Service Categories" chips: Uniform, Casual, Office…). Set per service
+     * by the owner (services.showcase_category); a service's catalog designs
+     * are browsed from inside it. Separate from SERVICE_CATEGORIES, which
+     * classifies services for search and job-order handling.
+     */
+    public const SERVICE_SHOWCASE_CATEGORIES = [
+        'uniform', 'casual', 'office', 'formal', 'sports', 'school', 'medical', 'maritime', 'embroidery',
+        'custom_tailoring', 'alterations_repairs',
+    ];
+
+    /** What validation accepts for a store's specializations. */
+    public static function selectableStoreSpecializations(): array
+    {
+        return [...self::storeSpecializations(), ...self::LEGACY_STORE_SERVICE_TAGS];
     }
 
     /** department => [ subcategory => [ structure => garment_type[] ] ] */

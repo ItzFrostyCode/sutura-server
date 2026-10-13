@@ -48,6 +48,8 @@ class CatalogItem extends Model
         'subcategory', 'garment_structure', 'listing_type', 'external_gallery_url',
         'is_active',
         'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
+        // Server-resolved from garment_type in CatalogController, never client input.
+        'custom_apparel_type_id',
     ];
 
     // admin_hidden_at/admin_hidden_reason are deliberately NOT fillable —
@@ -61,11 +63,43 @@ class CatalogItem extends Model
         'is_active' => 'boolean',
     ];
 
-    protected $appends = ['category'];
+    protected $appends = ['category', 'apparel_review'];
 
     public function getCategoryAttribute(): ?string
     {
         return $this->garment_type;
+    }
+
+    /**
+     * What the public can see: active, and — when the design uses a typed-in
+     * apparel name — only once the System Admin has approved that name.
+     */
+    public function scopeListed($query)
+    {
+        return $query->where('catalog_items.is_active', true)
+            ->where(fn ($q) => $q->whereNull('catalog_items.custom_apparel_type_id')
+                ->orWhereHas('customApparelType', fn ($t) => $t->where('status', 'approved')));
+    }
+
+    public function isListed(): bool
+    {
+        return $this->is_active && (! $this->custom_apparel_type_id || $this->customApparelType?->isApproved());
+    }
+
+    /** null when nothing is under review; otherwise the custom name's review state for the owner's badge. */
+    public function getApparelReviewAttribute(): ?array
+    {
+        $type = $this->custom_apparel_type_id ? $this->customApparelType : null;
+        if (! $type || $type->isApproved()) {
+            return null;
+        }
+
+        return ['status' => $type->status, 'label' => $type->label, 'reason' => $type->rejection_reason];
+    }
+
+    public function customApparelType()
+    {
+        return $this->belongsTo(CustomApparelType::class);
     }
 
     // Missing entirely despite store_id being a real column — every place

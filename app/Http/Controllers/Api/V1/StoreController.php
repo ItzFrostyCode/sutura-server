@@ -129,7 +129,7 @@ class StoreController extends Controller
                             ->orWhereRaw('LOWER(name) LIKE ?', ['%'.$search.'%']);
                     })
                     ->orWhereHas('catalogItems', function ($cq) use ($search) {
-                        $cq->where('is_active', true)
+                        $cq->listed()
                             ->where(function ($ccq) use ($search) {
                                 $ccq->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
                                     ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%'.$search.'%'])
@@ -152,7 +152,7 @@ class StoreController extends Controller
                 $query->whereHas('services', fn ($sq) => $sq->where('is_active', true));
             } else {
                 $query->whereHas('catalogItems', function ($cq) use ($department) {
-                    $cq->where('is_active', true)->whereRaw('LOWER(department) = ?', [$department]);
+                    $cq->listed()->whereRaw('LOWER(department) = ?', [$department]);
                 });
             }
         }
@@ -167,7 +167,7 @@ class StoreController extends Controller
                 // service category — not only by its self-declared tags.
                 $sq->whereJsonContains('specializations', (string) $spec)
                     ->orWhereHas('catalogItems', function ($cq) use ($spec) {
-                        $cq->where('is_active', true)
+                        $cq->listed()
                             ->where(function ($ccq) use ($spec) {
                                 $ccq->where('garment_type', (string) $spec)
                                     ->orWhere('department', (string) $spec)
@@ -256,7 +256,7 @@ class StoreController extends Controller
                         $sq->where('base_price', '<=', $request->float('max_price'));
                     }
                 })->orWhereHas('catalogItems', function ($cq) use ($request) {
-                    $cq->where('is_active', true);
+                    $cq->listed();
                     if ($request->filled('min_price')) {
                         $cq->where('price', '>=', $request->float('min_price'));
                     }
@@ -279,7 +279,7 @@ class StoreController extends Controller
         // notification badges, Home dashboard alerts, and Job list tabs
         // elsewhere in this codebase.
         $query->withCount([
-            'catalogItems as catalog_items_count' => fn ($q) => $q->where('is_active', true),
+            'catalogItems as catalog_items_count' => fn ($q) => $q->listed(),
             'services as services_count' => fn ($q) => $q->where('is_active', true),
         ]);
 
@@ -287,7 +287,7 @@ class StoreController extends Controller
             $search = strtolower((string) $request->string('q'));
             $query->withCount([
                 'catalogItems as matching_items_count' => function ($cq) use ($search) {
-                    $cq->where('is_active', true)
+                    $cq->listed()
                         ->where(function ($ccq) use ($search) {
                             $ccq->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
                                 ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%'.$search.'%'])
@@ -360,7 +360,7 @@ class StoreController extends Controller
             'services' => fn ($q) => $q->where('is_active', true)->withCount('reviews')->withAvg('reviews', 'rating'),
             'owner:id,name',
             'catalogItems' => function ($cq) use ($request) {
-                $cq->where('is_active', true)->with('images');
+                $cq->listed()->with('images');
                 if ($request->filled('q')) {
                     $search = strtolower((string) $request->string('q'));
                     $cq->orderByRaw('CASE WHEN LOWER(name) LIKE ? OR LOWER(garment_type) LIKE ? OR LOWER(material) LIKE ? OR LOWER(description) LIKE ? OR EXISTS (SELECT 1 FROM services WHERE services.id = catalog_items.service_id AND (LOWER(services.name) LIKE ? OR LOWER(services.category) LIKE ? OR LOWER(services.service_type) LIKE ?)) THEN 0 ELSE 1 END', [

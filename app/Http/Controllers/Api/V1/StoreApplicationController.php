@@ -44,7 +44,7 @@ class StoreApplicationController extends Controller
             'success' => true,
             'data' => SubscriptionPlan::where('is_active', true)
                 ->orderBy('price_monthly')
-                ->get(['id', 'name', 'slug', 'description', 'price_monthly', 'price_yearly', 'max_staff', 'features']),
+                ->get(['id', 'name', 'slug', 'description', 'price_monthly', 'price_yearly', 'max_staff', 'max_branches', 'features']),
         ]);
     }
 

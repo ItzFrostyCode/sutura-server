@@ -55,6 +55,14 @@ class Appointment extends Model
      */
     public const CUSTOMER_TRAVEL_BUFFER_MINUTES = 30;
 
+    /**
+     * A customer can't book (or move a booking to) a time less than this far
+     * ahead — the shop needs notice to prepare. Mirrored by
+     * MIN_BOOKING_LEAD_MINUTES in the client's InteractiveCalendar, which
+     * greys those slots out. Walk-ins created at the counter are exempt.
+     */
+    public const MIN_BOOKING_LEAD_MINUTES = 120;
+
     /** Valid arrival statuses — how the customer's actual arrival compared to scheduled_at. */
     public const ARRIVAL_STATUSES = ['on_time', 'early', 'late', 'no_show'];
 

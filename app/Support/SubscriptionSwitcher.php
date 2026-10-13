@@ -23,8 +23,9 @@ class SubscriptionSwitcher
         }
 
         $currentBranchCount = $store->branches()->count();
-        if ($plan->slug !== 'premium' && $currentBranchCount > 1) {
-            return "This plan only supports a single branch, but you currently have {$currentBranchCount}. Remove the extra branches first, or stay on a plan that supports multiple branches.";
+        $branchLimit = $plan->branchLimit();
+        if ($branchLimit !== -1 && $currentBranchCount > $branchLimit) {
+            return "This plan allows up to {$branchLimit} branch".($branchLimit === 1 ? '' : 'es').", but you currently have {$currentBranchCount}. Remove the extra branches first, or choose a plan that fits your branches.";
         }
 
 
@@ -75,6 +76,7 @@ class SubscriptionSwitcher
             'store_id' => $store->id,
             'plan_id' => $plan->id,
             'status' => 'active',
+            'billing_cycle' => $cycle === 'yearly' ? 'yearly' : 'monthly',
             'starts_at' => now(),
             'ends_at' => now()->addDays($days),
         ]);

@@ -47,6 +47,8 @@ class StoreServiceRequest extends FormRequest
             // only checked against its parent service_category's own leaf
             // list when both are present; either may be set alone.
             'service_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::SERVICE_CATEGORIES)],
+            // Which "Service Categories" chip it sits under on the shop page.
+            'showcase_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::SERVICE_SHOWCASE_CATEGORIES)],
             'service_leaf_type' => $serviceLeafTypeRule,
             'base_price' => ['nullable', 'numeric', 'min:0'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],

@@ -9,6 +9,7 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\ActivityRecorder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -68,6 +69,7 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
+        ActivityRecorder::forUser($request, $user, $existing ? 'account_activated' : 'account_registered', $existing ? 'Activated their account' : 'Created an account');
 
         return response()->json([
             'success' => true,
@@ -115,6 +117,7 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
+        ActivityRecorder::forUser($request, $user, 'signed_in', 'Signed in');
 
         $user->load('roles:id,name', 'stores');
 
@@ -183,6 +186,7 @@ class AuthController extends Controller
                     'password' => Hash::make($password),
                     'must_change_password' => false,
                 ])->save();
+                ActivityRecorder::forUser(request(), $user, 'password_reset', 'Reset their password with an email link');
             }
         );
 

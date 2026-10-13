@@ -156,6 +156,7 @@ class StoreApplicationController extends Controller
                         'store_id' => $store->id,
                         'plan_id' => $application->requested_plan_id,
                         'status' => 'active',
+                        'billing_cycle' => $application->billing_cycle === 'yearly' ? 'yearly' : 'monthly',
                         'starts_at' => now(),
                         'ends_at' => $application->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
                     ]);

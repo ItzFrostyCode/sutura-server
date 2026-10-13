@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\CheckRole;
+use App\Http\Middleware\RecordActivity;
 use App\Http\Middleware\UpdateLastSeenAt;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -29,6 +30,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Stamp last_seen_at on every authenticated API request
         $middleware->appendToGroup('api', UpdateLastSeenAt::class);
+
+        // Every successful change anyone makes goes to the admin Activity Log
+        $middleware->appendToGroup('api', RecordActivity::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\CatalogItem;
+use App\Models\CustomApparelType;
 use App\Models\Store;
 use App\Support\CanonicalTaxonomy;
 use Illuminate\Http\JsonResponse;
@@ -22,6 +23,28 @@ class CatalogController extends Controller
      * copy of the same logic rather than trusting the route it happened to
      * be reached by.
      */
+    /**
+     * "Validate apparel categories": a garment_type off the fixed taxonomy is a
+     * typed-in name. It links to its CustomApparelType (created pending on first
+     * use) so the design stays off the storefront until the System Admin
+     * approves the name. A name the admin already refused can't be reused.
+     */
+    private function customApparelTypeId(?string $garmentType, Store $store): ?int
+    {
+        if ($garmentType === null || trim($garmentType) === '' || in_array($garmentType, CatalogItem::garmentCategories(), true)) {
+            return null;
+        }
+
+        $type = CustomApparelType::resolveFor($garmentType, $store);
+        if ($type->status === 'rejected') {
+            throw ValidationException::withMessages([
+                'garment_type' => ['The apparel name "'.$type->label.'" was not approved by SUTURA'.($type->rejection_reason ? ': '.$type->rejection_reason : '.')],
+            ]);
+        }
+
+        return $type->id;
+    }
+
     private function belongsToStore(Request $request, Store $store): bool
     {
         $user = $request->user('sanctum');
@@ -41,7 +64,7 @@ class CatalogController extends Controller
     public function index(Request $request, Store $store): JsonResponse
     {
         $query = $store->catalogItems()
-            ->with(['images', 'recommendations.recommendedItem', 'service:id,name'])
+            ->with(['images', 'recommendations.recommendedItem', 'service:id,name', 'customApparelType'])
             ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
             ->withAvg('reviews', 'rating')
             ->withSum('catalogOrders as catalog_revenue', 'total_amount')
@@ -69,7 +92,7 @@ class CatalogController extends Controller
         // as a guest here.
         $isOwnerOrStaff = $this->belongsToStore($request, $store);
         if (! $isOwnerOrStaff) {
-            $query->where('is_active', true);
+            $query->listed();
         }
 
         if ($request->filled('search')) {
@@ -97,7 +120,8 @@ class CatalogController extends Controller
         // items) rather than a per-item ->sum() call, which used to run 2 extra
         // queries per item (96 extra queries for a 48-item catalog).
         $items->each(function ($item) use ($isOwnerOrStaff) {
-            $item->reviews_avg_rating = round($item->reviews_avg_rating, 1);
+            // No reviews yet → stays null ("no rating"), not round(null) = 0.
+            $item->reviews_avg_rating = $item->reviews_avg_rating !== null ? round((float) $item->reviews_avg_rating, 1) : null;
             $netJobRevenue = (float) $item->job_revenue - (float) $item->job_balance_sum - (float) $item->job_discount_sum;
             $item->total_revenue = (float) $item->catalog_revenue + $netJobRevenue;
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
@@ -145,7 +169,7 @@ class CatalogController extends Controller
     public function publicShowroom(Request $request): JsonResponse
     {
         $query = CatalogItem::query()
-            ->where('is_active', true)
+            ->listed()
             ->whereHas('store', fn ($q) => $q->where('is_hidden', false)->where('status', 'approved'))
             ->with([
                 'store' => fn ($q) => $q->select('id', 'name', 'slug')->with([
@@ -389,6 +413,7 @@ class CatalogController extends Controller
         ]);
 
         $item = $store->catalogItems()->create([
+            'custom_apparel_type_id' => $this->customApparelTypeId($validated['garment_type'] ?? null, $store),
             'name' => $validated['name'],
             'price' => $validated['price'] ?? 0,
             'estimated_days' => $validated['estimated_days'] ?? 7,
@@ -462,7 +487,9 @@ class CatalogController extends Controller
         // Same belongsToStore() guard as index(): this store's own owner/staff can
         // still view/preview a paused item; anonymous visitors AND any other
         // store's authenticated owner/staff are blocked, same as everyone else.
-        if (! $this->belongsToStore($request, $store) && ! $catalog->is_active) {
+        // isListed() also keeps a design whose custom apparel name is still
+        // waiting for (or was refused) admin approval off the public page.
+        if (! $this->belongsToStore($request, $store) && ! $catalog->isListed()) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
 
@@ -473,11 +500,12 @@ class CatalogController extends Controller
             // The item detail page's own "visit this store" card — same
             // rating shape StoreController computes (loadCount/loadAvg on
             // reviews), so it reads identically to the store's own profile.
-            'store:id,name,slug,logo_path',
+            // operating_hours: the Find a Branch pins show the same open/closed dot as /map.
+            'store:id,name,slug,logo_path,operating_hours',
             // The "Find" location sheet needs somewhere to pin on the map —
             // same branch fields PublicBookingController::getSettings()
             // already exposes for the /book page's own map.
-            'store.branches' => fn ($q) => $q->live()->select('id', 'store_id', 'slug', 'name', 'address', 'barangay', 'city', 'latitude', 'longitude'),
+            'store.branches' => fn ($q) => $q->live()->select('id', 'store_id', 'slug', 'name', 'is_main', 'address', 'barangay', 'city', 'latitude', 'longitude'),
             // Whether this item can be Bulk Ordered depends entirely on
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.
@@ -492,7 +520,7 @@ class CatalogController extends Controller
         $catalog->load($relations);
         $catalog->loadCount(['saves', 'reviews', 'catalogOrders', 'jobOrders']);
         $catalog->loadAvg('reviews', 'rating');
-        $catalog->reviews_avg_rating = round($catalog->reviews_avg_rating, 1);
+        $catalog->reviews_avg_rating = $catalog->reviews_avg_rating !== null ? round((float) $catalog->reviews_avg_rating, 1) : null;
 
         if ($catalog->store) {
             $catalog->store->loadCount('reviews');
@@ -504,7 +532,7 @@ class CatalogController extends Controller
             // finds browsing this store's storefront, not a raw row count
             // that'd include paused/hidden ones nobody can see.
             $catalog->store->loadCount([
-                'catalogItems as catalog_items_count' => fn ($q) => $q->where('is_active', true),
+                'catalogItems as catalog_items_count' => fn ($q) => $q->listed(),
                 'services as services_count' => fn ($q) => $q->where('is_active', true),
             ]);
         }
@@ -610,6 +638,9 @@ class CatalogController extends Controller
         }
 
         $catalog->update([
+            'custom_apparel_type_id' => array_key_exists('garment_type', $validated)
+                ? $this->customApparelTypeId($validated['garment_type'], $store)
+                : $catalog->custom_apparel_type_id,
             'name' => $validated['name'] ?? $catalog->name,
             'price' => $validated['price'] ?? $catalog->price,
             'estimated_days' => array_key_exists('estimated_days', $validated) ? $validated['estimated_days'] : $catalog->estimated_days,
