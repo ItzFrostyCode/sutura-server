@@ -86,12 +86,17 @@ class StoreBranchController extends Controller
 
         $store = Store::findOrFail($storeId);
 
+        // The plan's branch limit (admin-editable on the Plans page); a store
+        // with no live subscription gets a single branch.
         $branchCount = $store->branches()->count();
         $subscription = $store->subscription()->whereIn('status', ['active', 'trial'])->first();
-        $canAddBranch = $subscription && $subscription->plan->slug === 'premium';
+        $limit = $subscription?->plan?->branchLimit() ?? 1;
 
-        if ($branchCount >= 1 && ! $canAddBranch) {
-            return response()->json(['success' => false, 'message' => 'Upgrade to the Premium plan to add multiple branches.'], 403);
+        if ($limit !== -1 && $branchCount >= $limit) {
+            return response()->json([
+                'success' => false,
+                'message' => "Your plan allows up to {$limit} branch".($limit === 1 ? '' : 'es').'. Upgrade your plan to add more.',
+            ], 403);
         }
 
         $branch = StoreBranch::create([

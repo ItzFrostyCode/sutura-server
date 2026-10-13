@@ -9,8 +9,22 @@ class SubscriptionPlan extends Model
 {
     protected $fillable = [
         'name', 'slug', 'description', 'price_monthly', 'price_yearly',
-        'max_staff', 'max_services', 'max_appointments_per_month', 'features', 'is_active',
+        'max_staff', 'max_branches', 'max_services', 'max_appointments_per_month', 'features', 'is_active',
     ];
+
+    /**
+     * How many branches a store on this plan may have (-1 = unlimited).
+     * Set on the admin Plans page; a plan saved before that existed falls
+     * back to the old rule (Premium unlimited, everything else one branch).
+     */
+    public function branchLimit(): int
+    {
+        if ($this->max_branches !== null) {
+            return (int) $this->max_branches;
+        }
+
+        return str_contains((string) $this->slug, 'premium') ? -1 : 1;
+    }
 
     protected $casts = [
         'price_monthly' => 'decimal:2',
@@ -18,6 +32,39 @@ class SubscriptionPlan extends Model
         'features' => 'array',
         'is_active' => 'boolean',
     ];
+
+    protected $appends = ['display_features'];
+
+    /**
+     * What plan cards show: the staff and branch limits written out from
+     * max_staff / max_branches (so an admin edit on the Plans page shows up
+     * everywhere at once), then the admin's own feature lines. `features`
+     * itself stays exactly as typed.
+     */
+    public function getDisplayFeaturesAttribute(): array
+    {
+        $features = array_values(array_filter(
+            $this->features ?? [],
+            // A hand-typed staff line would contradict the generated one.
+            fn ($f) => ! preg_match('/^(staff accounts|up to \d+ (staff|branch)|unlimited (staff|branch)|\d+ branch)/i', (string) $f),
+        ));
+
+        $staff = match (true) {
+            $this->max_staff === null => null,
+            (int) $this->max_staff === -1 => 'Unlimited staff accounts',
+            (int) $this->max_staff === 0 => null,
+            default => 'Up to '.(int) $this->max_staff.' staff '.((int) $this->max_staff === 1 ? 'account' : 'accounts'),
+        };
+        $branchLimit = $this->slug !== null || $this->max_branches !== null ? $this->branchLimit() : null;
+        $branches = match (true) {
+            $branchLimit === null => null,
+            $branchLimit === -1 => 'Unlimited branches',
+            $branchLimit === 1 => '1 branch',
+            default => "Up to {$branchLimit} branches",
+        };
+
+        return array_values(array_filter([$staff, $branches, ...$features]));
+    }
 
     public function subscriptions(): HasMany
     {
