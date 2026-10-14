@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Models\JobOrder;
 use App\Models\User;
+use App\Support\OrderReadiness;
 use Illuminate\Bus\Queueable;
 use App\Notifications\Channels\SmsChannel;
 use App\Services\Sms\SmsTemplates;
@@ -50,6 +51,21 @@ class OrderReadyNotification extends Notification implements ShouldQueue
         return $text ? $text + ['store_id' => $this->jobOrder->store_id, 'related_type' => 'job_order', 'related_id' => $this->jobOrder->id] : null;
     }
 
+    /** Ordering-flow orders: the quality check has passed; the customer comes for a fitting or just to collect. */
+    private function isFlow(): bool
+    {
+        return OrderReadiness::gated($this->jobOrder);
+    }
+
+    private function balanceLine(): string
+    {
+        $balance = (float) $this->jobOrder->balance;
+
+        return $balance > 0
+            ? 'Your remaining balance is ₱'.number_format($balance, 2).'. You can settle it when you come in.'
+            : 'Your order is fully paid.';
+    }
+
     /**
      * Mail representation.
      */
@@ -57,6 +73,24 @@ class OrderReadyNotification extends Notification implements ShouldQueue
     {
         $store = $this->jobOrder->store;
         $storeUrl = $store?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000').'/store/'.$store->slug) : null;
+
+        if ($this->isFlow()) {
+            $fitting = OrderReadiness::fittingNeeded($this->jobOrder);
+            $mail = (new MailMessage)
+                ->subject($fitting ? 'Your order is ready for its final fitting' : 'Your order is ready for collection')
+                ->greeting('Hello '.$notifiable->name.',')
+                ->line('Your order ('.$this->jobOrder->order_number.') from '.($store?->name ?? 'the store').' passed our internal quality check.')
+                ->line($fitting ? 'Please visit the store for your final fitting.' : 'Please visit the store to collect your garments.')
+                ->line($this->balanceLine())
+                ->line($fitting
+                    ? 'If everything fits and nothing needs correcting, you can settle the balance and take your garments home in the same visit.'
+                    : 'You can settle the balance and take your garments home in the same visit.');
+            if ($storeUrl) {
+                $mail->action('Visit '.$store->name, $storeUrl);
+            }
+
+            return $mail->line('Thank you for trusting us with your custom tailoring!');
+        }
 
         $mail = (new MailMessage)
             ->subject('Your Bespoke Garment is Ready for Pickup!')
@@ -78,11 +112,15 @@ class OrderReadyNotification extends Notification implements ShouldQueue
     public function toArray(object $notifiable): array
     {
         $store = $this->jobOrder->store;
+        $flow = $this->isFlow();
+        $fitting = $flow && OrderReadiness::fittingNeeded($this->jobOrder);
 
         return [
             'type' => 'order_ready',
-            'title' => 'Order Ready for Pickup',
-            'message' => 'Order '.$this->jobOrder->order_number.' is ready for pickup.',
+            'title' => $flow ? ($fitting ? 'Ready for Final Fitting' : 'Ready for Collection') : 'Order Ready for Pickup',
+            'message' => $flow
+                ? 'Order '.$this->jobOrder->order_number.' passed quality check. '.($fitting ? 'Please come for your fitting. ' : 'Please come to collect it. ').$this->balanceLine()
+                : 'Order '.$this->jobOrder->order_number.' is ready for pickup.',
             // Customer-facing (this notifiable is the customer, not the
             // shop owner) — must land on their own order tracker, not the
             // owner-only dashboard route.

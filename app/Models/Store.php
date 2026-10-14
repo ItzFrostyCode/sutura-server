@@ -25,7 +25,18 @@ class Store extends Model
         'specializations', 'is_featured', 'is_hidden',
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
         'gcash_qr_path', 'bank_qr_path',
+        'cancellation_policy',
     ];
+
+    /** Shown to the customer before they approve a quotation, unless the shop wrote its own. */
+    public const DEFAULT_CANCELLATION_POLICY = 'Full refund if no materials have been bought and no work has started. '
+        .'If the shop already spent money on your order that it cannot recover, the refund is what you paid minus that amount. '
+        .'Once production has started, the shop assesses the work already done and any exceptions; the owner decides the final amount.';
+
+    public function cancellationPolicyText(): string
+    {
+        return trim((string) $this->cancellation_policy) !== '' ? $this->cancellation_policy : self::DEFAULT_CANCELLATION_POLICY;
+    }
 
     /**
      * store_code is confidential — used by owners, branch managers, and staff

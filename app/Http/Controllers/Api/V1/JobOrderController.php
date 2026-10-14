@@ -15,6 +15,8 @@ use App\Models\ServicePricing;
 use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Support\OrderNumber;
+use App\Support\OrderReadiness;
+use App\Support\SafeNotify;
 use App\Models\User;
 use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\CustomerPaymentRejectedNotification;
@@ -322,6 +324,7 @@ class JobOrderController extends Controller
             'balance' => $totalAmount,
             'payment_status' => 'unpaid',
             'status' => 'pending',
+            'uses_confirmation_flow' => true,
             'notes' => "Bulk order: {$item->name} — ".$sizeCounts->map(fn ($qty, $size) => "{$qty}x {$size}")->implode(', '),
             'reference_images' => $item->images()->where('is_primary', true)->value('image_url') ? [$item->images()->where('is_primary', true)->value('image_url')] : [],
             'custom_order_data' => [
@@ -394,6 +397,7 @@ class JobOrderController extends Controller
             'balance' => $totalAmount,
             'payment_status' => 'unpaid',
             'status' => 'pending',
+            'uses_confirmation_flow' => true,
             'notes' => 'Made to Order: '.$item->name.(! empty($validated['size']) ? ' (Reference size: '.$validated['size'].')' : ''),
             'reference_images' => $primaryImage ? [$primaryImage] : [],
             'custom_order_data' => ! empty($validated['size']) ? ['reference_size' => $validated['size']] : null,
@@ -602,6 +606,9 @@ class JobOrderController extends Controller
         $validated['order_number'] = $this->generateOrderNumber($store);
         $validated['tracking_code'] = $this->generateTrackingCode($store, $validated['order_number']);
         $validated['order_type'] = $validated['order_type'] ?? 'walk_in';
+        // Every order made here goes through the ordering flow (quotation -> customer approval ->
+        // deposit -> confirmed -> start). Repairs are exempt at the gate (OrderReadiness::gated).
+        $validated['uses_confirmation_flow'] = true;
 
         // assigned_staff_id is no longer accepted from the client at creation
         // time — no more upfront "who's doing this" pre-assignment. It's
@@ -827,6 +834,13 @@ class JobOrderController extends Controller
         $oldStatus = $jobOrder->status;
         $validated = $request->validated();
         $newStatus = $validated['status'] ?? null;
+        // Ordering-flow orders (not repairs) follow the workflow sequence: ... -> Quality Check -> Ready for
+        // Final Fitting / Collection -> Customer Fitting -> Adjustment -> Balance & Handover -> Completed.
+        // The customer is invited to the fitting/collection when the order becomes Ready for Final Fitting /
+        // Collection; older orders keep inviting them when it becomes Ready for Fitting.
+        $flow = OrderReadiness::gated($jobOrder);
+        $fittingTrigger = $flow ? 'ready_for_pickup' : 'ready_for_fitting';
+        $startedNow = false;
 
         // Same auto-calculated rush fee default as store() (including the
         // repeat-customer discount) — only fills in a starting figure when
@@ -849,6 +863,13 @@ class JobOrderController extends Controller
         // Job Detail page's own status dropdown, so the rule has to live here too,
         // not just in one frontend component.
         if ($newStatus && $newStatus !== $oldStatus) {
+            // Ordering flow: confirming needs a final, customer-approved quotation and a verified
+            // deposit; starting work needs materials, measurements and a tailor. Same rules as the
+            // dashboard checklist (App\Support\OrderReadiness) -- orders without the flow are skipped.
+            if ($gate = OrderReadiness::transitionError($jobOrder, $oldStatus, $newStatus)) {
+                return response()->json(['success' => false] + $gate, 422);
+            }
+
             $totalAmount = (float) $jobOrder->total_amount;
             // A discount lowers balance, not total, so it must be subtracted
             // here too — otherwise a discount counts as cash paid and a
@@ -866,7 +887,10 @@ class JobOrderController extends Controller
             // The required share is this job's snapshotted payment policy
             // (none / full / deposit / custom percent), not a fixed 50%.
             $fraction = $jobOrder->requiredDepositFraction();
-            if ($jobOrder->requiresDownpaymentFor($newStatus) && $amountDue > 0 && $paidSoFar + 0.005 < ($amountDue * $fraction)) {
+            // The deposit was verified when the order was confirmed; a later approved change raises the total, but
+            // that must not lock an order that is already in production out of its next stage.
+            $depositAlreadyCleared = $flow && $jobOrder->production_started_at !== null;
+            if (! $depositAlreadyCleared && $jobOrder->requiresDownpaymentFor($newStatus) && $amountDue > 0 && $paidSoFar + 0.005 < ($amountDue * $fraction)) {
                 $label = $fraction >= 1 ? 'The full payment' : 'A '.(int) round($fraction * 100).'% downpayment';
                 return response()->json([
                     'success' => false,
@@ -884,7 +908,8 @@ class JobOrderController extends Controller
                 ], 422);
             }
             if (
-                in_array($newStatus, ['ready_for_pickup', 'completed'], true)
+                ! $flow
+                && in_array($newStatus, ['ready_for_pickup', 'completed'], true)
                 && $jobOrder->fitting_requirement === 'required'
                 && ! $jobOrder->appointments()->where('appointment_type', 'fitting')->where('status', 'completed')->exists()
             ) {
@@ -925,7 +950,7 @@ class JobOrderController extends Controller
             // transition never partially applies. 'fee' policy (default)
             // is unaffected here; it's still handled after save, where the
             // auto-fitting appointment actually gets created.
-            if ($newStatus === 'ready_for_fitting' && $oldStatus !== 'ready_for_fitting' && $store->fitting_limit_policy === 'block') {
+            if ($newStatus === $fittingTrigger && $oldStatus !== $fittingTrigger && $store->fitting_limit_policy === 'block' && (! $flow || OrderReadiness::fittingNeeded($jobOrder))) {
                 $priorFittingCount = $jobOrder->appointments()->where('appointment_type', 'fitting')->count();
                 if ($store->fitting_limit && $priorFittingCount >= $store->fitting_limit) {
                     return response()->json([
@@ -962,6 +987,27 @@ class JobOrderController extends Controller
         }
 
         $jobOrder->update($validated);
+
+        // Ordering flow milestones, stamped by the server from the transition itself.
+        if ($newStatus && $newStatus !== $oldStatus && $jobOrder->uses_confirmation_flow) {
+            if ($jobOrder->status === 'confirmed' && ! $jobOrder->confirmed_at) {
+                $jobOrder->forceFill(['confirmed_at' => now()])->save();
+                OrderReadiness::syncAwaitingMaterials($jobOrder->fresh());
+                $jobOrder->refresh();
+            }
+            if (JobOrder::startsProduction($jobOrder->status) && ! $jobOrder->production_started_at) {
+                $jobOrder->forceFill(['production_started_at' => now()])->save();
+                $startedNow = true;
+            }
+            // A quality check and a fitting result belong to one round: going back to production, to quality
+            // check or to correction starts the next round, so each has to be passed again.
+            if (in_array($jobOrder->status, [...JobOrder::PRODUCTION_TASKS, 'qc_ironing', 'final_adjustments'], true)) {
+                $jobOrder->forceFill(['qc_passed_at' => null, 'qc_passed_by' => null, 'fitting_passed_at' => null])->save();
+            }
+            if ($oldStatus === 'ready_for_fitting' && $jobOrder->status === 'balance_handover') {
+                $jobOrder->forceFill(['fitting_passed_at' => now()])->save();
+            }
+        }
 
         // Auto-derived production attribution: replaces the old "owner
         // manually pre-assigns a staff member to a stage before they can
@@ -1075,7 +1121,7 @@ class JobOrderController extends Controller
             // deposit (cancellation_reason=forfeited_deposit_abandoned) instead
             // of only after.
             $jobOrder->forceFill(['ready_for_pickup_at' => now()])->save();
-            $jobOrder->customer->notify(new OrderReadyNotification($jobOrder, $request->user()));
+            SafeNotify::send($jobOrder->customer, new OrderReadyNotification($jobOrder, $request->user()));
             $this->notifyOwnerOfActivity($request, $store, [
                 'type' => 'job_ready_for_pickup',
                 'title' => 'Job Order Ready for Pickup',
@@ -1091,7 +1137,7 @@ class JobOrderController extends Controller
         // Final Adjustments and forward again doesn't spawn a second one —
         // the placeholder date/time is a rough default the owner/staff is
         // expected to actually reschedule with the customer.
-        if ($jobOrder->status === 'ready_for_fitting' && $oldStatus !== 'ready_for_fitting') {
+        if ($jobOrder->status === $fittingTrigger && $oldStatus !== $fittingTrigger && (! $flow || OrderReadiness::fittingNeeded($jobOrder))) {
             // Locking the job order row for the duration of the check+create
             // serializes two near-simultaneous transitions into
             // 'ready_for_fitting' for the same job — without this, both
@@ -1166,7 +1212,13 @@ class JobOrderController extends Controller
         // pipeline status is notifiable by default instead of silently excluded.
         $otherNotifiableStatuses = array_diff(JobOrder::STATUSES, ['pending', 'ready_for_pickup']);
         if (in_array($jobOrder->status, $otherNotifiableStatuses, true) && $jobOrder->status !== $oldStatus) {
-            $jobOrder->customer->notify(new JobStatusUpdatedNotification($jobOrder, $jobOrder->status, $request->user()));
+            // On the ordering flow the customer is told when work starts and when the order is ready (above) --
+            // not about each internal task, the quality check, the fitting itself or the handover.
+            $customerQuiet = $flow ? ['qc_ironing', 'ready_for_fitting', 'balance_handover', ...($startedNow ? [] : JobOrder::PRODUCTION_TASKS)] : [];
+            if (! in_array($jobOrder->status, $customerQuiet, true)) {
+                // A failed email (bad SMTP login, provider down) must not turn an already-saved stage change into a 500.
+                SafeNotify::send($jobOrder->customer, new JobStatusUpdatedNotification($jobOrder, $jobOrder->status, $request->user()));
+            }
             $this->notifyOwnerOfActivity($request, $store, [
                 'type' => 'job_'.$jobOrder->status,
                 'title' => 'Job Order Updated',

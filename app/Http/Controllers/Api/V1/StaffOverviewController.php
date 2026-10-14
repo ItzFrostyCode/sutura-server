@@ -35,10 +35,14 @@ class StaffOverviewController extends Controller
             ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
             ->where('scheduled_at', '>=', now()->startOfDay());
 
-        $mine = DB::table('job_order_staff')->where('user_id', $user->id)->pluck('job_order_id')->all();
+        // "Mine" = orders I have worked a stage on, or that the owner planned me for.
+        $mine = array_values(array_unique(array_merge(
+            DB::table('job_order_staff')->where('user_id', $user->id)->pluck('job_order_id')->all(),
+            DB::table('job_order_assignees')->where('user_id', $user->id)->pluck('job_order_id')->all(),
+        )));
         $isMine = fn (JobOrder $j) => (int) $j->assigned_staff_id === (int) $user->id || in_array($j->id, $mine, true);
 
-        $queue = $jobs()->whereIn('status', array_merge(['design'], self::IN_PRODUCTION, self::QUALITY_CHECK, ['ready_for_fitting']))
+        $queue = $jobs()->whereIn('status', array_merge(['confirmed', 'awaiting_materials', 'design'], self::IN_PRODUCTION, self::QUALITY_CHECK, ['ready_for_pickup', 'ready_for_fitting', 'balance_handover']))
             ->with(['customer:id,name', 'service:id,name', 'catalogItem:id,name'])
             ->orderBy('due_date')->limit(40)->get()
             ->map(fn (JobOrder $j) => [
@@ -60,6 +64,10 @@ class StaffOverviewController extends Controller
             'orders_in_production' => $jobs()->whereIn('status', self::IN_PRODUCTION)->count(),
             'quality_checks_needed' => $jobs()->whereIn('status', self::QUALITY_CHECK)->count(),
             'pending_fittings' => $fittings()->count(),
+            // Ordering flow: pending orders still being set up (specs, measurements, materials), and
+            // confirmed orders that are ready for someone to start.
+            'to_set_up' => $jobs()->where('uses_confirmation_flow', true)->where('status', 'pending')->count(),
+            'ready_to_start' => $jobs()->where('status', 'confirmed')->count(),
             'my_jobs' => $jobs()->whereNotIn('status', ['completed', 'cancelled', 'rejected'])
                 ->where(fn ($q) => $q->where('assigned_staff_id', $user->id)->orWhereIn('job_orders.id', $mine))->count(),
             'queue' => $queue,

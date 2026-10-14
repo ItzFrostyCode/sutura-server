@@ -88,6 +88,11 @@ class SmsTemplates
         }
         if ($stage === 'ready_for_pickup') {
             $owing = (float) $job->balance > 0 ? ' Balance: PHP '.number_format((float) $job->balance, 2).'.' : '';
+            if (\App\Support\OrderReadiness::gated($job)) {
+                $what = \App\Support\OrderReadiness::fittingNeeded($job) ? 'FITTING' : 'PICK-UP';
+
+                return ['event' => 'order_ready_pickup', 'body' => "{$shop}: order {$no} passed quality check. Please come for {$what}.{$owing} Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':pickup:'.now()->toDateString()];
+            }
 
             return ['event' => 'order_ready_pickup', 'body' => "{$shop}: order {$no} is ready for PICK-UP.{$owing} Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':pickup'];
         }

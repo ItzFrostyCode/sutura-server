@@ -21,6 +21,9 @@ use App\Http\Controllers\Api\V1\JobOrderController;
 use App\Http\Controllers\Api\V1\JobOrderTrackingController;
 use App\Http\Controllers\Api\V1\MeasurementController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\OrderFlowController;
+use App\Http\Controllers\Api\V1\OrderDeliveryController;
+use App\Http\Controllers\Api\V1\OrderRefundController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\RecentlyViewedController;
@@ -164,6 +167,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/my-orders', [JobOrderTrackingController::class, 'myOrders']);
         Route::get('/my-orders/{jobOrder}', [JobOrderTrackingController::class, 'myOrderDetail']);
         Route::post('/my-orders/{jobOrder}/payments', [\App\Http\Controllers\Api\V1\CustomerPaymentController::class, 'store'])->middleware('throttle:sensitive-writes');
+        // The customer approves the final quotation and the cancellation policy before paying the deposit.
+        Route::post('/my-orders/{jobOrder}/approve-quotation', [OrderFlowController::class, 'customerApprove'])->middleware('throttle:sensitive-writes');
         Route::get('/my-appointments', [AppointmentController::class, 'myAppointments']);
         Route::get('/my-appointments/{appointment}', [AppointmentController::class, 'myAppointmentDetail']);
         // Self-service cancel — distinct from the owner/manager destroy()
@@ -228,6 +233,26 @@ Route::prefix('v1')->group(function () {
                 // Per-piece completion on a bulk/team order's roster — same
                 // "staff at the workbench" reasoning as progress photos above.
                 Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
+
+                // Ordering flow (Flow 2). Everyone on the shop floor can see the readiness checklist,
+                // sign off specs/measurements, keep the material list and record the customer's
+                // approval at the counter; prices, tailor planning, confirming and refunds are
+                // owner/branch-manager only (see the group below). Gates: App\Support\OrderReadiness.
+                Route::get('/jobs/{jobOrder}/readiness', [OrderFlowController::class, 'show']);
+                Route::post('/jobs/{jobOrder}/specs/approve', [OrderFlowController::class, 'approveSpecs']);
+                Route::post('/jobs/{jobOrder}/measurements/verify', [OrderFlowController::class, 'verifyMeasurements']);
+                Route::post('/jobs/{jobOrder}/quotation/approve', [OrderFlowController::class, 'approveInPerson']);
+                // Materials are a yes/no sign-off (ready / waiting) plus an assessment of the customer's own
+                // fabric -- never a stock, supplier or purchase record (thesis Limitations).
+                Route::post('/jobs/{jobOrder}/materials', [OrderFlowController::class, 'setMaterials']);
+                Route::post('/jobs/{jobOrder}/customer-items', [OrderFlowController::class, 'assessCustomerItems']);
+
+                // Flow 3: quality check, corrections (defect / fitting issue / customer change) and handover.
+                Route::post('/jobs/{jobOrder}/quality-check', [OrderDeliveryController::class, 'qualityCheck']);
+                Route::post('/jobs/{jobOrder}/corrections', [OrderDeliveryController::class, 'storeCorrection']);
+                Route::put('/jobs/{jobOrder}/corrections/{correction}', [OrderDeliveryController::class, 'updateCorrection']);
+                Route::post('/jobs/{jobOrder}/corrections/{correction}/resolve', [OrderDeliveryController::class, 'resolveCorrection']);
+                Route::post('/jobs/{jobOrder}/handovers', [OrderDeliveryController::class, 'recordHandover']);
 
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
@@ -309,6 +334,16 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
+
+                // Ordering flow: price the order, plan tailors, confirm it, and record a cancellation refund.
+                Route::put('/jobs/{jobOrder}/quotation', [OrderFlowController::class, 'saveQuotation']);
+                Route::put('/jobs/{jobOrder}/assignees', [OrderFlowController::class, 'syncAssignees']);
+                Route::post('/jobs/{jobOrder}/confirm', [OrderFlowController::class, 'confirm']);
+                Route::post('/jobs/{jobOrder}/corrections/{correction}/approve', [OrderDeliveryController::class, 'approveChange']);
+                Route::post('/jobs/{jobOrder}/corrections/{correction}/cancel', [OrderDeliveryController::class, 'cancelCorrection']);
+                Route::get('/jobs/{jobOrder}/refund-suggestion', [OrderRefundController::class, 'suggestion']);
+                Route::post('/jobs/{jobOrder}/refunds', [OrderRefundController::class, 'record'])->middleware('throttle:sensitive-writes');
+                Route::post('/jobs/{jobOrder}/refunds/{refund}/mark-refunded', [OrderRefundController::class, 'markRefunded'])->middleware('throttle:sensitive-writes');
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
 
