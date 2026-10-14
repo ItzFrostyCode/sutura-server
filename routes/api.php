@@ -329,6 +329,8 @@ Route::prefix('v1')->group(function () {
                 // Job Orders (Owner/Manager specific actions)
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
+                // "No downpayment for this order" (a customer the shop knows) — owner/manager only, audit-logged.
+                Route::post('/jobs/{jobOrder}/deposit-waiver', [JobOrderController::class, 'depositWaiver']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment']);
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);

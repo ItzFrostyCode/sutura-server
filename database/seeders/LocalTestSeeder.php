@@ -256,7 +256,7 @@ class LocalTestSeeder extends Seeder
                 // guessing men/women.
                 'department' => null,
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
-                'service_category' => 'printing_sublimation',
+                'service_category' => 'uniform_production', // jerseys: Uniform, Jersey & Teamwear (2026-10-14)
                 'service_leaf_type' => 'sports_jersey_printing',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => 1000,
@@ -430,7 +430,7 @@ class LocalTestSeeder extends Seeder
                 'description' => 'Sublimation-printed jerseys for corporate teams and events.',
                 'department' => null,
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
-                'service_category' => 'printing_sublimation',
+                'service_category' => 'uniform_production', // jerseys: Uniform, Jersey & Teamwear (2026-10-14)
                 'service_leaf_type' => 'teamwear_printing',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
@@ -446,9 +446,10 @@ class LocalTestSeeder extends Seeder
                 'description' => 'Custom embroidery for logos, names, and designs on garments, uniforms, jackets, and accessories. New logo designs include one-time digitizing to convert artwork into a stitchable file.',
                 'department' => null,
                 'categories' => ['Embroidered Logos & Team Names', 'Custom Apparel, Printing & Embroidery'],
-                'service_category' => 'printing_sublimation',
+                // Embroidery on the customer's garments: one of the 4 approved services (2026-10-14).
+                'service_category' => 'garment_customization',
                 'service_leaf_type' => 'custom_apparel_printing',
-                'service_types' => ['bulk_sublimation'],
+                'service_types' => ['custom_tailoring'],
                 'base_price' => null,
                 'estimated_days' => 4,
                 'image_url' => '/catalog/AllStar-Basketball-Jersey.jpg',
@@ -466,7 +467,7 @@ class LocalTestSeeder extends Seeder
                 'description' => 'Made-to-order costumes for school programs, cultural dance troupes, and stage productions — Buwan ng Wika attire, folk dance ensembles, and character costumes.',
                 'department' => null,
                 'categories' => ['Costume Tailoring', 'Formal & Cultural Wear'],
-                'service_category' => 'custom_costume_creation',
+                'service_category' => 'custom_tailoring', // costumes: Custom Tailoring + Costumes garments (2026-10-14)
                 'service_leaf_type' => 'cultural_dance_costumes',
                 'service_types' => ['custom_tailoring'],
                 'base_price' => null,

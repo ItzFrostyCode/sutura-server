@@ -8,9 +8,11 @@ use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Models\StoreBranch;
 use App\Services\GoogleMapsLinkResolver;
+use App\Support\DavaoLocations;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class StoreBranchController extends Controller
 {
@@ -69,11 +71,11 @@ class StoreBranchController extends Controller
             'landmark' => 'nullable|string|max:255',
             'barangay' => 'nullable|string|max:100',
             'city' => 'required|string|max:255',
-            // Same 8 Davao City districts the public discovery filter uses
-            // (StoreController::publicIndex) — this is the only place a
+            // Davao City's 11 districts (App\Support\DavaoLocations), the same ones the public
+            // discovery filter uses (StoreController::publicIndex) — this is the only place a
             // branch's district ever gets set, so leaving it out here meant
             // every newly added branch stayed permanently unfilterable.
-            'district' => 'nullable|in:Poblacion,Talomo,Buhangin,Agdao,Toril,Bunawan,Calinan,Tugbok',
+            'district' => ['nullable', Rule::in(DavaoLocations::districts())],
             'contact_number' => 'nullable|string',
             // A branch with no coordinates can never get a pin on the map or take part in "near me" — so they are required
             // (paste the Google Maps link in the form and they fill themselves in).
@@ -83,6 +85,12 @@ class StoreBranchController extends Controller
             'guide_image_url' => 'nullable|string|max:500',
             'manager_id' => 'nullable|integer',
         ]);
+
+        $place = $this->resolvePlace($request, null);
+        if ($place instanceof JsonResponse) {
+            return $place;
+        }
+        [$barangay, $district] = $place;
 
         $store = Store::findOrFail($storeId);
 
@@ -108,9 +116,9 @@ class StoreBranchController extends Controller
             'slug' => Str::slug($request->name).'-'.uniqid(),
             'address' => $request->address,
             'landmark' => $request->landmark,
-            'barangay' => $request->barangay,
+            'barangay' => $barangay,
             'city' => $request->city,
-            'district' => $request->district,
+            'district' => $district,
             'contact_number' => $request->contact_number,
             'latitude' => $request->latitude,
             'longitude' => $request->longitude,
@@ -163,7 +171,7 @@ class StoreBranchController extends Controller
             'landmark' => 'nullable|string|max:255',
             'barangay' => 'nullable|string|max:100',
             'city' => 'required|string|max:255',
-            'district' => 'nullable|in:Poblacion,Talomo,Buhangin,Agdao,Toril,Bunawan,Calinan,Tugbok',
+            'district' => ['nullable', Rule::in(DavaoLocations::districts())],
             'contact_number' => 'nullable|string',
             // Present = must be valid; a branch saved before this rule and still without coordinates must supply them now.
             'latitude' => [$branch->latitude === null ? 'required' : 'sometimes', 'numeric', 'between:-90,90'],
@@ -174,15 +182,21 @@ class StoreBranchController extends Controller
             'manager_id' => 'nullable',
         ]);
 
+        $place = $this->resolvePlace($request, $branch);
+        if ($place instanceof JsonResponse) {
+            return $place;
+        }
+        [$barangay, $district] = $place;
+
         $before = $branch->only(['address', 'barangay', 'city', 'district', 'latitude', 'longitude']);
 
         $branch->update([
             'name' => $request->name,
             'address' => $request->address,
             'landmark' => $request->landmark,
-            'barangay' => $request->barangay,
+            'barangay' => $barangay,
             'city' => $request->city,
-            'district' => $request->district,
+            'district' => $district,
             'contact_number' => $request->contact_number,
             'latitude' => $request->filled('latitude') ? $request->latitude : ($request->latitude === '' ? null : $branch->latitude),
             'longitude' => $request->filled('longitude') ? $request->longitude : ($request->longitude === '' ? null : $branch->longitude),
@@ -325,6 +339,36 @@ class StoreBranchController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $coords]);
+    }
+
+    /**
+     * The barangay and district to save. A new or changed barangay must be one of Davao City's 182
+     * (App\Support\DavaoLocations) and sit in the chosen district; it is saved in the official spelling and fills an
+     * empty district. An unchanged value is kept exactly as stored — even one that is not on the list — so editing an
+     * existing branch never fails on it and never sends a verified branch back for checking.
+     *
+     * @return array{0: ?string, 1: ?string}|JsonResponse [barangay, district]
+     */
+    private function resolvePlace(Request $request, ?StoreBranch $branch): array|JsonResponse
+    {
+        $typed = trim((string) $request->input('barangay', ''));
+        $district = $request->input('district') ?: null;
+        if ($typed === '') {
+            return [null, $district];
+        }
+
+        $unchanged = $branch !== null && $typed === trim((string) $branch->barangay);
+        $found = DavaoLocations::findBarangay($typed);
+        $error = fn (string $message) => response()->json(['success' => false, 'message' => $message, 'errors' => ['barangay' => [$message]]], 422);
+
+        if (! $found) {
+            return $unchanged ? [$branch->barangay, $district] : $error("\"{$typed}\" is not a barangay of Davao City. Pick one from the list.");
+        }
+        if ($district && $found['district'] !== $district) {
+            return $error("{$found['name']} is in {$found['district']} District, not {$district}.");
+        }
+
+        return $unchanged ? [$branch->barangay, $district] : [$found['name'], $district ?? $found['district']];
     }
 
     /**

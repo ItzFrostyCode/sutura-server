@@ -36,6 +36,9 @@ class JobOrderTrackingController extends Controller
                 // shop to confirm it.
                 'payments' => fn ($q) => $q->whereNull('verified_at')->whereNull('rejected_at'),
             ])
+            // ?active=1: only orders still in the shop (Ask SUTURA's "Where is my order?"), filtered here so an
+            // older order still in production is never cut off by the page size.
+            ->when($request->boolean('active'), fn ($q) => $q->whereNotIn('status', ['completed', 'cancelled', 'rejected']))
             ->latest()
             ->paginate($request->input('per_page', 20));
 

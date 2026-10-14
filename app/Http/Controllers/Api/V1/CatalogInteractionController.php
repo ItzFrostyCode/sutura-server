@@ -8,6 +8,7 @@ use App\Models\CatalogItemReview;
 use App\Models\Store;
 use App\Models\SupportTicket;
 use App\Notifications\CatalogItemReviewReplyNotification;
+use App\Support\DesignPricing;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -139,6 +140,7 @@ class CatalogInteractionController extends Controller
             ->latest()
             ->get()
             ->filter(fn (CatalogItemReview $r) => $r->catalogItem !== null)
+            ->tap(fn ($rows) => DesignPricing::attach($rows->pluck('catalogItem')))
             ->map(function (CatalogItemReview $r) {
                 $item = $r->catalogItem;
                 $item->loadCount(['reviews', 'catalogOrders', 'jobOrders']);
@@ -150,6 +152,7 @@ class CatalogInteractionController extends Controller
                     'id' => $item->id,
                     'name' => $item->name,
                     'price' => $item->price,
+                    'pricing' => $item->pricing,
                     'material' => $item->material,
                     'estimated_days' => $item->estimated_days,
                     'reviews_count' => $item->reviews_count,
@@ -177,6 +180,7 @@ class CatalogInteractionController extends Controller
             ->latest()
             ->get()
             ->filter(fn ($s) => $s->catalogItem !== null)
+            ->tap(fn ($rows) => DesignPricing::attach($rows->pluck('catalogItem')))
             ->map(function ($s) {
                 $item = $s->catalogItem;
                 $item->loadCount(['reviews', 'catalogOrders', 'jobOrders']);
@@ -188,6 +192,7 @@ class CatalogInteractionController extends Controller
                     'name' => $item->name,
                     'garment_type' => $item->garment_type,
                     'price' => $item->price,
+                    'pricing' => $item->pricing,
                     'material' => $item->material,
                     'estimated_days' => $item->estimated_days,
                     'reviews_count' => $item->reviews_count,

@@ -7,9 +7,13 @@ use App\Http\Requests\Store\CreateStoreRequest;
 use App\Http\Requests\Store\UpdateStoreRequest;
 use App\Models\Service;
 use App\Models\Store;
+use App\Models\StoreBranch;
 use App\Models\StoreReview;
 use App\Models\StoreSubscription;
 use App\Models\SubscriptionPlan;
+use App\Support\CanonicalTaxonomy;
+use App\Support\DesignPricing;
+use App\Support\SearchIntent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -117,7 +121,21 @@ class StoreController extends Controller
                     ->orWhere('province', 'like', '%Davao del Sur%');
             });
 
-        if ($request->filled('q')) {
+        // What the search asks for — the work (make / alter & fix / customize), the tasks and the garments
+        // (App\Support\SearchIntent). When it names any of those, a shop matches by what it has set up; a
+        // search that names none of them (a shop's name, a street, a barangay) uses the plain text match below.
+        $intent = $request->filled('q') ? SearchIntent::parse((string) $request->string('q')) : null;
+
+        if ($intent !== null) {
+            $search = strtolower((string) $request->string('q'));
+            $query->where(function ($q) use ($search, $intent) {
+                $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
+                    ->orWhereHas('services', fn ($sq) => SearchIntent::constrainServices($sq, $intent));
+                if (SearchIntent::designsAnswer($intent)) {
+                    $q->orWhereHas('catalogItems', fn ($cq) => $cq->listed()->ofGarments($intent['garments']));
+                }
+            });
+        } elseif ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
             $query->where(function ($q) use ($search) {
                 $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
@@ -136,6 +154,23 @@ class StoreController extends Controller
                                     ->orWhereRaw('LOWER(material) LIKE ?', ['%'.$search.'%'])
                                     ->orWhereRaw('LOWER(description) LIKE ?', ['%'.$search.'%']);
                             });
+                    });
+            });
+        }
+
+        // Shops that work on a garment category: a listed design of one of its garments, or an active service
+        // that ticked one (2-level taxonomy, 2026-10-14).
+        if ($request->filled('garment_category')) {
+            $garments = CanonicalTaxonomy::garmentsInCategory((string) $request->string('garment_category'));
+            $query->where(function ($w) use ($garments) {
+                $w->whereHas('catalogItems', fn ($cq) => $cq->listed()->ofGarments($garments === [] ? ['-'] : $garments))
+                    ->orWhereHas('services', function ($sq) use ($garments) {
+                        $sq->where('is_active', true)->where(function ($g) use ($garments) {
+                            $g->whereRaw('1 = 0');
+                            foreach ($garments as $slug) {
+                                $g->orWhereJsonContains('garment_types', $slug);
+                            }
+                        });
                     });
             });
         }
@@ -169,7 +204,7 @@ class StoreController extends Controller
                     ->orWhereHas('catalogItems', function ($cq) use ($spec) {
                         $cq->listed()
                             ->where(function ($ccq) use ($spec) {
-                                $ccq->where('garment_type', (string) $spec)
+                                $ccq->where(fn ($g) => $g->ofGarment((string) $spec))
                                     ->orWhere('department', (string) $spec)
                                     ->orWhereRaw('LOWER(name) LIKE ?', ['%'.strtolower((string) $spec).'%']);
                             });
@@ -184,11 +219,9 @@ class StoreController extends Controller
             });
         }
 
-        if ($request->filled('district')) {
-            $district = $request->string('district')->toString();
-            $query->whereHas('branches', function ($bq) use ($district) {
-                $bq->where('district', $district)->live();
-            });
+        // District → barangay, or a street / landmark (StoreBranch::placeFilter).
+        if ($place = StoreBranch::placeFilter($request)) {
+            $query->whereHas('branches', $place);
         }
 
         if ($request->boolean('open_now')) {
@@ -377,11 +410,45 @@ class StoreController extends Controller
             },
         ])->paginate($request->input('per_page', 20));
 
+        // Designs are priced by their service (App\Support\DesignPricing).
+        DesignPricing::attach($stores->getCollection()->flatMap(fn ($st) => $st->catalogItems));
+
+        // Which of each shop's services the search is actually about: the service itself matches, or one of
+        // its listed designs does ("tuxedo" -> Bespoke Suit). The list shows those, not every service the shop
+        // has, so a broad service is not offered as a match just because the shop also carries something else.
+        $matchingServiceIds = collect();
+        if ($intent !== null && $stores->isNotEmpty()) {
+            // The services that do what was searched ("fix my pants" -> the alteration service, not the one
+            // that makes pants), by the same rule the shop was matched with.
+            $matchingServiceIds = Service::whereIn('store_id', $stores->getCollection()->pluck('id'))
+                ->where(fn ($sq) => SearchIntent::constrainServices($sq, $intent))
+                ->get(['id', 'store_id'])
+                ->groupBy('store_id')
+                ->map(fn ($rows) => $rows->pluck('id')->values());
+        } elseif ($request->filled('q') && $stores->isNotEmpty()) {
+            $search = '%'.strtolower((string) $request->string('q')).'%';
+            $matchingServiceIds = Service::whereIn('store_id', $stores->getCollection()->pluck('id'))
+                ->where('is_active', true)
+                ->where(function ($sq) use ($search) {
+                    $sq->whereRaw('LOWER(name) LIKE ?', [$search])
+                        ->orWhereRaw('LOWER(category) LIKE ?', [$search])
+                        ->orWhereHas('catalogItems', fn ($cq) => $cq->listed()->where(function ($ccq) use ($search) {
+                            $ccq->whereRaw('LOWER(name) LIKE ?', [$search])->orWhereRaw('LOWER(garment_type) LIKE ?', [$search]);
+                        }));
+                })
+                ->get(['id', 'store_id'])
+                ->groupBy('store_id')
+                ->map(fn ($rows) => $rows->pluck('id')->values());
+        }
+
         // withAvg() returns reviews_avg_rating as whatever PDO hands back for
         // AVG() (a numeric string, not a float) since it's not a real column
         // Eloquent can cast — publicProfile()/show() round() it per-model for
         // the same reason; do the same here across the paginated collection.
-        $stores->getCollection()->transform(function ($store) {
+        $stores->getCollection()->transform(function ($store) use ($request, $matchingServiceIds) {
+            if ($request->filled('q')) {
+                $store->matching_service_ids = $matchingServiceIds->get($store->id, collect())->all();
+            }
             $store->reviews_avg_rating = $store->reviews_avg_rating !== null
                 ? round((float) $store->reviews_avg_rating, 1)
                 : null;
@@ -405,6 +472,8 @@ class StoreController extends Controller
                 'last_page' => $stores->lastPage(),
                 'per_page' => $stores->perPage(),
                 'total' => $stores->total(),
+                // How the search was read (work, tasks, garments), so the page can say it; null for a plain text search.
+                'search' => $intent,
             ],
         ]);
     }

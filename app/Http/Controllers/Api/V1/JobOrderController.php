@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Models\ServicePricing;
 use App\Models\StaffProfile;
 use App\Models\Store;
+use App\Support\DesignPricing;
 use App\Support\OrderNumber;
 use App\Support\OrderReadiness;
 use App\Support\SafeNotify;
@@ -299,7 +300,10 @@ class JobOrderController extends Controller
         })->all();
 
         $sizeCounts = collect($validated['roster'])->countBy('size');
-        $totalAmount = (float) $item->price * $totalQty;
+        // Priced by the service (plus the design's extra charge, if any) — never the design's old own price.
+        // A design that needs a quotation starts at 0 and the shop quotes it in the order flow.
+        $pricing = DesignPricing::resolve($item, $service);
+        $totalAmount = round(($pricing['amount'] ?? 0) * $totalQty, 2);
 
         // Customer-picked branch (via the catalog page's Find sheet) wins
         // when it actually belongs to this store; otherwise fall back to the
@@ -325,7 +329,8 @@ class JobOrderController extends Controller
             'payment_status' => 'unpaid',
             'status' => 'pending',
             'uses_confirmation_flow' => true,
-            'notes' => "Bulk order: {$item->name} — ".$sizeCounts->map(fn ($qty, $size) => "{$qty}x {$size}")->implode(', '),
+            'notes' => "Bulk order: {$item->name} — ".$sizeCounts->map(fn ($qty, $size) => "{$qty}x {$size}")->implode(', ')
+                .($pricing['needs_quote'] ? '. Price to be quoted by the shop.' : ''),
             'reference_images' => $item->images()->where('is_primary', true)->value('image_url') ? [$item->images()->where('is_primary', true)->value('image_url')] : [],
             'custom_order_data' => [
                 'team_name' => $validated['organization_name'] ?? $item->name,
@@ -378,7 +383,9 @@ class JobOrderController extends Controller
             return response()->json(['success' => false, 'message' => 'That size is not offered for this item.'], 422);
         }
 
-        $totalAmount = (float) $item->price;
+        // Same rule as a bulk order: the service's price plus the design's extra charge, or 0 until quoted.
+        $pricing = DesignPricing::resolve($item, $service);
+        $totalAmount = $pricing['amount'] ?? 0;
         $mainBranch = $store->branches()->where('is_main', true)->first();
         $primaryImage = $item->images()->where('is_primary', true)->value('image_url');
 
@@ -398,7 +405,8 @@ class JobOrderController extends Controller
             'payment_status' => 'unpaid',
             'status' => 'pending',
             'uses_confirmation_flow' => true,
-            'notes' => 'Made to Order: '.$item->name.(! empty($validated['size']) ? ' (Reference size: '.$validated['size'].')' : ''),
+            'notes' => 'Made to Order: '.$item->name.(! empty($validated['size']) ? ' (Reference size: '.$validated['size'].')' : '')
+                .($pricing['needs_quote'] ? '. Price to be quoted by the shop.' : ''),
             'reference_images' => $primaryImage ? [$primaryImage] : [],
             'custom_order_data' => ! empty($validated['size']) ? ['reference_size' => $validated['size']] : null,
         ]);
@@ -1486,6 +1494,86 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Discount applied successfully.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages']),
+        ]);
+    }
+
+    /**
+     * "No downpayment for this order" — the owner or a branch manager drops the deposit for one
+     * order, e.g. a customer the shop already knows. Only before production starts. The order's
+     * old rule is kept in the audit log, so "require it again" puts back exactly what it had.
+     * The shop-wide and per-service "No downpayment" settings stay where they are (OrderRequirements).
+     */
+    public function depositWaiver(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->store_id !== $store->id) {
+            return response()->json(['message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'waive' => 'required|boolean',
+            'reason' => 'required_if:waive,true|nullable|string|max:500',
+        ]);
+
+        if (in_array($jobOrder->status, JobOrder::STAGES_REQUIRING_DOWNPAYMENT, true)
+            || in_array($jobOrder->status, ['completed', 'cancelled', 'rejected'], true)) {
+            return response()->json(['success' => false, 'message' => 'The downpayment can only be changed before production starts.'], 422);
+        }
+
+        $waive = (bool) $validated['waive'];
+        $lastWaiver = $store->auditLogs()
+            ->where('action', 'deposit_waived')
+            ->where('model_type', JobOrder::class)
+            ->where('model_id', $jobOrder->id)
+            ->latest('id')
+            ->first();
+
+        if ($waive && $jobOrder->payment_policy === 'none') {
+            return response()->json(['success' => false, 'message' => 'This order already needs no downpayment.'], 422);
+        }
+        if (! $waive && $jobOrder->payment_policy !== 'none') {
+            return response()->json(['success' => false, 'message' => 'This order already needs its downpayment.'], 422);
+        }
+        if (! $waive && ! $lastWaiver) {
+            return response()->json(['success' => false, 'message' => 'This order needs no downpayment because of its service or shop setting. Change it there.'], 422);
+        }
+
+        DB::transaction(function () use ($store, $jobOrder, $waive, $validated, $lastWaiver, $request) {
+            if ($waive) {
+                $payload = [
+                    'reason' => $validated['reason'],
+                    'previous_policy' => $jobOrder->payment_policy ?? 'deposit',
+                    'previous_percent' => $jobOrder->payment_policy_percent,
+                ];
+                $jobOrder->update(['payment_policy' => 'none']);
+            } else {
+                $payload = [
+                    'restored_policy' => $lastWaiver->payload['previous_policy'] ?? 'deposit',
+                    'restored_percent' => $lastWaiver->payload['previous_percent'] ?? null,
+                ];
+                $jobOrder->update([
+                    'payment_policy' => $payload['restored_policy'],
+                    'payment_policy_percent' => $payload['restored_percent'],
+                ]);
+            }
+
+            $store->auditLogs()->create([
+                'user_id' => $request->user()->id,
+                'action' => $waive ? 'deposit_waived' : 'deposit_waiver_removed',
+                'model_type' => JobOrder::class,
+                'model_id' => $jobOrder->id,
+                'payload' => $payload,
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => $waive ? 'No downpayment is needed for this order.' : 'The downpayment is required again.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages']),
         ]);
     }

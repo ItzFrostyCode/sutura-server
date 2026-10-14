@@ -9,6 +9,7 @@ use App\Models\Store;
 use App\Models\StoreApplication;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Support\DavaoLocations;
 use App\Support\ShopLogin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
@@ -35,8 +36,6 @@ class StoreApplicationController extends Controller
     {
         return config('filesystems.private_disk', 'local');
     }
-
-    private const DISTRICTS = ['Poblacion', 'Talomo', 'Buhangin', 'Agdao', 'Toril', 'Bunawan', 'Calinan', 'Tugbok'];
 
     public function plans(): JsonResponse
     {
@@ -104,10 +103,14 @@ class StoreApplicationController extends Controller
                 'name' => $request->store_name.' — Main',
                 'slug' => Str::slug($request->store_name).'-'.uniqid(),
                 'address' => $request->address,
-                'barangay' => $request->barangay,
-                // Only the 8 districts discovery filters on; a reverse-geocoded
-                // barangay name would never match that filter anyway.
-                'district' => in_array($request->district, self::DISTRICTS, true) ? $request->district : null,
+                // Official spelling when the typed barangay is one of Davao City's 182; otherwise kept as typed
+                // (an application is never refused over it — the admin checks the place before approval).
+                'barangay' => DavaoLocations::findBarangay($request->barangay)['name'] ?? $request->barangay,
+                // Only the 11 districts discovery filters on; a reverse-geocoded
+                // barangay name would never match that filter anyway — the typed barangay's district fills the gap.
+                'district' => in_array($request->district, DavaoLocations::districts(), true)
+                    ? $request->district
+                    : (DavaoLocations::findBarangay($request->barangay)['district'] ?? null),
                 'city' => $request->city,
                 'latitude' => $request->latitude,
                 'longitude' => $request->longitude,
