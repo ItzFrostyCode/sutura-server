@@ -26,6 +26,8 @@ class StoreServiceRequest extends FormRequest
         // 'others' is a deliberate safety-valve service_category (see
         // App\Support\CanonicalTaxonomy) — free text for its leaf type
         // rather than an empty Rule::in() list that would reject everything.
+        $group = (string) ($this->input('service_category') ?? $this->route('service')?->service_category ?? '');
+
         $serviceLeafTypeRule = $this->input('service_category') === 'others'
             ? ['nullable', 'string', 'max:100']
             : ['nullable', 'string', Rule::in(CanonicalTaxonomy::allServiceTypeSlugs())];
@@ -46,7 +48,15 @@ class StoreServiceRequest extends FormRequest
             // above (an unrelated, operational enum). service_leaf_type is
             // only checked against its parent service_category's own leaf
             // list when both are present; either may be set alone.
-            'service_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::SERVICE_CATEGORIES)],
+            // One of the 4 approved services (CanonicalTaxonomy::SERVICE_GROUPS, 2026-10-14). The order
+            // types below are worked out from it on save (Service::deriveOrderTypes), not ticked.
+            'service_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::serviceGroups())],
+            // Garments it works on (old slugs accepted, saved as the garment they were merged into) and the
+            // tasks it offers — which must belong to the chosen service.
+            'garment_types' => ['nullable', 'array'],
+            'garment_types.*' => ['string', Rule::in(CanonicalTaxonomy::knownGarmentSlugs())],
+            'capabilities' => ['nullable', 'array'],
+            'capabilities.*' => ['string', Rule::in(CanonicalTaxonomy::capabilitiesOf($group))],
             // Which "Service Categories" chip it sits under on the shop page.
             'showcase_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::SERVICE_SHOWCASE_CATEGORIES)],
             'service_leaf_type' => $serviceLeafTypeRule,

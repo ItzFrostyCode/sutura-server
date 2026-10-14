@@ -23,8 +23,16 @@ class MeasurementController extends Controller
      */
     public function myMeasurements(Request $request): JsonResponse
     {
-        $measurements = Measurement::where('customer_id', $request->user()->id)
-            ->with('store:id,name,slug,logo_path')
+        $customerId = $request->user()->id;
+        // Each version carries the customer's own job orders it was used for, so My Measurements can show them order by order.
+        $measurements = Measurement::where('customer_id', $customerId)
+            ->with([
+                'store:id,name,slug,logo_path',
+                'jobOrders' => fn ($q) => $q->where('customer_id', $customerId)
+                    ->select('id', 'measurement_id', 'order_number', 'status', 'garment_category', 'catalog_item_id', 'service_id', 'due_date', 'created_at')
+                    ->with(['catalogItem:id,name', 'service:id,name'])
+                    ->latest(),
+            ])
             ->orderBy('profile_name')
             ->orderBy('version')
             ->get();

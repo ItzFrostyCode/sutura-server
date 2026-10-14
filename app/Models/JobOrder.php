@@ -43,7 +43,25 @@ class JobOrder extends Model
         // repair job moves through is Staff/Owner operational work, not built
         // here (docs/REPAIR-WORKFLOW.md §5, cross-role dependency).
         'queued', 'in_repair', 'qc_check',
+        // Ordering flow (Flow 2): an order that has an approved final quotation and a
+        // verified deposit is 'confirmed'; it waits in 'awaiting_materials' while any
+        // material line is still being bought. Only orders with uses_confirmation_flow
+        // pass through these; older orders keep going pending -> production directly.
+        'confirmed', 'awaiting_materials',
+        // Flow 3: the customer is here to pay the balance and take the garments (see PRODUCTION_TASKS for the rest).
+        'balance_handover',
     ];
+
+    /**
+     * The internal production tasks. The shop sees each one; the customer just sees "in production".
+     * Flow order: these -> qc_ironing (Quality Check) -> ready_for_pickup (Ready for Final Fitting / Collection)
+     * -> ready_for_fitting (Customer Fitting / Inspection) -> final_adjustments (Adjustment / Correction)
+     * -> balance_handover -> completed. Older orders keep the previous meaning of ready_for_fitting.
+     */
+    public const PRODUCTION_TASKS = ['design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing'];
+
+    /** Statuses before any actual work has started (the order may still be re-quoted or cancelled freely). */
+    public const PRE_PRODUCTION_STATUSES = ['pending', 'confirmed', 'awaiting_materials'];
 
     /**
      * Assignable Multi-Stage Staff Assignment stages. Deliberately does NOT
@@ -70,7 +88,7 @@ class JobOrder extends Model
      */
     public const STAGES_REQUIRING_DOWNPAYMENT = [
         'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
-        'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
+        'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup', 'balance_handover',
         // Repair Override pipeline — same "no material committed until a
         // downpayment is logged" rule applies once a repair actually starts
         // (not at 'pending'/'queued', mirroring 'pending'/'design' being
@@ -120,6 +138,9 @@ class JobOrder extends Model
         'reference_images', 'reference_link', 'material_source', 'garment_category',
         'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
         'estimated_ready_at', 'customer_material_status',
+        // Ordering flow -- server-derived only (no request rule accepts them); the *_at / *_by
+        // stamps are written with forceFill() by OrderReadiness / OrderFlowController.
+        'uses_confirmation_flow', 'quotation_status', 'quotation',
     ];
 
     protected $casts = [
@@ -142,6 +163,17 @@ class JobOrder extends Model
         'first_adjustment_at' => 'datetime',
         'adjustment_count' => 'integer',
         'progress_photos' => 'array',
+        'uses_confirmation_flow' => 'boolean',
+        'quotation' => 'array',
+        'customer_approval_snapshot' => 'array',
+        'specs_approved_at' => 'datetime',
+        'measurements_verified_at' => 'datetime',
+        'materials_verified_at' => 'datetime',
+        'customer_approved_at' => 'datetime',
+        'confirmed_at' => 'datetime',
+        'production_started_at' => 'datetime',
+        'qc_passed_at' => 'datetime',
+        'fitting_passed_at' => 'datetime',
     ];
 
     public function store(): BelongsTo
@@ -193,6 +225,33 @@ class JobOrder extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function corrections(): HasMany
+    {
+        return $this->hasMany(OrderCorrection::class)->orderBy('id');
+    }
+
+    public function handovers(): HasMany
+    {
+        return $this->hasMany(OrderHandover::class)->orderBy('id');
+    }
+
+    /** Tailors the owner planned for this order (separate from the automatic staffStages attribution). */
+    public function assignees(): HasMany
+    {
+        return $this->hasMany(JobOrderAssignee::class)->orderBy('id');
+    }
+
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(OrderRefund::class)->latest();
+    }
+
+    /** True once $status means real work is under way (or finished), as opposed to still being set up. */
+    public static function startsProduction(string $status): bool
+    {
+        return ! in_array($status, [...self::PRE_PRODUCTION_STATUSES, 'cancelled', 'rejected', 'on_hold'], true);
     }
 
     public function staffStages(): BelongsToMany

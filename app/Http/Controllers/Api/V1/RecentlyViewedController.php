@@ -7,6 +7,7 @@ use App\Models\CatalogItem;
 use App\Models\RecentlyViewed;
 use App\Models\Service;
 use App\Models\Store;
+use App\Support\DesignPricing;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -87,11 +88,13 @@ class RecentlyViewedController extends Controller
         $item->loadMissing(['images', 'store:id,name,slug']);
         $item->loadCount(['reviews', 'catalogOrders', 'jobOrders']);
         $item->loadAvg('reviews', 'rating');
+        DesignPricing::attach([$item]);
 
         return [
             'id' => $item->id,
             'name' => $item->name,
             'price' => $item->price,
+            'pricing' => $item->pricing,
             'material' => $item->material,
             'estimated_days' => $item->estimated_days,
             'reviews_count' => $item->reviews_count,

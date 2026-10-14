@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\ServicePackage;
 use App\Models\Store;
+use App\Models\StoreBranch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -75,9 +76,8 @@ class ServicePackageController extends Controller
         if ($request->filled('service_category')) {
             $query->whereRaw('LOWER(service_category) = ?', [strtolower((string) $request->string('service_category'))]);
         }
-        if ($request->filled('district')) {
-            $district = $request->string('district')->toString();
-            $query->whereHas('store.branches', fn ($b) => $b->where('district', $district)->live());
+        if ($place = StoreBranch::placeFilter($request)) {
+            $query->whereHas('store.branches', $place);
         }
 
         $packages = $query->latest()->limit(24)->get(['id', 'store_id', 'name', 'description', 'service_category', 'image_url', 'bundle_price'])
@@ -165,7 +165,7 @@ class ServicePackageController extends Controller
             'description' => ['nullable', 'string'],
             'image_url' => ['nullable', 'string', 'max:255'],
             // Same canonical list as services, so a combo is searched and filtered like one.
-            'service_category' => ['nullable', 'string', Rule::in(\App\Support\CanonicalTaxonomy::SERVICE_CATEGORIES)],
+            'service_category' => ['nullable', 'string', Rule::in(\App\Support\CanonicalTaxonomy::serviceGroups())],
             'bundle_price' => ['nullable', 'numeric', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
             // 'distinct' belongs on the wildcard item, not the parent array

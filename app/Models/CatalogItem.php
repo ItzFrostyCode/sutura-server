@@ -16,14 +16,17 @@ class CatalogItem extends Model
     // (Category → Subcategory → Garment Structure → Garment Type) list,
     // not a flat ad hoc enum anymore. See `subcategory`/`garment_structure`
     // below for the rest of the hierarchy.
+    // Since the 2-level taxonomy (2026-10-14) this is every known garment slug, old and new: an old slug
+    // still saved on a design must not be mistaken for a typed-in custom name (which would hide the design
+    // until the admin approves it). Old slugs resolve through CanonicalTaxonomy::LEGACY_GARMENT_SLUGS.
     public static function garmentCategories(): array
     {
-        return CanonicalTaxonomy::allGarmentTypeSlugs();
+        return CanonicalTaxonomy::knownGarmentSlugs();
     }
 
     public static function garmentCategoryLabels(): array
     {
-        return CanonicalTaxonomy::GARMENT_TYPE_LABELS;
+        return [...CanonicalTaxonomy::GARMENT_TYPE_LABELS, ...array_map(fn ($g) => $g['label'], CanonicalTaxonomy::GARMENTS)];
     }
 
     // The public header nav's other axis (MEN/WOMEN/KIDS) — sent as
@@ -41,6 +44,8 @@ class CatalogItem extends Model
 
     protected $fillable = [
         'store_id', 'service_id', 'name', 'price', 'estimated_days', 'estimated_days_max',
+        // How the design is priced against its service (App\Support\DesignPricing).
+        'pricing_mode', 'extra_charge',
         'material', 'color', 'fabric_image_url', 'sizes', 'description',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
         'measurement_guide',
@@ -79,6 +84,30 @@ class CatalogItem extends Model
         return $query->where('catalog_items.is_active', true)
             ->where(fn ($q) => $q->whereNull('catalog_items.custom_apparel_type_id')
                 ->orWhereHas('customApparelType', fn ($t) => $t->where('status', 'approved')));
+    }
+
+    /** Designs of one garment, whether saved under its current slug or an old slug merged into it. */
+    public function scopeOfGarment($query, string $slug)
+    {
+        $variants = CanonicalTaxonomy::garmentVariants($slug);
+
+        return $query->where(function ($q) use ($variants) {
+            foreach ($variants as $v) {
+                $q->orWhereRaw('LOWER(catalog_items.garment_type) = ?', [$v]);
+            }
+        });
+    }
+
+    /** Designs of any of several garments (each with its old slugs). */
+    public function scopeOfGarments($query, array $slugs)
+    {
+        $variants = collect($slugs)->flatMap(fn ($s) => CanonicalTaxonomy::garmentVariants($s))->unique()->values()->all();
+
+        return $query->where(function ($q) use ($variants) {
+            foreach ($variants as $v) {
+                $q->orWhereRaw('LOWER(catalog_items.garment_type) = ?', [$v]);
+            }
+        });
     }
 
     public function isListed(): bool

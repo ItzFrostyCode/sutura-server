@@ -36,6 +36,9 @@ class JobOrderTrackingController extends Controller
                 // shop to confirm it.
                 'payments' => fn ($q) => $q->whereNull('verified_at')->whereNull('rejected_at'),
             ])
+            // ?active=1: only orders still in the shop (Ask SUTURA's "Where is my order?"), filtered here so an
+            // older order still in production is never cut off by the page size.
+            ->when($request->boolean('active'), fn ($q) => $q->whereNotIn('status', ['completed', 'cancelled', 'rejected']))
             ->latest()
             ->paginate($request->input('per_page', 20));
 
@@ -118,6 +121,7 @@ class JobOrderTrackingController extends Controller
                 'required_deposit' => round($jobOrder->requiredDepositFraction() * ((float) $jobOrder->total_amount - (float) $jobOrder->discount_amount), 2),
                 'fitting_requirement' => $jobOrder->fitting_requirement,
                 'measurement_requirement' => $jobOrder->measurement_requirement,
+                'quotation_flow' => $this->quotationFlowFor($jobOrder),
                 'store_branch_id' => $jobOrder->store_branch_id,
                 'created_at' => $jobOrder->created_at,
                 'updated_at' => $jobOrder->updated_at,
@@ -133,6 +137,37 @@ class JobOrderTrackingController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * What the customer needs to see before the shop starts: the quotation, whether it is still an
+     * estimate, the cancellation policy they are agreeing to, and whether it is waiting on them.
+     * Customer-safe only -- no material costs, tailors or internal notes. Null for orders that do not
+     * use the ordering flow.
+     */
+    private function quotationFlowFor(JobOrder $jobOrder): ?array
+    {
+        if (! \App\Support\OrderReadiness::gated($jobOrder)) {
+            return null;
+        }
+        $q = $jobOrder->quotation;
+
+        return [
+            'quotation_status' => $jobOrder->quotation_status,
+            'breakdown' => $q ? [
+                'base_price' => $q['base_price'] ?? 0,
+                'quantity_adjustment' => $q['quantity_adjustment'] ?? 0,
+                'additional_charges' => $q['additional_charges'] ?? [],
+                'customer_provided_deduction' => $q['customer_provided_deduction'] ?? [],
+                'total' => $q['total'] ?? (float) $jobOrder->total_amount,
+            ] : null,
+            'needs_approval' => $jobOrder->status === 'pending' && $jobOrder->quotation_status === 'final' && ! $jobOrder->customer_approved_at,
+            'approved_at' => $jobOrder->customer_approved_at,
+            'confirmed_at' => $jobOrder->confirmed_at,
+            'required_deposit' => \App\Support\OrderReadiness::requiredDeposit($jobOrder),
+            'policy' => $jobOrder->store?->cancellationPolicyText(),
+            'waiting_for_materials' => $jobOrder->status === 'awaiting_materials',
+        ];
     }
 
     /**
@@ -189,6 +224,9 @@ class JobOrderTrackingController extends Controller
 
         return [
             'pending' => $jobOrder->created_at,
+            'confirmed' => $jobOrder->confirmed_at,
+            'awaiting_materials' => null,
+            'in_production' => $jobOrder->production_started_at,
             'design' => $stageStart('design'),
             'pattern_making' => $stageStart('pattern_making'),
             'mass_cutting_printing' => null,
@@ -198,6 +236,7 @@ class JobOrderTrackingController extends Controller
             'final_adjustments' => $jobOrder->first_adjustment_at,
             'qc_ironing' => $stageStart('qc_ironing'),
             'ready_for_pickup' => $jobOrder->ready_for_pickup_at,
+            'balance_handover' => null,
             'completed' => null,
         ];
     }

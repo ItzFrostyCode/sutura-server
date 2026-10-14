@@ -20,6 +20,7 @@ use App\Models\StoreReview;
 use App\Models\StoreSubscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Support\CanonicalTaxonomy;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -299,7 +300,7 @@ class AdditionalStoresSeeder extends Seeder
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
-                    'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
+                    'price' => $c['price'], 'material' => $c['material'], 'garment_type' => CanonicalTaxonomy::canonicalGarment($c['garment_type']) ?? $c['garment_type'],
                     'department' => $c['department'], 'subcategory' => $c['subcategory'], 'garment_structure' => $c['garment_structure'],
                     'estimated_days' => 10, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order, tailored to your measurements.',
@@ -503,7 +504,7 @@ class AdditionalStoresSeeder extends Seeder
             $item = CatalogItem::updateOrCreate(
                 ['store_id' => $store->id, 'name' => $c['name']],
                 [
-                    'price' => $c['price'], 'material' => $c['material'], 'garment_type' => $c['garment_type'],
+                    'price' => $c['price'], 'material' => $c['material'], 'garment_type' => CanonicalTaxonomy::canonicalGarment($c['garment_type']) ?? $c['garment_type'],
                     'department' => $c['department'], 'subcategory' => $c['subcategory'], 'garment_structure' => $c['garment_structure'],
                     'estimated_days' => 5, 'listing_type' => 'made_to_order', 'is_active' => true,
                     'description' => $c['name'].' — made to order.',

@@ -480,8 +480,8 @@ class AnalyticsController extends Controller
                 SUM(CASE WHEN is_rush = true AND status NOT IN ('completed', 'cancelled') THEN 1 ELSE 0 END) as rush_jobs_active,
                 SUM(CASE WHEN status = 'completed' AND payment_status != 'paid' AND balance > 0 THEN 1 ELSE 0 END) as completed_unpaid_count,
                 SUM(CASE WHEN status NOT IN ('completed', 'cancelled', 'rejected', 'on_hold') AND payment_status = 'unpaid' AND total_amount > 0 THEN 1 ELSE 0 END) as pending_dp_count,
-                SUM(CASE WHEN status IN ('pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup') AND due_date = ? THEN 1 ELSE 0 END) as due_today_count,
-                SUM(CASE WHEN status IN ('pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup') AND due_date > ? AND due_date <= ? THEN 1 ELSE 0 END) as due_this_week_count,
+                SUM(CASE WHEN status IN ('pending', 'confirmed', 'awaiting_materials', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup', 'balance_handover') AND due_date = ? THEN 1 ELSE 0 END) as due_today_count,
+                SUM(CASE WHEN status IN ('pending', 'confirmed', 'awaiting_materials', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup', 'balance_handover') AND due_date > ? AND due_date <= ? THEN 1 ELSE 0 END) as due_this_week_count,
                 COALESCE(SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END), 0) as completed_total_amount,
                 COALESCE(SUM(CASE WHEN status = 'completed' THEN discount_amount ELSE 0 END), 0) as completed_discount_amount
             ", [$today, $today, $today, $nextWeek])
@@ -594,7 +594,7 @@ class AnalyticsController extends Controller
             : [];
 
         // Due Today / Due This Week
-        $dueJobsActiveStatuses = ['pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup'];
+        $dueJobsActiveStatuses = ['pending', 'confirmed', 'awaiting_materials', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup', 'balance_handover'];
         $dueJobFields = ['id', 'order_number', 'customer_id', 'total_amount', 'balance', 'discount_amount', 'due_date', 'status', 'payment_status'];
         $mapDueJob = fn ($job) => [
             'id' => $job->id,

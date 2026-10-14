@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\CatalogItem;
 use App\Models\CustomApparelType;
 use App\Models\Store;
+use App\Models\StoreBranch;
 use App\Support\CanonicalTaxonomy;
+use App\Support\DesignPricing;
+use App\Support\SearchIntent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -43,6 +46,16 @@ class CatalogController extends Controller
         }
 
         return $type->id;
+    }
+
+    /** A garment from the list is saved under its current slug; a typed name stays as typed (trimmed). */
+    private function withCanonicalGarment(array $validated): array
+    {
+        if (! empty($validated['garment_type'])) {
+            $validated['garment_type'] = CanonicalTaxonomy::canonicalGarment($validated['garment_type']) ?? trim($validated['garment_type']);
+        }
+
+        return $validated;
     }
 
     private function belongsToStore(Request $request, Store $store): bool
@@ -104,7 +117,7 @@ class CatalogController extends Controller
         }
 
         if ($request->filled('garment_type')) {
-            $query->whereRaw('LOWER(garment_type) = ?', [strtolower($request->string('garment_type'))]);
+            $query->ofGarment((string) $request->string('garment_type'));
         }
 
         match ($request->string('sort')->toString()) {
@@ -114,6 +127,7 @@ class CatalogController extends Controller
         };
 
         $items = $query->get();
+        DesignPricing::attach($items);
 
         // Format the average rating nicely and attach dynamic sales performance metrics.
         // catalog_revenue/job_revenue come from withSum() above (one query for all
@@ -188,10 +202,12 @@ class CatalogController extends Controller
             // privacy line index() already draws for storefront visitors.
             ->withCount(['catalogOrders', 'jobOrders']);
 
+        // A garment matches its old slugs too (CanonicalTaxonomy::LEGACY_GARMENT_SLUGS), so old links and
+        // designs saved before the 2-level taxonomy still line up.
         if ($request->filled('garment_type')) {
-            $query->whereRaw('LOWER(garment_type) = ?', [strtolower($request->string('garment_type'))]);
+            $query->ofGarment((string) $request->string('garment_type'));
         } elseif ($request->filled('category')) {
-            $query->whereRaw('LOWER(garment_type) = ?', [strtolower($request->string('category'))]);
+            $query->ofGarment((string) $request->string('category'));
         }
 
         // The nav's other axis (men/women/children) — sent as ?department=
@@ -203,6 +219,12 @@ class CatalogController extends Controller
             if ($dept !== 'services' && $dept !== 'service') {
                 $query->whereRaw('LOWER(department) = ?', [$dept]);
             }
+        }
+
+        // 2-level taxonomy (2026-10-14): a garment category = all its garments (old slugs included).
+        if ($request->filled('garment_category')) {
+            $garments = CanonicalTaxonomy::garmentsInCategory((string) $request->string('garment_category'));
+            $garments === [] ? $query->whereRaw('1 = 0') : $query->ofGarments($garments);
         }
 
         // Canonical Categories.md taxonomy — Subcategory and Garment
@@ -222,7 +244,16 @@ class CatalogController extends Controller
             $query->where('catalog_items.store_id', $request->integer('store_id'));
         }
 
-        if ($request->filled('q')) {
+        // Same reading of the search as the shop list (App\Support\SearchIntent). A design answers a search that
+        // names a garment and no work, or "make" ("barong", "make a barong tagalog"); a search for altering or
+        // customizing ("fix my pants") is answered by services, not designs.
+        $intent = $request->filled('q') ? SearchIntent::parse((string) $request->string('q')) : null;
+        if ($intent !== null && in_array($intent['intent'], [SearchIntent::ALTER, SearchIntent::CUSTOMIZE], true)) {
+            $query->whereRaw('1 = 0');
+        } elseif ($intent !== null && SearchIntent::designsAnswer($intent)) {
+            $search = strtolower((string) $request->string('q'));
+            $query->where(fn ($q) => $q->ofGarments($intent['garments'])->orWhereRaw('LOWER(name) LIKE ?', ['%'.$search.'%']));
+        } elseif ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
             $words = array_values(array_filter(explode(' ', $search)));
             $query->where(function ($q) use ($search, $words) {
@@ -300,9 +331,8 @@ class CatalogController extends Controller
         // filters to stores with at least one branch in the selected Davao
         // City district. Nested dot-relation whereHas, same pattern used
         // elsewhere in this controller for store-scoped visibility checks.
-        if ($request->filled('district')) {
-            $district = $request->string('district');
-            $query->whereHas('store.branches', fn ($q) => $q->where('district', $district)->live());
+        if ($place = StoreBranch::placeFilter($request)) {
+            $query->whereHas('store.branches', $place);
         }
 
         match ($request->string('sort_by')->toString()) {
@@ -319,6 +349,7 @@ class CatalogController extends Controller
         };
 
         $items = $query->paginate($request->input('per_page', 48));
+        DesignPricing::attach($items->getCollection());
 
         // Same reviews_avg_rating string-from-AVG() issue as index() above and
         // the public store feed — round it per-item into a real float. `price`
@@ -356,26 +387,18 @@ class CatalogController extends Controller
      */
     public function store(Request $request, Store $store): JsonResponse
     {
-        // Children's Apparel has no canonical leaf garment types yet (see
-        // App\Support\CanonicalTaxonomy), 'others' is a deliberate
-        // safety-valve subcategory on every department, and 'other' is the
-        // same safety valve one level down (a garment_structure with no
-        // leaf list even under a real subcategory) — validate garment_type
-        // against the full men/women list only outside those cases; free
-        // text otherwise, rather than inventing leaf values or blocking a
-        // legitimate item.
-        $garmentTypeRule = (
-            $request->input('department') === 'children'
-            || $request->input('subcategory') === 'others'
-            || $request->input('garment_structure') === 'other'
-        )
-            ? ['nullable', 'string', 'max:100']
-            : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
+        // 2-level taxonomy (2026-10-14): a garment from the list (old slugs too — saved as the garment they
+        // were merged into) or a typed-in name, which goes to the System Admin for approval (customApparelTypeId).
+        // Department / subcategory / structure are no longer needed and are kept only if a caller still sends them.
+        $garmentTypeRule = ['nullable', 'string', 'max:100'];
 
         $validated = $request->validate([
             ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric|min:0',
+            // Priced by its service unless the shop says otherwise (App\Support\DesignPricing).
+            'pricing_mode' => ['nullable', Rule::in(DesignPricing::MODES)],
+            'extra_charge' => 'nullable|numeric|min:0|max:9999999|required_if:pricing_mode,extra',
             'estimated_days' => 'nullable|integer|min:1',
             'estimated_days_max' => 'nullable|integer|min:1|gt:estimated_days',
             'material' => 'nullable|string|max:255',
@@ -412,10 +435,14 @@ class CatalogController extends Controller
             'recommendations.*.type' => 'nullable|string',
         ]);
 
+        $validated = $this->withCanonicalGarment($validated);
+
         $item = $store->catalogItems()->create([
             'custom_apparel_type_id' => $this->customApparelTypeId($validated['garment_type'] ?? null, $store),
             'name' => $validated['name'],
             'price' => $validated['price'] ?? 0,
+            'pricing_mode' => $validated['pricing_mode'] ?? null,
+            'extra_charge' => ($validated['pricing_mode'] ?? null) === DesignPricing::EXTRA ? $validated['extra_charge'] : null,
             'estimated_days' => $validated['estimated_days'] ?? 7,
             'estimated_days_max' => $validated['estimated_days_max'] ?? null,
             'service_id' => $validated['service_id'] ?? null,
@@ -465,10 +492,10 @@ class CatalogController extends Controller
             }
         }
 
-        return response()->json([
-            'success' => true,
-            'data' => $item->load(['images', 'recommendations']),
-        ], 201);
+        $item->load(['images', 'recommendations']);
+        DesignPricing::attach([$item]);
+
+        return response()->json(['success' => true, 'data' => $item], 201);
     }
 
     /**
@@ -509,7 +536,8 @@ class CatalogController extends Controller
             // Whether this item can be Bulk Ordered depends entirely on
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.
-            'service:id,name,service_types,min_order_qty,roster_fields',
+            // The service's price too: a design is priced by its service (it only changes for custom work or add-ons).
+            'service:id,name,service_types,min_order_qty,roster_fields,base_price,sale_price,sale_starts_at,sale_ends_at',
         ];
 
         if ($this->belongsToStore($request, $store)) {
@@ -568,6 +596,7 @@ class CatalogController extends Controller
                 'total_revenue',
             ]);
         }
+        DesignPricing::attach([$catalog]);
 
         return response()->json(['success' => true, 'data' => $catalog]);
     }
@@ -581,18 +610,17 @@ class CatalogController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $garmentTypeRule = (
-            $request->input('department', $catalog->department) === 'children'
-            || $request->input('subcategory', $catalog->subcategory) === 'others'
-            || $request->input('garment_structure', $catalog->garment_structure) === 'other'
-        )
-            ? ['nullable', 'string', 'max:100']
-            : ['nullable', 'string', Rule::in(CatalogItem::garmentCategories())];
+        // 2-level taxonomy (2026-10-14): a garment from the list (old slugs too — saved as the garment they
+        // were merged into) or a typed-in name, which goes to the System Admin for approval (customApparelTypeId).
+        // Department / subcategory / structure are no longer needed and are kept only if a caller still sends them.
+        $garmentTypeRule = ['nullable', 'string', 'max:100'];
 
         $validated = $request->validate([
             ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'sometimes|string|max:255',
             'price' => 'sometimes|numeric|min:0',
+            'pricing_mode' => ['sometimes', 'nullable', Rule::in(DesignPricing::MODES)],
+            'extra_charge' => 'nullable|numeric|min:0|max:9999999|required_if:pricing_mode,extra',
             'estimated_days' => 'nullable|integer|min:1',
             'estimated_days_max' => 'nullable|integer|min:1|gt:estimated_days',
             'material' => 'nullable|string|max:255',
@@ -637,12 +665,19 @@ class CatalogController extends Controller
             $validated['is_active'] = false;
         }
 
+        $validated = $this->withCanonicalGarment($validated);
+
         $catalog->update([
             'custom_apparel_type_id' => array_key_exists('garment_type', $validated)
                 ? $this->customApparelTypeId($validated['garment_type'], $store)
                 : $catalog->custom_apparel_type_id,
             'name' => $validated['name'] ?? $catalog->name,
             'price' => $validated['price'] ?? $catalog->price,
+            'pricing_mode' => array_key_exists('pricing_mode', $validated) ? $validated['pricing_mode'] : $catalog->pricing_mode,
+            // Only an "extra" design carries an extra charge; switching away clears it.
+            'extra_charge' => (array_key_exists('pricing_mode', $validated) ? $validated['pricing_mode'] : $catalog->pricing_mode) === DesignPricing::EXTRA
+                ? ($validated['extra_charge'] ?? $catalog->extra_charge)
+                : null,
             'estimated_days' => array_key_exists('estimated_days', $validated) ? $validated['estimated_days'] : $catalog->estimated_days,
             'estimated_days_max' => array_key_exists('estimated_days_max', $validated) ? $validated['estimated_days_max'] : $catalog->estimated_days_max,
             'is_active' => array_key_exists('is_active', $validated) ? $validated['is_active'] : $catalog->is_active,
@@ -694,7 +729,10 @@ class CatalogController extends Controller
             }
         }
 
-        return response()->json(['success' => true, 'data' => $catalog->fresh(['images', 'recommendations'])]);
+        $fresh = $catalog->fresh(['images', 'recommendations']);
+        DesignPricing::attach([$fresh]);
+
+        return response()->json(['success' => true, 'data' => $fresh]);
     }
 
     /**

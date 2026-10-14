@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\CanonicalTaxonomy;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -40,6 +41,8 @@ class Service extends Model
         // etc, drives Job Order conditional fields) below. See
         // App\Support\CanonicalTaxonomy.
         'service_category', 'showcase_category', 'service_leaf_type',
+        // 2-level taxonomy (2026-10-14): the garments it works on and the tasks it offers.
+        'garment_types', 'capabilities',
         'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
         'estimated_days', 'estimated_days_max', 'min_order_qty', 'is_active', 'custom_fields', 'roster_fields', 'image_url',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
@@ -59,6 +62,10 @@ class Service extends Model
         'size_chart_rows' => 'array',
         'categories' => 'array',
         'service_types' => 'array',
+        // 2-level taxonomy (2026-10-14): garments this service works on + the tasks it offers
+        // (CanonicalTaxonomy::GARMENTS / SERVICE_GROUPS[...]['capabilities']).
+        'garment_types' => 'array',
+        'capabilities' => 'array',
     ];
 
     /**
@@ -69,6 +76,41 @@ class Service extends Model
     public function hasType(string $type): bool
     {
         return in_array($type, $this->service_types ?? [], true);
+    }
+
+    /** Garment categories whose custom tailoring gets the two-fitting (bridal) job screens. */
+    private const BRIDAL_GARMENT_CATEGORIES = ['barong', 'traditional', 'dresses_gowns'];
+
+    /**
+     * The order types (which job-order screens apply) that follow from what the service is — since
+     * 2026-10-14 the owner no longer ticks them. Alterations → repair flow; uniforms with bulk orders →
+     * team roster / Bulk Order; custom tailoring of barong, Filipiniana or gowns → two fittings; anything
+     * else → plain custom tailoring. Null when the service has no approved group (keep what it has).
+     *
+     * @param  list<string>  $capabilities
+     * @param  list<string>  $garments
+     * @return list<string>|null
+     */
+    public static function deriveOrderTypes(?string $group, array $capabilities, array $garments): ?array
+    {
+        $bridal = collect($garments)->contains(
+            fn ($g) => in_array(CanonicalTaxonomy::GARMENTS[$g]['category'] ?? null, self::BRIDAL_GARMENT_CATEGORIES, true)
+        );
+
+        return match ($group) {
+            'alterations_repairs' => [self::TYPE_ALTERATION_REPAIR],
+            'uniform_production' => [in_array('bulk_orders', $capabilities, true) ? self::TYPE_BULK_SUBLIMATION : self::TYPE_CUSTOM_TAILORING],
+            'custom_tailoring' => [$bridal ? self::TYPE_FASHION_BRIDAL : self::TYPE_CUSTOM_TAILORING],
+            'garment_customization' => [self::TYPE_CUSTOM_TAILORING],
+            default => null,
+        };
+    }
+
+    /** An alteration or customization service with no garments ticked works on any garment. */
+    public function worksOnAnyGarment(): bool
+    {
+        return in_array($this->service_category, ['alterations_repairs', 'garment_customization'], true)
+            && empty($this->garment_types);
     }
 
     public function store(): BelongsTo

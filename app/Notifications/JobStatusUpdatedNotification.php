@@ -60,12 +60,21 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
         return $text ? $text + ['store_id' => $this->jobOrder->store_id, 'related_type' => 'job_order', 'related_id' => $this->jobOrder->id] : null;
     }
 
+    /** On the ordering flow the internal production tasks are shop-only: the customer just sees "in production". */
+    private function key(): string
+    {
+        return $this->jobOrder->uses_confirmation_flow && in_array($this->status, JobOrder::PRODUCTION_TASKS, true) ? 'in_production' : $this->status;
+    }
+
     private function titles(): array
     {
         return [
+            'in_production' => 'Order In Production',
+            'confirmed' => 'Order Confirmed',
+            'awaiting_materials' => 'Order Waiting for Materials',
             'design' => 'Order In Progress: Design',
             'pattern_making' => 'Order In Progress: Pattern Making',
-            'mass_cutting_printing' => 'Order In Progress: Mass Cutting & Printing',
+            'mass_cutting_printing' => 'Order In Progress: Mass Cutting',
             'cutting' => 'Order In Progress: Cutting',
             'sewing' => 'Order In Progress: Sewing & Assembly',
             'ready_for_fitting' => 'Order Ready for Fitting',
@@ -80,9 +89,12 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
     private function messages(): array
     {
         return [
+            'in_production' => 'Your order ('.$this->jobOrder->order_number.') is now in production.',
+            'confirmed' => 'Your order ('.$this->jobOrder->order_number.') is confirmed. Your approved quotation and deposit are on record, and the shop will start work once everything is ready.',
+            'awaiting_materials' => 'Your order ('.$this->jobOrder->order_number.') is confirmed, but the shop is still waiting for some materials. We will start as soon as they arrive.',
             'design' => 'Your order ('.$this->jobOrder->order_number.') is now in the design stage.',
             'pattern_making' => 'Your order ('.$this->jobOrder->order_number.') is now having its pattern drafted.',
-            'mass_cutting_printing' => 'Your order ('.$this->jobOrder->order_number.') has entered mass cutting and printing.',
+            'mass_cutting_printing' => 'Your order ('.$this->jobOrder->order_number.') has entered mass cutting (all pieces are being cut before sewing).',
             'cutting' => 'Your order ('.$this->jobOrder->order_number.') has entered the cutting stage.',
             'sewing' => 'Your order ('.$this->jobOrder->order_number.') is now being sewn and assembled.',
             'ready_for_fitting' => 'Your order ('.$this->jobOrder->order_number.') is ready for fitting. We\'ve scheduled a fitting appointment and will confirm the exact time with you shortly.',
@@ -100,8 +112,8 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
      */
     public function toMail(object $notifiable): MailMessage
     {
-        $title = $this->titles()[$this->status] ?? 'Order Update';
-        $message = $this->messages()[$this->status] ?? 'Your order status has been updated.';
+        $title = $this->titles()[$this->key()] ?? 'Order Update';
+        $message = $this->messages()[$this->key()] ?? 'Your order status has been updated.';
 
         $store = $this->jobOrder->store;
         $storeUrl = $store?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000').'/store/'.$store->slug) : null;
@@ -130,8 +142,8 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
 
         return [
             'type' => 'job_'.$this->status,
-            'title' => $titles[$this->status] ?? 'Order Update',
-            'message' => $messages[$this->status] ?? 'Your order status has been updated.',
+            'title' => $titles[$this->key()] ?? 'Order Update',
+            'message' => $messages[$this->key()] ?? 'Your order status has been updated.',
             'action_url' => '/account/orders/'.$this->jobOrder->id,
             'job_order_id' => $this->jobOrder->id,
             'order_number' => $this->jobOrder->order_number,

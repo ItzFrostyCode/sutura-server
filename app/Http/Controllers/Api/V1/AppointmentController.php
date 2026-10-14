@@ -114,9 +114,14 @@ class AppointmentController extends Controller
      */
     public function myAppointments(Request $request): JsonResponse
     {
+        // ?upcoming=1: still-active bookings from today on, soonest first (Ask SUTURA's "My next appointment").
+        $upcoming = $request->boolean('upcoming');
         $appointments = Appointment::where('customer_id', $request->user()->id)
             ->with(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'servicePackage:id,name,bundle_price,service_category,image_url', 'servicePackage.services:id,name,base_price'])
-            ->orderByDesc('scheduled_at')
+            ->when($upcoming, fn ($q) => $q->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+                ->where('scheduled_at', '>=', now()->startOfDay())
+                ->orderBy('scheduled_at'))
+            ->when(! $upcoming, fn ($q) => $q->orderByDesc('scheduled_at'))
             ->paginate($request->input('per_page', 20));
 
         $appointments->getCollection()->transform(fn (Appointment $appointment) => [

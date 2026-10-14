@@ -6,6 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\StoreServiceRequest;
 use App\Models\Service;
 use App\Models\Store;
+use App\Models\StoreBranch;
+use App\Support\CanonicalTaxonomy;
+use App\Support\SearchIntent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -65,7 +68,12 @@ class ServiceController extends Controller
                 ]),
             ]);
 
-        if ($request->filled('q')) {
+        // Same reading of the search as the shop list (App\Support\SearchIntent); plain text when it names no
+        // work and no garment.
+        $intent = $request->filled('q') ? SearchIntent::parse((string) $request->string('q')) : null;
+        if ($intent !== null) {
+            SearchIntent::constrainServices($query, $intent);
+        } elseif ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
             $query->where(function ($q) use ($search) {
                 $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
@@ -75,11 +83,8 @@ class ServiceController extends Controller
             });
         }
 
-        if ($request->filled('district')) {
-            $district = $request->string('district')->toString();
-            $query->whereHas('store.branches', function ($bq) use ($district) {
-                $bq->where('district', $district)->live();
-            });
+        if ($place = StoreBranch::placeFilter($request)) {
+            $query->whereHas('store.branches', $place);
         }
 
         // Same men/women/children axis as CatalogController's own
@@ -96,6 +101,22 @@ class ServiceController extends Controller
         // category/categories search above.
         if ($request->filled('service_category')) {
             $query->whereRaw('LOWER(service_category) = ?', [strtolower($request->string('service_category'))]);
+        }
+        // Services that work on a garment category: ticked one of its garments, or have a listed design of one.
+        if ($request->filled('garment_category')) {
+            $garments = CanonicalTaxonomy::garmentsInCategory((string) $request->string('garment_category'));
+            $query->where(function ($g) use ($garments) {
+                $g->whereRaw('1 = 0');
+                foreach ($garments as $slug) {
+                    $g->orWhereJsonContains('garment_types', $slug);
+                }
+                $g->orWhereHas('catalogItems', fn ($ci) => $ci->listed()->ofGarments($garments === [] ? ['-'] : $garments));
+            });
+        }
+        // A task the service ticked (2-level taxonomy capability, e.g. zipper_replacement) — the capability
+        // chips on All Categories link here.
+        if ($request->filled('capability')) {
+            $query->whereJsonContains('capabilities', (string) $request->string('capability'));
         }
         if ($request->filled('service_leaf_type')) {
             $query->whereRaw('LOWER(service_leaf_type) = ?', [strtolower($request->string('service_leaf_type'))]);
@@ -195,6 +216,7 @@ class ServiceController extends Controller
         // displays (service cards, job-order service picker) keep working
         // without having to join against pricing on every read.
         $validated['tags'] = array_column($tiers, 'label');
+        $validated = $this->withTaxonomy($validated, null);
 
         $service = $store->services()->create($validated);
         $this->syncPricingTiers($service, $tiers);
@@ -212,6 +234,7 @@ class ServiceController extends Controller
         $tiers = $validated['pricing_tiers'];
         unset($validated['pricing_tiers']);
         $validated['tags'] = array_column($tiers, 'label');
+        $validated = $this->withTaxonomy($validated, $service);
 
         $service->update($validated);
 
@@ -234,6 +257,36 @@ class ServiceController extends Controller
         $paused = $service->is_active ? [] : $service->pausePackagesLeftTooSmall();
 
         return response()->json(['success' => true, 'data' => $service->fresh('pricing'), 'paused_packages' => $paused]);
+    }
+
+    /**
+     * Garments saved as their current slug (an old 4-level slug becomes the garment it was merged into), and
+     * the order types worked out from the service group, capabilities and garments (Service::deriveOrderTypes)
+     * — a service with no approved group keeps what it was sent / already had.
+     */
+    private function withTaxonomy(array $validated, ?Service $existing): array
+    {
+        if (array_key_exists('garment_types', $validated)) {
+            $garments = collect($validated['garment_types'] ?? [])
+                ->map(fn ($g) => CanonicalTaxonomy::canonicalGarment($g))->filter()->unique()->values()->all();
+            $validated['garment_types'] = $garments === [] ? null : $garments;
+        }
+        if (array_key_exists('capabilities', $validated)) {
+            $caps = array_values(array_unique($validated['capabilities'] ?? []));
+            $validated['capabilities'] = $caps === [] ? null : $caps;
+        }
+
+        $group = array_key_exists('service_category', $validated) ? $validated['service_category'] : $existing?->service_category;
+        $derived = Service::deriveOrderTypes(
+            $group,
+            $validated['capabilities'] ?? ($existing?->capabilities ?? []),
+            $validated['garment_types'] ?? ($existing?->garment_types ?? []),
+        );
+        if ($derived !== null) {
+            $validated['service_types'] = $derived;
+        }
+
+        return $validated;
     }
 
     /**

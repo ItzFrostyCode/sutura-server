@@ -54,6 +54,8 @@ class UpdateStoreRequest extends FormRequest
             'fitting_limit' => ['nullable', 'integer', 'min:1'],
             'fitting_limit_policy' => ['sometimes', 'in:fee,block'],
             'repair_requires_downpayment' => ['sometimes', 'boolean'],
+            // Shown to the customer before they approve a quotation; empty = the built-in default text.
+            'cancellation_policy' => ['nullable', 'string', 'max:2000'],
             'specializations' => ['nullable', 'array'],
             // Men/Women/Kids departments + Services categories — the same axes
             // the header nav and /search use (see CanonicalTaxonomy).

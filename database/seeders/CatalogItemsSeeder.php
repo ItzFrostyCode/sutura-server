@@ -8,6 +8,7 @@ use App\Models\CatalogOrder;
 use App\Models\JobOrder;
 use App\Models\Service;
 use App\Models\Store;
+use App\Support\CanonicalTaxonomy;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
 
@@ -110,7 +111,8 @@ class CatalogItemsSeeder extends Seeder
             'department' => $def['dept'],
             'subcategory' => $def['sub'],
             'garment_structure' => $def['struct'],
-            'garment_type' => $def['type'],
+            // Saved as the 2-level garment (an old 4-level slug is resolved through the old-slug map).
+            'garment_type' => CanonicalTaxonomy::canonicalGarment($def['type']) ?? $def['type'],
             'service_id' => isset($def['service']) ? ($serviceIds[$def['service']] ?? null) : null,
             'listing_type' => 'made_to_order',
             'is_active' => true,
