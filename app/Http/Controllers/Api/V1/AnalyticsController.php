@@ -41,7 +41,8 @@ class AnalyticsController extends Controller
 
     public function branchComparison(Request $request, Store $store): JsonResponse
     {
-        if ($denied = \App\Support\PlanGate::require($store, 'premium', 'Sales reports and staff / branch analytics')) {
+        // Comparing branches only means something with 2+ branches, which is Premium-only.
+        if ($denied = \App\Support\PlanGate::require($store, 'premium', 'Branch comparison reports')) {
             return $denied;
         }
 
@@ -185,7 +186,8 @@ class AnalyticsController extends Controller
      */
     public function staffProductivity(Request $request, Store $store): JsonResponse
     {
-        if ($denied = \App\Support\PlanGate::require($store, 'premium', 'Sales reports and staff / branch analytics')) {
+        // Sales & staff reports are a Pro feature; branch comparison stays Premium.
+        if ($denied = \App\Support\PlanGate::require($store, 'pro', 'Sales and staff reports')) {
             return $denied;
         }
 
@@ -807,11 +809,8 @@ class AnalyticsController extends Controller
             ],
             'branches' => [
                 'used' => $store->branches()->count(),
-                // No max_branches column on subscription_plans — Premium is
-                // the only tier that supports multiple branches at all,
-                // matching SubscriptionController::subscribe()'s own
-                // `$plan->slug !== 'premium' && $currentBranchCount > 1` gate.
-                'max' => $plan?->slug === 'premium' ? -1 : 1,
+                // Same limit StoreBranchController::store enforces (admin-editable).
+                'max' => $plan?->branchLimit() ?? 1,
             ],
         ];
 

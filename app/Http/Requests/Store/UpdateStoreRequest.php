@@ -59,7 +59,7 @@ class UpdateStoreRequest extends FormRequest
             'specializations' => ['nullable', 'array'],
             // Men/Women/Kids departments + Services categories — the same axes
             // the header nav and /search use (see CanonicalTaxonomy).
-            'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::storeSpecializations())],
+            'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::selectableStoreSpecializations())],
             // is_featured is deliberately NOT owner-writable here — it's a
             // Premium-plan perk the system keeps in sync automatically
             // (see SubscriptionController::subscribe() and

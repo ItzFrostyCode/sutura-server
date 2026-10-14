@@ -504,7 +504,13 @@ Route::prefix('v1')->group(function () {
             Route::get('/branches', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'index']);
             Route::put('/branches/{branch}/verify', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'verify']);
             Route::put('/branches/{branch}/reject', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'reject']);
+            // Typed-in apparel names wait here before designs using them go public
+            Route::get('/apparel-types', [\App\Http\Controllers\Api\V1\Admin\ApparelTypeController::class, 'index']);
+            Route::put('/apparel-types/{apparelType}/approve', [\App\Http\Controllers\Api\V1\Admin\ApparelTypeController::class, 'approve']);
+            Route::put('/apparel-types/{apparelType}/reject', [\App\Http\Controllers\Api\V1\Admin\ApparelTypeController::class, 'reject']);
             Route::get('/reports/subscriptions', [AdminDashboardController::class, 'subscriptionReport']);
+            Route::get('/reports/subscriptions/plans/{plan}/stores', [AdminDashboardController::class, 'planStores']);
+            Route::get('/reports/revenue', [AdminDashboardController::class, 'revenueReport']);
             Route::get('/upgrade-requests', [AdminSubscriptionUpgradeRequestController::class, 'index']);
             Route::get('/upgrade-requests/{upgradeRequest}/receipt', [AdminSubscriptionUpgradeRequestController::class, 'receipt']);
             Route::post('/upgrade-requests/{upgradeRequest}/approve', [AdminSubscriptionUpgradeRequestController::class, 'approve']);

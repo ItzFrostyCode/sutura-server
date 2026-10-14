@@ -170,7 +170,7 @@ class ServiceController extends Controller
                 // sibling item-detail lookup already embeds catalog reviews.
                 'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest(),
             ])
-            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'service_leaf_type', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
+            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'showcase_category', 'service_leaf_type', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
             ->each(function (Service $service) {
                 // withAvg() returns a numeric string, not a float — round it
                 // the same way ServiceController::publicShowroom does.

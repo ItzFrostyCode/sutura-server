@@ -123,7 +123,7 @@ class PublicBookingController extends Controller
             'service_package_id' => ['nullable', Rule::exists('service_packages', 'id')->where('store_id', $store->id)],
             'selected_size' => ['nullable', 'string', 'max:50'],
             'selected_color' => ['nullable', 'string', 'max:100'],
-            'scheduled_at' => ['required', 'date', 'after:now'],
+            'scheduled_at' => ['required', 'date', 'after_or_equal:'.now()->addMinutes(Appointment::MIN_BOOKING_LEAD_MINUTES)->toDateTimeString()],
             'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'reference_images' => ['nullable', 'array', 'max:10'],
@@ -133,6 +133,8 @@ class PublicBookingController extends Controller
             'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya'],
             'payment_reference' => ['nullable', 'string', 'max:255'],
             'payment_receipt_path' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'scheduled_at.after_or_equal' => 'Please choose a time at least 2 hours from now.',
         ]);
 
         $type = $validated['appointment_type'];

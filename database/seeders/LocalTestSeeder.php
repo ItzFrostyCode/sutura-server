@@ -44,6 +44,7 @@ class LocalTestSeeder extends Seeder
      * re-seed keeps their history instead of creating a second set of accounts.
      */
     private const RENAMED_ACCOUNTS = [
+        'owner@sutura.com' => 'maria.cruz@gmail.com',
         'staff@sutura.com' => 'juan.delacruz@sutura.com',
         'manager@sutura.com' => 'miguel.manager@sutura.com',
         'customer@sutura.com' => 'juan.delacruz@gmail.com',
@@ -105,12 +106,13 @@ class LocalTestSeeder extends Seeder
             $owner->roles()->attach($ownerRole->id);
         }
 
-        // 3. Create your Pre-Approved Store
+        // 3. Create your Pre-Approved Store — keyed on the unique slug, so an owner-account
+        // mismatch can never try to insert a second 'thread-needle' row.
         $store = Store::firstOrCreate(
-            ['owner_id' => $owner->id],
+            ['slug' => 'thread-needle'],
             [
+                'owner_id' => $owner->id,
                 'name' => 'Thread & Needle Tailoring',
-                'slug' => 'thread-needle',
                 'store_code' => 'TNED',
                 'description' => 'Premium tailoring and bespoke design services.',
                 'specializations' => CanonicalTaxonomy::storeSpecializations(),

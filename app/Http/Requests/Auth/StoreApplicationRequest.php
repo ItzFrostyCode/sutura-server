@@ -47,6 +47,7 @@ class StoreApplicationRequest extends FormRequest
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'specializations' => ['required', 'array', 'min:1'],
+            // New shops pick from the current list only (no retired tags).
             'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::storeSpecializations())],
 
             // Documents

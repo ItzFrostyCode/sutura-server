@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StoreSubscription extends Model
 {
     protected $fillable = [
-        'store_id', 'plan_id', 'status', 'starts_at',
+        'store_id', 'plan_id', 'status', 'billing_cycle', 'starts_at',
         'ends_at', 'trial_ends_at', 'cancelled_at',
     ];
 

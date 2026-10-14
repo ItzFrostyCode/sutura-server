@@ -227,7 +227,10 @@ class AppointmentController extends Controller
             ], 422);
         }
 
-        $validated = $request->validate(['scheduled_at' => ['required', 'date', 'after:now']]);
+        $validated = $request->validate(
+            ['scheduled_at' => ['required', 'date', 'after_or_equal:'.now()->addMinutes(Appointment::MIN_BOOKING_LEAD_MINUTES)->toDateTimeString()]],
+            ['scheduled_at.after_or_equal' => 'Please choose a time at least 2 hours from now.'],
+        );
 
         $store = $appointment->store;
         $scheduledAt = Carbon::parse($validated['scheduled_at']);
