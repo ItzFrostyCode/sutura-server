@@ -52,6 +52,7 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'password_set_at' => now(),
                 'phone' => $request->phone ?? $user->phone,
+                'gender' => $request->gender ?? $user->gender,
             ]);
         } else {
             $user = User::create([
@@ -60,6 +61,7 @@ class AuthController extends Controller
                 'password' => Hash::make($request->password),
                 'password_set_at' => now(),
                 'phone' => $request->phone,
+                'gender' => $request->gender,
             ]);
         }
 

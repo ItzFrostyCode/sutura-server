@@ -7,10 +7,13 @@ use App\Models\Role;
 use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Models\StoreBranch;
+use App\Models\User;
 use App\Services\GoogleMapsLinkResolver;
 use App\Support\DavaoLocations;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -84,7 +87,17 @@ class StoreBranchController extends Controller
             'operating_hours' => 'nullable|string|max:255',
             'guide_image_url' => 'nullable|string|max:500',
             'manager_id' => 'nullable|integer',
+            // The owner makes the branch manager's login right here; the manager then adds their own staff.
+            'manager' => 'nullable|array',
+            'manager.name' => 'required_with:manager|string|max:191',
+            'manager.email' => 'required_with:manager|email|max:191',
+            'manager.password' => 'required_with:manager|string|min:8',
+            'manager.phone' => 'nullable|string|max:20',
         ]);
+
+        if ($request->filled('manager') && ($error = $this->managerEmailProblem($request->input('manager.email')))) {
+            return $error;
+        }
 
         $place = $this->resolvePlace($request, null);
         if ($place instanceof JsonResponse) {
@@ -130,6 +143,10 @@ class StoreBranchController extends Controller
             'guide_image_url' => $request->guide_image_url,
         ]);
 
+        if ($request->filled('manager')) {
+            $this->createManager($store, $branch, $request->input('manager'));
+        }
+
         if ($request->filled('manager_id')) {
             $staff = StaffProfile::where('store_id', $storeId)->find($request->manager_id);
             if ($staff) {
@@ -155,13 +172,53 @@ class StoreBranchController extends Controller
         return response()->json(['success' => true, 'message' => 'Branch added successfully.', 'data' => $branch]);
     }
 
+    /** A new branch manager's email must be free: not a registered account and not a customer. */
+    private function managerEmailProblem(string $email): ?JsonResponse
+    {
+        $existing = User::where('email', $email)->first();
+        if (! $existing) {
+            return null;
+        }
+        $taken = $existing->password_set_at !== null
+            || $existing->hasRole('customer')
+            || DB::table('store_customers')->where('user_id', $existing->id)->exists();
+
+        return $taken
+            ? response()->json(['success' => false, 'message' => 'This email already belongs to an account.', 'errors' => ['manager.email' => ['This email already belongs to an account.']]], 422)
+            : null;
+    }
+
+    /** Creates the manager's login and pins it to this branch (the old manager of the branch, if any, is demoted). */
+    private function createManager(Store $store, StoreBranch $branch, array $data): void
+    {
+        StaffProfile::where('store_id', $store->id)->where('store_branch_id', $branch->id)->where('is_branch_manager', true)->update(['is_branch_manager' => false]);
+
+        $user = User::where('email', $data['email'])->first() ?? new User(['email' => $data['email']]);
+        $user->forceFill([
+            'name' => $data['name'],
+            'phone' => $data['phone'] ?? $user->phone,
+            'password' => Hash::make($data['password']),
+            'password_set_at' => now(),
+        ])->save();
+
+        $role = Role::where('name', 'branch_manager')->first();
+        if ($role) {
+            $user->roles()->syncWithoutDetaching([$role->id]);
+        }
+        StaffProfile::updateOrCreate(
+            ['user_id' => $user->id, 'store_id' => $store->id],
+            ['store_branch_id' => $branch->id, 'role' => 'head_tailor', 'is_branch_manager' => true, 'is_active' => true, 'hired_at' => now()->toDateString()],
+        );
+        \Illuminate\Support\Facades\Cache::driver('file')->forget("store_staff_{$store->id}");
+    }
+
     public function update(Request $request, $storeId, StoreBranch $branch)
     {
         if ($branch->store_id != $storeId) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        if ($denied = $this->branchManagerCrudDenied($request, $branch, $request->has('manager_id'))) {
+        if ($denied = $this->branchManagerCrudDenied($request, $branch, $request->has('manager_id') || $request->has('manager'))) {
             return $denied;
         }
 
@@ -180,6 +237,11 @@ class StoreBranchController extends Controller
             'status' => 'nullable|in:active,inactive',
             'guide_image_url' => 'nullable|string|max:500',
             'manager_id' => 'nullable',
+            'manager' => 'nullable|array',
+            'manager.name' => 'required_with:manager|string|max:191',
+            'manager.email' => 'required_with:manager|email|max:191',
+            'manager.password' => 'required_with:manager|string|min:8',
+            'manager.phone' => 'nullable|string|max:20',
         ]);
 
         $place = $this->resolvePlace($request, $branch);
@@ -209,6 +271,13 @@ class StoreBranchController extends Controller
         // contact or the manager does not.
         if ($branch->verification_status !== 'pending' && $this->locationChanged($before, $branch)) {
             $branch->update(['verification_status' => 'pending', 'verified_at' => null, 'verified_by' => null, 'verification_note' => null]);
+        }
+
+        if ($request->filled('manager')) {
+            if ($error = $this->managerEmailProblem($request->input('manager.email'))) {
+                return $error;
+            }
+            $this->createManager(Store::findOrFail($storeId), $branch, $request->input('manager'));
         }
 
         if ($request->has('manager_id')) {
@@ -271,7 +340,7 @@ class StoreBranchController extends Controller
             'model_id' => $branch->id,
             'payload' => [
                 'name' => $branch->name,
-                'description' => "Designated \"{$branch->name}\" as Primary Headquarters",
+                'description' => "Designated \"{$branch->name}\" as the main branch",
             ],
             'ip_address' => $request->ip(),
         ]);

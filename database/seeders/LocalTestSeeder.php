@@ -12,7 +12,6 @@ use App\Models\Measurement;
 use App\Models\Payment;
 use App\Models\Role;
 use App\Models\Service;
-use App\Models\ServicePackage;
 use App\Models\ServicePricing;
 use App\Models\StaffProfile;
 use App\Models\Store;
@@ -154,9 +153,9 @@ class LocalTestSeeder extends Seeder
 
         // Seed Main Branch
         $mainBranch = StoreBranch::firstOrCreate(
-            ['store_id' => $store->id, 'name' => 'Poblacion Branch (Main)'],
+            ['store_id' => $store->id, 'name' => 'Poblacion Branch'],
             [
-                'slug' => Str::slug('Poblacion Branch (Main)').'-'.uniqid(),
+                'slug' => Str::slug('Poblacion Branch').'-'.uniqid(),
                 'address' => '123 Rizal Avenue, Poblacion',
                 'city' => 'Davao City',
                 // Real Davao City administrative district for this real
@@ -499,7 +498,7 @@ class LocalTestSeeder extends Seeder
             }
         }
 
-        // 7. Single-branch shop: Thread & Needle runs from Poblacion (Main)
+        // 7. Single-branch shop: Thread & Needle runs from Poblacion (main branch)
         // only. The old Lanang/Matina satellites are retired — their orders
         // and appointments move to Main (never nulled out), then the branch
         // rows go. $branch2/$branch3 stay as aliases of Main so the demo
@@ -1397,20 +1396,7 @@ class LocalTestSeeder extends Seeder
         });
         AuditLog::where('store_id', $store->id)->where('action', 'discount_applied')->delete();
 
-        // 16. Seed a Service Package (bundle) — combines two existing services.
         $barongService = Service::where('name', 'Barong Tagalog Tailoring')->first();
-        if ($barongService && isset($service2)) {
-            $package = ServicePackage::updateOrCreate(
-                ['store_id' => $store->id, 'name' => 'Groom & Entourage Package'],
-                [
-                    'description' => 'Bespoke suit for the groom plus Barong Tagalog tailoring for the entourage, bundled as one package.',
-                    'bundle_price' => 12000,
-                    'is_active' => true,
-                    'image_url' => '/catalog/groom-entourage-package.jpg',
-                ]
-            );
-            $package->services()->syncWithoutDetaching([$service2->id, $barongService->id]);
-        }
 
         // 17. Seed Store Posts (completed-work showcase) — otherwise "Our Work"
         // never appears on the public storefront (it only shows once posts exist).

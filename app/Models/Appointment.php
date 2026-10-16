@@ -30,6 +30,24 @@ class Appointment extends Model
         'other' => 30,
     ];
 
+    /**
+     * What a person can book (online) or type in (walk-in). Fitting and pickup are not here on purpose: they
+     * only exist as system-made `production` rows tied to a production order.
+     */
+    public const BOOKABLE_TYPES = ['consultation', 'measurement', 'alteration', 'other'];
+
+    /** The kinds: service (for a service or design), shop (a general visit), production (system-made). */
+    public const KINDS = ['service', 'shop', 'production'];
+
+    /** The kinds a person can create. */
+    public const BOOKABLE_KINDS = ['service', 'shop'];
+
+    /** The three results of "Done": consultation only, proceed to a production order, or the customer didn't come. */
+    public const DONE_RESULTS = ['completed', 'converted_to_job', 'no_show'];
+
+    /** What a walk-in clash with a waiting online request can be settled with (the owner decides each time). */
+    public const ON_CONFLICT = ['serve_walkin_reschedule_online', 'other_time'];
+
     /** Valid statuses */
     public const STATUSES = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show', 'rejected'];
 
@@ -82,7 +100,7 @@ class Appointment extends Model
     public const TRANSITIONS = [
         'pending' => ['confirmed', 'cancelled', 'rejected'],
         'confirmed' => ['in_progress', 'cancelled', 'no_show'],
-        'in_progress' => ['completed', 'cancelled'],
+        'in_progress' => ['completed', 'cancelled', 'no_show'],
         'completed' => [],   // terminal — no further transitions
         'cancelled' => [],   // terminal
         'no_show' => [],   // terminal
@@ -94,11 +112,11 @@ class Appointment extends Model
         'store_branch_id',
         'customer_id',
         'service_id',
-        'service_package_id',
         'catalog_item_id',
         'selected_size',
         'selected_color',
         'appointment_type',
+        'kind',
         'purpose_label',
         'intake_channel',
         'scheduled_at',
@@ -179,12 +197,6 @@ class Appointment extends Model
         return $this->belongsTo(Service::class);
     }
 
-    /** The combo package this booking was made from, if any. */
-    public function servicePackage(): BelongsTo
-    {
-        return $this->belongsTo(ServicePackage::class);
-    }
-
     /** The catalog design this booking was made from, if any. */
     public function catalogItem(): BelongsTo
     {
@@ -241,6 +253,48 @@ class Appointment extends Model
     }
 
     /**
+     * A pending production appointment is only a placeholder the system made (the fitting a production order
+     * asks for, at a rough time). It must not block an online customer's time, hold a customer's one active
+     * booking, or count as a request a walk-in has to bump. Once the shop confirms it, it blocks like any other.
+     */
+    public static function ignorePendingProduction($query): void
+    {
+        $query->where(function ($q) {
+            $q->where('kind', '!=', 'production')->orWhere('status', '!=', 'pending');
+        });
+    }
+
+    /** The default kind for a record built without one: fitting/pickup are production, a service link means service. */
+    public static function guessKind(array $attributes): string
+    {
+        if (in_array($attributes['appointment_type'] ?? null, ['fitting', 'pickup'], true)) {
+            return 'production';
+        }
+
+        return ! empty($attributes['service_id']) || ! empty($attributes['catalog_item_id'])
+            ? 'service'
+            : 'shop';
+    }
+
+    /**
+     * The purpose of a booking. A shop visit is what the person picked (consultation, measurement or other).
+     * A service visit follows the service: an alteration or repair service means "bring the garment"; any other
+     * service is a consultation, or a measurement when asked for.
+     */
+    public static function purposeFor(string $kind, ?string $requested, ?string $serviceCategory = null): string
+    {
+        if ($kind === 'shop') {
+            return in_array($requested, ['consultation', 'measurement', 'other'], true) ? $requested : 'consultation';
+        }
+
+        if ($serviceCategory === 'alterations_repairs') {
+            return 'alteration';
+        }
+
+        return $requested === 'measurement' ? 'measurement' : 'consultation';
+    }
+
+    /**
      * Whether a new [scheduledAt, scheduledAt + duration] window would
      * overlap an existing appointment on the same branch.
      * When $includePending is true (e.g. public storefront customer booking),
@@ -267,6 +321,7 @@ class Appointment extends Model
         $query = $store->appointments()
             ->whereIn('status', $statuses)
             ->where('scheduled_at', '<', $newEnd);
+        self::ignorePendingProduction($query);
 
         if ($branchId !== null) {
             $query->where(function ($q) use ($branchId) {
@@ -322,6 +377,7 @@ class Appointment extends Model
         $query = self::where('customer_id', $customerId)
             ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
             ->where('scheduled_at', '<', $newEnd);
+        self::ignorePendingProduction($query);
 
         if ($excludeId) {
             $query->where('id', '!=', $excludeId);
@@ -345,8 +401,10 @@ class Appointment extends Model
      */
     public static function hasActiveAppointment(Store $store, int $customerId): bool
     {
+        // A production fitting/pickup is tied to an order, not a booking the customer made.
         return $store->appointments()
             ->where('customer_id', $customerId)
+            ->where('kind', '!=', 'production')
             ->whereIn('status', ['pending', 'confirmed'])
             ->exists();
     }
@@ -381,8 +439,10 @@ class Appointment extends Model
     ): Collection {
         $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes);
 
+        // Pending system placeholders (production) are not requests a walk-in has to bump.
         $query = $store->appointments()
             ->where('status', 'pending')
+            ->where('kind', '!=', 'production')
             ->where('scheduled_at', '<', $newEnd);
 
         if ($branchId !== null) {
@@ -456,6 +516,13 @@ class Appointment extends Model
      */
     protected static function booted(): void
     {
+        // A record built without a kind (old call sites, tests, seeders) gets the one its data implies.
+        static::creating(function (self $appointment) {
+            if (empty($appointment->getAttributes()['kind'] ?? null)) {
+                $appointment->kind = self::guessKind($appointment->getAttributes());
+            }
+        });
+
         static::deleting(function (self $appointment) {
             DatabaseNotification::whereJsonContains('data->appointment_id', $appointment->id)->delete();
         });

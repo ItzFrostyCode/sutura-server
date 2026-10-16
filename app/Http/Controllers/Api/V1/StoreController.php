@@ -158,12 +158,19 @@ class StoreController extends Controller
             });
         }
 
+        // A tailoring shop that has not listed any service or design yet is still a tailoring shop: the nav filters
+        // (garment, department, specialization) never hide it, they only narrow shops that have something listed.
+        $nothingListed = fn ($q) => $q
+            ->whereDoesntHave('services', fn ($sq) => $sq->where('is_active', true))
+            ->whereDoesntHave('catalogItems', fn ($cq) => $cq->listed());
+
         // Shops that work on a garment category: a listed design of one of its garments, or an active service
         // that ticked one (2-level taxonomy, 2026-10-14).
         if ($request->filled('garment_category')) {
             $garments = CanonicalTaxonomy::garmentsInCategory((string) $request->string('garment_category'));
-            $query->where(function ($w) use ($garments) {
-                $w->whereHas('catalogItems', fn ($cq) => $cq->listed()->ofGarments($garments === [] ? ['-'] : $garments))
+            $query->where(function ($w) use ($garments, $nothingListed) {
+                $w->where($nothingListed)
+                    ->orWhereHas('catalogItems', fn ($cq) => $cq->listed()->ofGarments($garments === [] ? ['-'] : $garments))
                     ->orWhereHas('services', function ($sq) use ($garments) {
                         $sq->where('is_active', true)->where(function ($g) use ($garments) {
                             $g->whereRaw('1 = 0');
@@ -184,17 +191,19 @@ class StoreController extends Controller
         if ($request->filled('department')) {
             $department = strtolower(trim((string) $request->string('department')));
             if ($department === 'services' || $department === 'service') {
-                $query->whereHas('services', fn ($sq) => $sq->where('is_active', true));
+                $query->where(fn ($w) => $w->where($nothingListed)
+                    ->orWhereHas('services', fn ($sq) => $sq->where('is_active', true)));
             } else {
-                $query->whereHas('catalogItems', function ($cq) use ($department) {
-                    $cq->listed()->whereRaw('LOWER(department) = ?', [$department]);
-                });
+                $query->where(fn ($w) => $w->where($nothingListed)
+                    ->orWhereHas('catalogItems', function ($cq) use ($department) {
+                        $cq->listed()->whereRaw('LOWER(department) = ?', [$department]);
+                    }));
             }
         }
 
         $spec = $request->input('specialization') ?: $request->input('category');
         if ($spec) {
-            $query->where(function ($sq) use ($spec) {
+            $query->where(function ($sq) use ($spec, $nothingListed) {
                 // Specializations are now the canonical Men/Women/Kids +
                 // Services axes (CanonicalTaxonomy::storeSpecializations()),
                 // so also match a store by what it actually carries — a
@@ -215,7 +224,8 @@ class StoreController extends Controller
                                 $ssq->where('service_category', (string) $spec)
                                     ->orWhereRaw('LOWER(category) LIKE ?', ['%'.strtolower((string) $spec).'%']);
                             });
-                    });
+                    })
+                    ->orWhere($nothingListed);
             });
         }
 

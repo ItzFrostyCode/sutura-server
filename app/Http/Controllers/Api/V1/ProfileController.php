@@ -27,7 +27,6 @@ class ProfileController extends Controller
         $isPublic = \App\Models\StoreReview::where('user_id', $id)->exists()
             || \App\Models\ServiceReview::where('user_id', $id)->exists()
             || \App\Models\CatalogItemReview::where('user_id', $id)->exists()
-            || \App\Models\ServicePackageReview::where('user_id', $id)->exists()
             || \App\Models\Store::where('owner_id', $id)->where('status', 'approved')->exists();
         abort_unless($isPublic, 404);
 
@@ -78,6 +77,7 @@ class ProfileController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:20',
+            'gender' => 'nullable|in:male,female',
             'bio' => 'nullable|string',
             'experience' => 'nullable|array',
             'education' => 'nullable|array',

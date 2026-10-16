@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\StoreServiceRequest;
+use App\Models\CustomApparelType;
 use App\Models\Service;
 use App\Models\Store;
 use App\Models\StoreBranch;
@@ -17,7 +18,7 @@ class ServiceController extends Controller
     public function index(Request $request, Store $store): JsonResponse
     {
         $query = $store->services()->with('pricing')
-            ->withCount(['reviews', 'saves', 'jobOrders' => fn ($q) => $q->whereNull('service_package_id')])
+            ->withCount(['reviews', 'saves', 'jobOrders'])
             ->withAvg('reviews', 'rating')
             // Discount-aware, same formula as CatalogController::index()'s
             // own total_revenue (discount_amount reduces balance, not
@@ -27,11 +28,9 @@ class ServiceController extends Controller
             // a catalog item's orders are that item's own revenue even
             // when the item links back to this service, so summing both
             // would double-count the same money under two different names.
-            // Orders for a whole combo package belong to the package (its own revenue in
-            // ServicePackageController::index), not to the service its job row points at.
-            ->withSum(['jobOrders as job_revenue' => fn ($q) => $q->whereNull('service_package_id')], 'total_amount')
-            ->withSum(['jobOrders as job_balance_sum' => fn ($q) => $q->whereNull('service_package_id')], 'balance')
-            ->withSum(['jobOrders as job_discount_sum' => fn ($q) => $q->whereNull('service_package_id')], 'discount_amount');
+            ->withSum('jobOrders as job_revenue', 'total_amount')
+            ->withSum('jobOrders as job_balance_sum', 'balance')
+            ->withSum('jobOrders as job_discount_sum', 'discount_amount');
 
         $services = $query->get();
         $services->each(function ($service) {
@@ -191,7 +190,7 @@ class ServiceController extends Controller
                 // sibling item-detail lookup already embeds catalog reviews.
                 'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest(),
             ])
-            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'showcase_category', 'service_leaf_type', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
+            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'showcase_category', 'garment_types', 'capabilities', 'service_leaf_type', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
             ->each(function (Service $service) {
                 // withAvg() returns a numeric string, not a float — round it
                 // the same way ServiceController::publicShowroom does.
@@ -216,7 +215,7 @@ class ServiceController extends Controller
         // displays (service cards, job-order service picker) keep working
         // without having to join against pricing on every read.
         $validated['tags'] = array_column($tiers, 'label');
-        $validated = $this->withTaxonomy($validated, null);
+        $validated = $this->withTaxonomy($validated, null, $store);
 
         $service = $store->services()->create($validated);
         $this->syncPricingTiers($service, $tiers);
@@ -234,7 +233,7 @@ class ServiceController extends Controller
         $tiers = $validated['pricing_tiers'];
         unset($validated['pricing_tiers']);
         $validated['tags'] = array_column($tiers, 'label');
-        $validated = $this->withTaxonomy($validated, $service);
+        $validated = $this->withTaxonomy($validated, $service, $store);
 
         $service->update($validated);
 
@@ -254,9 +253,7 @@ class ServiceController extends Controller
 
         $this->syncPricingTiers($service, $tiers);
 
-        $paused = $service->is_active ? [] : $service->pausePackagesLeftTooSmall();
-
-        return response()->json(['success' => true, 'data' => $service->fresh('pricing'), 'paused_packages' => $paused]);
+        return response()->json(['success' => true, 'data' => $service->fresh('pricing')]);
     }
 
     /**
@@ -264,11 +261,24 @@ class ServiceController extends Controller
      * the order types worked out from the service group, capabilities and garments (Service::deriveOrderTypes)
      * — a service with no approved group keeps what it was sent / already had.
      */
-    private function withTaxonomy(array $validated, ?Service $existing): array
+    private function withTaxonomy(array $validated, ?Service $existing, Store $store): array
     {
         if (array_key_exists('garment_types', $validated)) {
+            // A garment from the list is saved as its current slug; a typed name stays as typed and is filed for
+            // SUTURA to check (CustomApparelType), the same as a design's. A name already refused cannot be reused.
             $garments = collect($validated['garment_types'] ?? [])
-                ->map(fn ($g) => CanonicalTaxonomy::canonicalGarment($g))->filter()->unique()->values()->all();
+                ->map(fn ($g) => CanonicalTaxonomy::canonicalGarment($g) ?? trim((string) $g))
+                ->filter()->unique(fn ($g) => strtolower($g))->values()->all();
+            foreach ($garments as $g) {
+                if (CanonicalTaxonomy::canonicalGarment($g) === null) {
+                    $type = CustomApparelType::resolveFor($g, $store);
+                    if ($type->status === 'rejected') {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'garment_types' => ['The garment name "'.$type->label.'" was not approved by SUTURA'.($type->rejection_reason ? ': '.$type->rejection_reason : '.')],
+                        ]);
+                    }
+                }
+            }
             $validated['garment_types'] = $garments === [] ? null : $garments;
         }
         if (array_key_exists('capabilities', $validated)) {
@@ -323,8 +333,7 @@ class ServiceController extends Controller
         ]);
 
         $service->delete();
-        $paused = $service->pausePackagesLeftTooSmall();
 
-        return response()->json(['success' => true, 'paused_packages' => $paused]);
+        return response()->json(['success' => true]);
     }
 }

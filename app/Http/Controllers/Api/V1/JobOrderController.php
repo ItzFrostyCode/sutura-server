@@ -421,6 +421,78 @@ class JobOrderController extends Controller
         return response()->json(['success' => true, 'data' => $jobOrder], 201);
     }
 
+    /**
+     * Customer-facing general order request: a made-to-measure garment or service with no appointment and no
+     * catalog design. It waits as a pending request for the shop to accept, then to price. Nothing is paid
+     * and nothing starts here. Repairs and bulk orders keep their own entry points (price list / roster).
+     */
+    public function customerOrderRequest(Request $request, Store $store): JsonResponse
+    {
+        $validated = $request->validate([
+            'service_id' => 'required|integer',
+            'garment_description' => 'required|string|min:5|max:1000',
+            'quantity' => 'nullable|integer|min:1|max:50',
+            'measurements_note' => 'nullable|string|max:1000',
+            'own_fabric' => 'nullable|boolean',
+            'reference_images' => 'nullable|array|max:10',
+            'reference_images.*' => 'string|max:1000',
+            'store_branch_id' => 'nullable|integer',
+        ]);
+
+        $service = Service::where('id', $validated['service_id'])->where('store_id', $store->id)->first();
+        if (! $service) {
+            return response()->json(['success' => false, 'message' => 'That service is not offered by this shop.'], 404);
+        }
+        if ($service->hasType(Service::TYPE_ALTERATION_REPAIR)) {
+            return response()->json(['success' => false, 'message' => 'For repairs and alterations, use "Request a repair".'], 422);
+        }
+        if ($service->hasType(Service::TYPE_BULK_SUBLIMATION)) {
+            return response()->json(['success' => false, 'message' => 'For team or bulk orders, use the bulk order form.'], 422);
+        }
+
+        $branch = ! empty($validated['store_branch_id'])
+            ? $store->branches()->where('id', $validated['store_branch_id'])->first()
+            : null;
+        $branch ??= $store->branches()->where('is_main', true)->first();
+
+        $orderNumber = $this->generateOrderNumber($store);
+        $jobOrder = $store->jobOrders()->create([
+            'order_number' => $orderNumber,
+            'tracking_code' => $this->generateTrackingCode($store, $orderNumber),
+            'intake_channel' => 'online',
+            'store_branch_id' => $branch?->id,
+            'customer_id' => $request->user()->id,
+            'service_id' => $service->id,
+            'quantity' => $validated['quantity'] ?? 1,
+            'material_source' => ! empty($validated['own_fabric']) ? 'customer_supplied' : 'store_supplied',
+            'total_amount' => 0,
+            'balance' => 0,
+            'payment_status' => 'unpaid',
+            'status' => 'pending',
+            'uses_confirmation_flow' => true,
+            'notes' => 'Online request: '.trim($validated['garment_description']),
+            'reference_images' => $validated['reference_images'] ?? [],
+            'custom_order_data' => array_filter([
+                'request_note' => trim($validated['garment_description']),
+                'measurements_note' => trim((string) ($validated['measurements_note'] ?? '')) ?: null,
+            ]),
+        ]);
+        $jobOrder->load(['customer:id,name', 'service']);
+
+        $store->owner?->notify(new NewJobOrderNotification($jobOrder));
+        // Branch managers see online requests too (the owner and floor staff already do).
+        User::whereHas('staffProfile', fn ($q) => $q->where('store_id', $store->id)->where('is_branch_manager', true)
+            ->when($branch, fn ($q2) => $q2->where('store_branch_id', $branch->id)))
+            ->get()
+            ->each(fn (User $m) => SafeNotify::send($m, new StoreActivityNotification(
+                'job_new_request', 'New online request',
+                "{$jobOrder->order_number} from {$jobOrder->customer?->name} is waiting for your review.",
+                '/dashboard/jobs/'.$jobOrder->id, ['job_order_id' => $jobOrder->id],
+            )));
+
+        return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    }
+
     public function index(Store $store, Request $request): JsonResponse
     {
         $query = $store->jobOrders()->with([
@@ -617,6 +689,8 @@ class JobOrderController extends Controller
         // Every order made here goes through the ordering flow (quotation -> customer approval ->
         // deposit -> confirmed -> start). Repairs are exempt at the gate (OrderReadiness::gated).
         $validated['uses_confirmation_flow'] = true;
+        // A request the shop writes itself is already accepted; only online requests wait for that yes.
+        $validated['shop_accepted_at'] = now();
 
         // assigned_staff_id is no longer accepted from the client at creation
         // time — no more upfront "who's doing this" pre-assignment. It's
@@ -656,7 +730,8 @@ class JobOrderController extends Controller
         $balance = (float) $validated['balance'];
         $initialPayment = $totalAmount - $balance;
 
-        if ($balance <= 0) {
+        // A zero total is an order still waiting for its quotation — not a paid one.
+        if ($balance <= 0 && $totalAmount > 0) {
             $validated['payment_status'] = 'paid';
         } elseif ($initialPayment > 0) {
             $validated['payment_status'] = 'partial';
@@ -704,9 +779,6 @@ class JobOrderController extends Controller
                 if (empty($validated['catalog_item_id']) && ! empty($appointment->catalog_item_id)) {
                     $validated['catalog_item_id'] = $appointment->catalog_item_id;
                 }
-                if (empty($validated['service_package_id']) && ! empty($appointment->service_package_id)) {
-                    $validated['service_package_id'] = $appointment->service_package_id;
-                }
             }
         }
 
@@ -753,13 +825,12 @@ class JobOrderController extends Controller
             // conversion rate) reflects real conversions regardless of
             // which of the two paths the owner used. Never overwrites an
             // outcome that's already set.
-            $appointment->update([
+            // Creating the Production Order closes the visit: completed, converted to a job.
+            $appointment->update(array_filter([
                 'job_order_id' => $jobOrder->id,
-                'outcome' => $appointment->outcome ?? 'converted_to_job',
-            ]);
-            if ($appointment->status === 'pending') {
-                $appointment->update(['status' => 'confirmed']);
-            }
+                'outcome' => 'converted_to_job',
+                'status' => in_array($appointment->status, ['pending', 'confirmed', 'in_progress'], true) ? 'completed' : null,
+            ]));
         }
 
         // Record initial payment history if downpayment occurred
@@ -768,11 +839,14 @@ class JobOrderController extends Controller
                 'amount' => $initialPayment,
                 'payment_method' => $validated['payment_method'] ?? 'cash',
                 'recorded_by' => $request->user()->id,
+                // Money already in hand at the counter: the balance was reduced for it, so it counts as verified.
+                'verified_at' => now(),
+                'verified_by' => $request->user()->id,
                 'notes' => 'Initial downpayment recorded during order creation.',
             ]);
         }
 
-        $jobOrder->load(['customer:id,name', 'service', 'servicePackage:id,name,bundle_price,service_category', 'servicePackage.services:id,name', 'assignedStaff:id,name', 'staffStages', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images']);
+        $jobOrder->load(['customer:id,name', 'service', 'assignedStaff:id,name', 'staffStages', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images']);
 
         // Notify store owner of the new job order
         $storeOwner = $store->owner;
@@ -870,6 +944,12 @@ class JobOrderController extends Controller
         // rules the Kanban UI enforces — this endpoint is also reachable from the
         // Job Detail page's own status dropdown, so the rule has to live here too,
         // not just in one frontend component.
+        // On the ordering flow only the owner or a branch manager confirms (authorizes production) or cancels.
+        $isMoneyRole = $request->user()->hasRole('store_owner') || $request->user()->hasRole('branch_manager');
+        if ($flow && $newStatus && $newStatus !== $oldStatus && in_array($newStatus, ['confirmed', 'cancelled'], true) && ! $isMoneyRole) {
+            return response()->json(['success' => false, 'message' => 'Only the owner or a branch manager can confirm or cancel an order.'], 403);
+        }
+
         if ($newStatus && $newStatus !== $oldStatus) {
             // Ordering flow: confirming needs a final, customer-approved quotation and a verified
             // deposit; starting work needs materials, measurements and a tailor. Same rules as the
@@ -999,7 +1079,9 @@ class JobOrderController extends Controller
         // Ordering flow milestones, stamped by the server from the transition itself.
         if ($newStatus && $newStatus !== $oldStatus && $jobOrder->uses_confirmation_flow) {
             if ($jobOrder->status === 'confirmed' && ! $jobOrder->confirmed_at) {
-                $jobOrder->forceFill(['confirmed_at' => now()])->save();
+                $jobOrder->forceFill([
+                    'confirmed_at' => now(), 'production_authorized_at' => now(), 'production_authorized_by' => $request->user()->id,
+                ])->save();
                 OrderReadiness::syncAwaitingMaterials($jobOrder->fresh());
                 $jobOrder->refresh();
             }
@@ -1193,7 +1275,9 @@ class JobOrderController extends Controller
                         'store_branch_id' => $jobOrder->store_branch_id,
                         'customer_id' => $jobOrder->customer_id,
                         'appointment_type' => 'fitting',
-                        'intake_channel' => 'walk_in',
+                        // Made by the system for this production order: not a walk-in, and a pending one never blocks an online customer's time.
+                        'kind' => 'production',
+                        'intake_channel' => 'online',
                         'scheduled_at' => $placeholderDate,
                         'duration_minutes' => Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
                         'status' => 'pending',

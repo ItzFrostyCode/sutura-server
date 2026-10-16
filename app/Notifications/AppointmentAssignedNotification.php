@@ -22,8 +22,8 @@ class AppointmentAssignedNotification extends Notification
 
     public function toArray(object $notifiable): array
     {
-        $a = $this->appointment->loadMissing(['customer:id,name', 'service:id,name', 'catalogItem:id,name', 'servicePackage:id,name', 'branch:id,name']);
-        $what = $a->catalogItem?->name ?? $a->servicePackage?->name ?? $a->service?->name;
+        $a = $this->appointment->loadMissing(['customer:id,name', 'service:id,name', 'catalogItem:id,name', 'branch:id,name']);
+        $what = $a->catalogItem?->name ?? $a->service?->name;
         $when = $a->scheduled_at ? Carbon::parse($a->scheduled_at)->format('M d, Y h:i A') : 'a scheduled time';
         $type = $a->appointment_type === 'other' && $a->purpose_label ? $a->purpose_label : str_replace('_', ' ', (string) $a->appointment_type);
 

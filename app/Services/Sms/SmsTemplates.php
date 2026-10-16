@@ -22,13 +22,14 @@ class SmsTemplates
         'appointment_reminder' => 'Appointment reminder',
         'order_ready_fitting' => 'Ready for fitting',
         'order_ready_pickup' => 'Ready for pickup',
+        'order_quotation_ready' => 'Price (quotation) is ready',
     ];
 
     /**
      * Texts cost money and customers already get an email and an in-app notice for everything, so by default only
      * the moments where a missed message costs the shop a visit or a no-show are texted. A shop can switch any on or off.
      */
-    public const DEFAULT_ENABLED = ['appointment_rescheduled', 'appointment_cancelled', 'appointment_reminder', 'order_ready_fitting', 'order_ready_pickup'];
+    public const DEFAULT_ENABLED = ['appointment_confirmed', 'appointment_rescheduled', 'appointment_cancelled', 'appointment_reminder', 'order_ready_fitting', 'order_ready_pickup'];
 
     /** @return array<int,string> */
     public static function enabledFor(?array $stored): array
@@ -77,6 +78,33 @@ class SmsTemplates
         ];
     }
 
+    /** What the customer should bring when they come in: the balance, the full amount, or nothing. */
+    private static function payLine(JobOrder $job): string
+    {
+        $balance = (float) $job->balance;
+        if ($balance <= 0.005) {
+            return ' Fully paid.';
+        }
+        $paid = \App\Support\OrderReadiness::paidSoFar($job);
+
+        return $paid > 0.005
+            ? ' Bring the balance: PHP '.number_format($balance, 2).'.'
+            : ' Bring full payment: PHP '.number_format($balance, 2).'.';
+    }
+
+    /** "Your price is ready" — only sent when the shop switches this event on (it is not in DEFAULT_ENABLED). */
+    public static function quotation(JobOrder $job): array
+    {
+        $shop = SmsText::shopName($job->store?->name);
+        $no = SmsText::fit($job->order_number, 12);
+
+        return [
+            'event' => 'order_quotation_ready',
+            'body' => "{$shop}: the price for order {$no} is ready: PHP ".number_format((float) $job->total_amount, 2).'. Open SUTURA to review and approve. Code: '.$job->tracking_code,
+            'dedupe' => 'job:'.$job->id.':quote:'.(int) $job->quotationVersions()->max('version'),
+        ];
+    }
+
     /** @return array{event:string, body:string, dedupe:string}|null */
     public static function order(JobOrder $job, string $stage): ?array
     {
@@ -87,14 +115,14 @@ class SmsTemplates
             return ['event' => 'order_ready_fitting', 'body' => "{$shop}: order {$no} is ready for FITTING. We will confirm your time. Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':fitting:'.now()->toDateString()];
         }
         if ($stage === 'ready_for_pickup') {
-            $owing = (float) $job->balance > 0 ? ' Balance: PHP '.number_format((float) $job->balance, 2).'.' : '';
+            $pay = self::payLine($job);
             if (\App\Support\OrderReadiness::gated($job)) {
                 $what = \App\Support\OrderReadiness::fittingNeeded($job) ? 'FITTING' : 'PICK-UP';
 
-                return ['event' => 'order_ready_pickup', 'body' => "{$shop}: order {$no} passed quality check. Please come for {$what}.{$owing} Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':pickup:'.now()->toDateString()];
+                return ['event' => 'order_ready_pickup', 'body' => "{$shop}: order {$no} is ready. Please come for {$what}.{$pay} Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':pickup:'.now()->toDateString()];
             }
 
-            return ['event' => 'order_ready_pickup', 'body' => "{$shop}: order {$no} is ready for PICK-UP.{$owing} Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':pickup'];
+            return ['event' => 'order_ready_pickup', 'body' => "{$shop}: order {$no} is ready for PICK-UP.{$pay} Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':pickup'];
         }
 
         return null;

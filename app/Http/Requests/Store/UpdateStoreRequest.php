@@ -12,7 +12,11 @@ class UpdateStoreRequest extends FormRequest
     {
         $store = $this->route('store');
 
-        return $this->user()->id === $store->owner_id;
+        // The owner, or a branch manager of this shop (they run the shop page customers see).
+        $user = $this->user();
+
+        return $user->id === $store->owner_id
+            || ($user->hasRole('branch_manager') && $store->staff()->where('user_id', $user->id)->where('is_branch_manager', true)->exists());
     }
 
     public function rules(): array

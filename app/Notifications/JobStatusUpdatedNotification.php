@@ -83,6 +83,11 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
             'completed' => 'Order Completed',
             'cancelled' => 'Order Cancelled',
             'rejected' => 'Order Declined',
+            'on_hold' => 'Order On Hold',
+            'queued' => 'Repair Received',
+            'in_repair' => 'Repair In Progress',
+            'qc_check' => 'Repair Final Check',
+            'balance_handover' => 'Payment and Handover',
         ];
     }
 
@@ -98,11 +103,16 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
             'cutting' => 'Your order ('.$this->jobOrder->order_number.') has entered the cutting stage.',
             'sewing' => 'Your order ('.$this->jobOrder->order_number.') is now being sewn and assembled.',
             'ready_for_fitting' => 'Your order ('.$this->jobOrder->order_number.') is ready for fitting. We\'ve scheduled a fitting appointment and will confirm the exact time with you shortly.',
-            'final_adjustments' => 'Your order ('.$this->jobOrder->order_number.') is undergoing final adjustments after your fitting.',
+            'final_adjustments' => 'Your order ('.$this->jobOrder->order_number.') is getting some final adjustments. We will tell you when it is ready.',
             'qc_ironing' => 'Your order ('.$this->jobOrder->order_number.') is receiving its final quality check and ironing.',
             'completed' => 'Your order ('.$this->jobOrder->order_number.') is now complete. Thank you for trusting us with your custom tailoring!',
             'cancelled' => 'Your order ('.$this->jobOrder->order_number.') has been cancelled.',
             'rejected' => 'Your order ('.$this->jobOrder->order_number.') could not be accepted. Please reach out to the store directly for details.',
+            'on_hold' => 'Your order ('.$this->jobOrder->order_number.') is on hold for now. The shop will contact you.',
+            'queued' => 'Your repair ('.$this->jobOrder->order_number.') was received and is in line.',
+            'in_repair' => 'Your repair ('.$this->jobOrder->order_number.') is being worked on.',
+            'qc_check' => 'Your repair ('.$this->jobOrder->order_number.') is getting its final check.',
+            'balance_handover' => 'You are paying the balance and taking your order ('.$this->jobOrder->order_number.').',
         ];
     }
 

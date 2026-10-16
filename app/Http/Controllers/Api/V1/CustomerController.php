@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Store;
 use App\Models\User;
+use App\Support\PhoneNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -27,6 +28,8 @@ class CustomerController extends Controller
         $pivotCustomerIds = $store->customers()->pluck('users.id')->toArray();
 
         $customerIds = collect(array_merge($jobCustomerIds, $pivotCustomerIds))->unique();
+        // "Customer no. 3" means the shop's third customer; the user id is shared with every shop, owner and staff account.
+        $shopNumbers = $customerIds->sort()->values()->flip()->map(fn ($i) => $i + 1);
 
         // "My customers": the ones with an appointment assigned to me or a job I'm on.
         if ($request->boolean('mine')) {
@@ -58,17 +61,14 @@ class CustomerController extends Controller
                 },
             ])
             ->get()
-            ->map(function ($user) use ($notesByCustomerId) {
-                $hasWalkInJobs = $user->jobOrders->where('intake_channel', 'walk_in')->isNotEmpty();
-                $hasWalkInAppts = $user->appointments->where('intake_channel', 'walk_in')->isNotEmpty();
-                $isSyntheticWalkIn = Str::startsWith($user->email, 'walkin_');
-
+            ->map(function ($user) use ($notesByCustomerId, $shopNumbers) {
                 $user->total_spend = $user->jobOrders->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
                 $user->last_appointment = $user->appointments->first();
                 $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
                 $user->completed_jobs = $user->jobOrders->where('status', 'completed')->count();
                 $user->store_notes = $notesByCustomerId[$user->id] ?? null;
-                $user->is_walk_in = $isSyntheticWalkIn || ($hasWalkInJobs && $user->jobOrders->where('intake_channel', 'online')->isEmpty());
+                $user->shop_number = $shopNumbers[$user->id] ?? null;
+                $user->is_walk_in = ! self::cameOnline($user->jobOrders, $user->appointments);
                 $user->intake_channel = $user->is_walk_in ? 'walk_in' : 'online';
 
                 return $user;
@@ -87,11 +87,7 @@ class CustomerController extends Controller
         }
 
         // Verify customer belongs to store
-        $isCustomerOfStore = $store->customers()->where('user_id', $customer->id)->exists()
-            || $store->jobOrders()->where('customer_id', $customer->id)->exists()
-            || $store->appointments()->where('customer_id', $customer->id)->exists();
-
-        if (! $isCustomerOfStore) {
+        if (! $this->isCustomerOfStore($store, $customer)) {
             return response()->json(['message' => self::MSG_NOT_FOUND], 404);
         }
 
@@ -115,13 +111,10 @@ class CustomerController extends Controller
             ->orderBy('scheduled_at', 'desc')
             ->get();
 
-        $hasWalkInJobs = $jobs->where('intake_channel', 'walk_in')->isNotEmpty();
-        $hasWalkInAppts = $appointments->where('intake_channel', 'walk_in')->isNotEmpty();
-        $isSyntheticWalkIn = Str::startsWith($customer->email, 'walkin_');
-
         $customerData = $customer->toArray();
         $customerData['store_notes'] = $storeNotes;
-        $customerData['is_walk_in'] = $isSyntheticWalkIn || ($hasWalkInJobs && $jobs->where('intake_channel', 'online')->isEmpty());
+        $customerData['shop_number'] = $this->shopNumberOf($store, $customer->id);
+        $customerData['is_walk_in'] = ! self::cameOnline($jobs, $appointments);
         $customerData['intake_channel'] = $customerData['is_walk_in'] ? 'walk_in' : 'online';
         $customerData['total_spend'] = (float) $jobs->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
         $customerData['active_jobs'] = $jobs->whereNotIn('status', ['completed', 'cancelled'])->count();
@@ -146,13 +139,17 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
+        // A walk-in is registered with a name, a mobile number and a gender; the email is optional and normally left out.
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email',
-            'phone' => 'required|string|max:20',
+            'phone' => ['required', 'string', 'max:20', $this->mobileRule()],
+            'gender' => 'required|in:male,female',
             'suki_tag' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
         ]);
+        $rawPhone = $validated['phone'];
+        $validated['phone'] = PhoneNumber::normalize($rawPhone);
 
         $email = $validated['email'] ?? null;
 
@@ -180,7 +177,7 @@ class CustomerController extends Controller
                 ->filter()
                 ->unique();
             $existingByPhone = User::whereIn('id', $existingCustomerIds)
-                ->where('phone', $validated['phone'])
+                ->whereIn('phone', [$validated['phone'], $rawPhone])
                 ->first();
             if ($existingByPhone) {
                 $email = $existingByPhone->email;
@@ -218,13 +215,15 @@ class CustomerController extends Controller
             $user->update([
                 'name' => $validated['name'],
                 'phone' => $validated['phone'] ?? $user->phone,
+                'gender' => $validated['gender'] ?? $user->gender,
                 'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
             ]);
         } else {
             $user = User::create([
                 'email' => $email,
                 'name' => $validated['name'],
-                'phone' => $validated['phone'] ?? null,
+                'phone' => PhoneNumber::normalize($validated['phone']),
+                'gender' => $validated['gender'] ?? null,
                 'suki_tag' => $validated['suki_tag'] ?? null,
                 'password' => Hash::make(Str::random(12)),
             ]);
@@ -252,14 +251,15 @@ class CustomerController extends Controller
         }
 
         // Verify customer belongs to store
-        if (! $store->customers()->where('user_id', $customer->id)->exists() && ! $store->jobOrders()->where('customer_id', $customer->id)->exists()) {
+        if (! $this->isCustomerOfStore($store, $customer)) {
             return response()->json(['message' => self::MSG_NOT_FOUND], 404);
         }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email',
-            'phone' => 'required|string|max:20',
+            'phone' => ['required', 'string', 'max:20', $this->mobileRule()],
+            'gender' => 'nullable|in:male,female',
             'suki_tag' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
         ]);
@@ -291,7 +291,8 @@ class CustomerController extends Controller
         $customer->update([
             'name' => $validated['name'],
             'email' => $email,
-            'phone' => $validated['phone'] ?? null,
+            'phone' => PhoneNumber::normalize($validated['phone']),
+            'gender' => array_key_exists('gender', $validated) ? $validated['gender'] : $customer->gender,
             'suki_tag' => array_key_exists('suki_tag', $validated) ? $validated['suki_tag'] : $customer->suki_tag,
         ]);
 
@@ -320,27 +321,70 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Verify customer belongs to store — mirrors update()'s check exactly.
-        // index() lists a customer if they appear EITHER in the store_customers
-        // pivot OR in this store's job_orders, but this check only looked at
-        // the pivot. A customer who arrived via public booking/self-registration/
-        // job creation (Isabelle, Michael, Carlo in this store's real data) never
-        // gets a pivot row at all, so clicking Delete on a customer clearly
-        // visible in the list 404'd with "Customer not found in this store."
-        if (! $store->customers()->where('user_id', $customer->id)->exists() && ! $store->jobOrders()->where('customer_id', $customer->id)->exists()) {
+        // Same "belongs to this store" test as show() and update(): a customer whose profile opens can be edited and removed.
+        if (! $this->isCustomerOfStore($store, $customer)) {
             return response()->json(['message' => self::MSG_NOT_FOUND], 404);
         }
 
-        // Detach instead of deleting the user, since user might exist in other
-        // stores. A customer with no pivot row (only reachable via job_orders)
-        // has nothing to detach — that's expected, not an error: their real
-        // order history keeps them in the list regardless, the same way a
-        // completed job order can't be erased from view either.
+        // A customer with orders stays in the Client Book (the list is built from the shop's orders too), so say so
+        // instead of pretending to remove them. Only someone with no orders can be taken off the book.
+        $orders = $store->jobOrders()->where('customer_id', $customer->id)->count();
+        if ($orders > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "This customer has {$orders} order".($orders === 1 ? '' : 's').' on record, so they stay in your Client Book. Only customers with no orders can be removed.',
+            ], 422);
+        }
+
+        // Detach, not delete: the same person may be a customer of other shops.
         $store->customers()->detach($customer->id);
 
         return response()->json([
             'success' => true,
             'message' => 'Customer removed successfully.',
         ]);
+    }
+
+    /**
+     * "Online" in the Client Book means the customer reached the shop online: they have an online appointment or an
+     * online order. Everyone else — added at the counter, even with an email — is a walk-in.
+     *
+     * @param  \Illuminate\Support\Collection<int, mixed>  $jobs
+     * @param  \Illuminate\Support\Collection<int, mixed>  $appointments
+     */
+    private static function cameOnline($jobs, $appointments): bool
+    {
+        return $jobs->where('intake_channel', 'online')->isNotEmpty() || $appointments->where('intake_channel', 'online')->isNotEmpty();
+    }
+
+    /** On this shop's book: added by the shop, or has an order or an appointment here. */
+    private function isCustomerOfStore(Store $store, User $customer): bool
+    {
+        return $store->customers()->where('user_id', $customer->id)->exists()
+            || $store->jobOrders()->where('customer_id', $customer->id)->exists()
+            || $store->appointments()->where('customer_id', $customer->id)->exists();
+    }
+
+    /** A Philippine mobile number (0917 123 4567, +63 917 123 4567 …), so "097" or a landline is turned away. */
+    private function mobileRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) {
+            if (PhoneNumber::normalize((string) $value) === null) {
+                $fail('Enter a valid mobile number, e.g. 0917 123 4567.');
+            }
+        };
+    }
+
+    /** The customer's place among this shop's customers (1 = the first), counting everyone the index lists. */
+    private function shopNumberOf(Store $store, int $customerId): ?int
+    {
+        $ids = collect()
+            ->merge($store->customers()->pluck('users.id'))
+            ->merge($store->jobOrders()->pluck('customer_id'))
+            ->merge($store->appointments()->pluck('customer_id'))
+            ->filter()->unique()->sort()->values();
+        $position = $ids->search($customerId);
+
+        return $position === false ? null : $position + 1;
     }
 }

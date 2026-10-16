@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\JobOrder;
+use App\Support\OrderProgress;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -47,10 +48,10 @@ class JobOrderTrackingController extends Controller
             'order_number' => $jobOrder->order_number,
             'tracking_code' => $jobOrder->tracking_code,
             'status' => $jobOrder->status,
+            'progress' => OrderProgress::for($jobOrder),
             'garment_category' => $jobOrder->garment_category,
             'catalog_item_name' => $jobOrder->catalogItem?->name,
             'service_name' => $jobOrder->service?->name,
-            'service_package' => $jobOrder->servicePackage ? ['id' => $jobOrder->servicePackage->id, 'name' => $jobOrder->servicePackage->name, 'services' => $jobOrder->servicePackage->services->pluck('name')] : null,
             'is_rush' => (bool) $jobOrder->is_rush,
             'due_date' => $jobOrder->due_date,
             'quantity' => $jobOrder->quantity,
@@ -103,10 +104,10 @@ class JobOrderTrackingController extends Controller
                 'order_number' => $jobOrder->order_number,
                 'tracking_code' => $jobOrder->tracking_code,
                 'status' => $jobOrder->status,
+                'progress' => OrderProgress::for($jobOrder),
                 'garment_category' => $jobOrder->garment_category,
                 'catalog_item_name' => $jobOrder->catalogItem?->name,
                 'service_name' => $jobOrder->service?->name,
-            'service_package' => $jobOrder->servicePackage ? ['id' => $jobOrder->servicePackage->id, 'name' => $jobOrder->servicePackage->name, 'services' => $jobOrder->servicePackage->services->pluck('name')] : null,
                 'is_rush' => (bool) $jobOrder->is_rush,
                 'due_date' => $jobOrder->due_date,
                 'estimated_ready_at' => $jobOrder->estimated_ready_at,
@@ -162,6 +163,11 @@ class JobOrderTrackingController extends Controller
                 'total' => $q['total'] ?? (float) $jobOrder->total_amount,
             ] : null,
             'needs_approval' => $jobOrder->status === 'pending' && $jobOrder->quotation_status === 'final' && ! $jobOrder->customer_approved_at,
+            'decision' => $jobOrder->customer_decision,
+            'valid_until' => $jobOrder->quotation_valid_until?->toDateString(),
+            'expired' => $jobOrder->quotation_valid_until?->lt(today()) ?? false,
+            'terms_text' => \App\Support\OrderReadiness::termsText($jobOrder),
+            'terms_locked' => $jobOrder->payment_terms_locked_at !== null,
             'approved_at' => $jobOrder->customer_approved_at,
             'confirmed_at' => $jobOrder->confirmed_at,
             'required_deposit' => \App\Support\OrderReadiness::requiredDeposit($jobOrder),
@@ -266,10 +272,10 @@ class JobOrderTrackingController extends Controller
                 'order_number' => $jobOrder->order_number,
                 'tracking_code' => $jobOrder->tracking_code,
                 'status' => $jobOrder->status,
+                'progress' => OrderProgress::for($jobOrder, forGuest: true),
                 'garment_category' => $jobOrder->garment_category,
                 'catalog_item_name' => $jobOrder->catalogItem?->name,
                 'service_name' => $jobOrder->service?->name,
-            'service_package' => $jobOrder->servicePackage ? ['id' => $jobOrder->servicePackage->id, 'name' => $jobOrder->servicePackage->name, 'services' => $jobOrder->servicePackage->services->pluck('name')] : null,
                 'is_rush' => (bool) $jobOrder->is_rush,
                 'due_date' => $jobOrder->due_date,
                 'estimated_ready_at' => $jobOrder->estimated_ready_at,

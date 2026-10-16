@@ -64,14 +64,18 @@ final class OrderQuotation
     }
 
     /**
-     * Write the quotation onto the order. Returns whether an existing customer approval had to be
-     * cleared because the total or the date changed after it.
+     * Write the quotation onto the order and keep a numbered copy of it. $options may carry the proposed
+     * payment terms (payment_policy, payment_policy_percent), valid_until and a reason. A new total, date
+     * or payment terms after the customer approved voids that approval (they must accept again).
+     *
+     * @param  array{payment_policy?:?string,payment_policy_percent?:?int,valid_until?:?string,reason?:?string}  $options
+     * @return array{approval_cleared:bool,version:int,sent:bool}
      *
      * @throws \RuntimeException when the new total would be lower than what is already paid
      */
-    public static function apply(JobOrder $job, array $q, string $status, ?string $dueDate, ?int $actorId): bool
+    public static function apply(JobOrder $job, array $q, string $status, ?string $dueDate, ?int $actorId, array $options = []): array
     {
-        return DB::transaction(function () use ($job, $q, $status, $dueDate, $actorId) {
+        return DB::transaction(function () use ($job, $q, $status, $dueDate, $actorId, $options) {
             $locked = JobOrder::where('id', $job->id)->lockForUpdate()->firstOrFail();
             $paid = OrderReadiness::paidSoFar($locked);
             $discount = (float) $locked->discount_amount;
@@ -81,9 +85,14 @@ final class OrderQuotation
             }
             $balance = round($q['total'] - $discount - $paid, 2);
 
+            $policy = $options['payment_policy'] ?? $locked->payment_policy ?? 'deposit';
+            $percent = (int) ($options['payment_policy_percent'] ?? $locked->payment_policy_percent ?? 50);
+
             $snap = $locked->customer_approval_snapshot;
+            $termsChanged = is_array($snap) && array_key_exists('payment_policy', $snap)
+                && (($snap['payment_policy'] ?? null) !== $policy || (int) ($snap['payment_policy_percent'] ?? 0) !== $percent);
             $approvalStale = $locked->customer_approved_at !== null
-                && ((float) ($snap['total'] ?? -1) !== (float) $q['total'] || ($snap['due_date'] ?? null) !== $dueDate);
+                && ((float) ($snap['total'] ?? -1) !== (float) $q['total'] || ($snap['due_date'] ?? null) !== $dueDate || $termsChanged);
 
             $locked->forceFill([
                 'quotation' => $q + ['saved_by' => $actorId, 'saved_at' => now()->toIso8601String()],
@@ -92,13 +101,31 @@ final class OrderQuotation
                 'balance' => $balance,
                 'payment_status' => $balance <= 0 && $q['total'] > 0 ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'),
                 'due_date' => $dueDate,
+                'payment_policy' => $policy,
+                'payment_policy_percent' => $percent,
+                'quotation_valid_until' => $options['valid_until'] ?? $locked->quotation_valid_until,
             ]);
+            if ($status === 'final') {
+                // Sending a final quotation answers any "please change it" request.
+                $locked->forceFill(['quotation_sent_at' => now(), 'customer_decision' => null, 'customer_decision_note' => null, 'customer_decided_at' => null]);
+            }
             if ($approvalStale) {
-                $locked->forceFill(['customer_approved_at' => null, 'customer_approval_channel' => null, 'customer_approval_snapshot' => null]);
+                $locked->forceFill([
+                    'customer_approved_at' => null, 'customer_approval_channel' => null, 'customer_approval_snapshot' => null,
+                    'customer_decision' => null, 'customer_decided_at' => null, 'payment_terms_locked_at' => null,
+                ]);
             }
             $locked->save();
 
-            return $approvalStale;
+            $version = (int) $locked->quotationVersions()->max('version') + 1;
+            $locked->quotationVersions()->create([
+                'version' => $version, 'status' => $status, 'total' => $q['total'], 'due_date' => $dueDate,
+                'valid_until' => $locked->quotation_valid_until?->toDateString(),
+                'payment_policy' => $policy, 'payment_policy_percent' => $percent,
+                'snapshot' => $q, 'reason' => $options['reason'] ?? null, 'created_by' => $actorId,
+            ]);
+
+            return ['approval_cleared' => $approvalStale, 'version' => $version, 'sent' => $status === 'final'];
         });
     }
 }

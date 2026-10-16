@@ -28,8 +28,6 @@ use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\PublicBookingController;
 use App\Http\Controllers\Api\V1\RecentlyViewedController;
 use App\Http\Controllers\Api\V1\ServiceController;
-use App\Http\Controllers\Api\V1\ServicePackageController;
-use App\Http\Controllers\Api\V1\ServicePackageReviewController;
 use App\Http\Controllers\Api\V1\ServiceReviewController;
 use App\Http\Controllers\Api\V1\StaffController;
 use App\Http\Controllers\Api\V1\StoreApplicationController;
@@ -97,10 +95,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/catalog/{store:slug}', [CatalogController::class, 'index']);
     Route::get('/catalog/{store:slug}/booking-settings', [PublicBookingController::class, 'getSettings']);
     Route::get('/catalog/{store:slug}/appointments', [PublicBookingController::class, 'getAppointments']);
-    // Rate limit: 10 bookings per minute per IP — high enough for a real
-    // customer retrying after a validation error, low enough to slow a
-    // spam bot hitting every store's /book endpoint.
-    Route::post('/catalog/{store:slug}/book', [PublicBookingController::class, 'submit'])->middleware('throttle:10,1,book');
+    // POST /catalog/{store:slug}/book needs a signed-in customer: see the auth:sanctum group below.
     Route::get('/catalog/{store:slug}/{catalog}', [CatalogController::class, 'show']);
     Route::post('/catalog/{store:slug}/{catalogItem}/view', [CatalogInteractionController::class, 'incrementViews']);
 
@@ -145,9 +140,6 @@ Route::prefix('v1')->group(function () {
         Route::post('/stores/{store:slug}/services/{service}/save', [ServiceReviewController::class, 'toggleSave']);
         Route::get('/stores/{store:slug}/services/{service}/my-save', [ServiceReviewController::class, 'mySave']);
 
-        // Service Package Ratings — separate from reviews of included services.
-        Route::post('/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'rate']);
-        Route::get('/stores/{store:slug}/service-packages/{servicePackage}/my-review', [ServicePackageReviewController::class, 'myRating']);
 
         // Store Interactions (Any authenticated user)
         Route::get('/stores/{store:slug}/my-review', [StoreReviewController::class, 'myRating']);
@@ -159,6 +151,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/stores/{store:slug}/repair-requests', [JobOrderController::class, 'customerRepairRequest']);
         Route::post('/stores/{store:slug}/bulk-orders', [JobOrderController::class, 'customerBulkOrder']);
         Route::post('/stores/{store:slug}/made-to-order', [JobOrderController::class, 'customerMadeToOrder']);
+        // A general request for a made-to-measure garment or service, with no appointment and no catalog design.
+        Route::post('/stores/{store:slug}/order-requests', [JobOrderController::class, 'customerOrderRequest'])->middleware('throttle:sensitive-writes');
 
         // My Orders / My Appointments — cross-store, for whoever is logged
         // in (Objective 5: "customers monitor their order progress from
@@ -169,6 +163,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/my-orders/{jobOrder}/payments', [\App\Http\Controllers\Api\V1\CustomerPaymentController::class, 'store'])->middleware('throttle:sensitive-writes');
         // The customer approves the final quotation and the cancellation policy before paying the deposit.
         Route::post('/my-orders/{jobOrder}/approve-quotation', [OrderFlowController::class, 'customerApprove'])->middleware('throttle:sensitive-writes');
+        // The customer's answer to the final price: accept, ask for changes, or decline.
+        Route::post('/my-orders/{jobOrder}/decision', [OrderFlowController::class, 'customerDecision'])->middleware('throttle:sensitive-writes');
+        // Book an appointment online — the signed-in customer's own account, no typed email, no payment.
+        // Rate limit: 10 bookings per minute — enough for a real customer retrying after a validation
+        // error, low enough to slow a bot hitting every shop's /book endpoint.
+        Route::post('/catalog/{store:slug}/book', [PublicBookingController::class, 'submit'])->middleware('throttle:10,1,book');
         Route::get('/my-appointments', [AppointmentController::class, 'myAppointments']);
         Route::get('/my-appointments/{appointment}', [AppointmentController::class, 'myAppointmentDetail']);
         // Self-service cancel — distinct from the owner/manager destroy()
@@ -257,6 +257,8 @@ Route::prefix('v1')->group(function () {
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
                 Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
+                // "Customer arrived": one tap records the arrival and starts the visit. "Done" closes it.
+                Route::post('/appointments/{appointment}/arrive', [AppointmentController::class, 'arrive']);
                 Route::post('/appointments/{appointment}/complete', [AppointmentController::class, 'complete']);
                 // Narrow operational follow-up — Staff may create a scheduled
                 // return visit (consultation/fitting/adjustment/pickup) without
@@ -290,17 +292,6 @@ Route::prefix('v1')->group(function () {
                 // managing services (create/update/delete) stays owner-only below.
                 Route::get('/services', [ServiceController::class, 'index']);
 
-                // Service Packages (read-only) — this used to sit in the
-                // store_owner-only group below even though its own write
-                // actions (store/update/destroy) already moved to
-                // store_owner,branch_manager, and even though the Services nav
-                // (with its Packages tab) is shown to branch_manager AND
-                // plain staff. A branch manager or staff account opening the
-                // Packages tab got a 403 just listing packages, despite
-                // managers being able to create/edit/delete them. Matches
-                // Services' own read gate immediately above.
-                Route::get('/service-packages', [ServicePackageController::class, 'index']);
-
                 // Staff & Branch directory (read-only) — staff, managers, and owners
                 // need to see the artisan roster, availability, and branch assignments.
                 Route::get('/staff', [StaffController::class, 'index']);
@@ -315,6 +306,8 @@ Route::prefix('v1')->group(function () {
             Route::middleware('role:store_owner,branch_manager')->group(function () {
                 // SMS outbox: texts wait here for the shop to check the number and wording before anything is sent
                 Route::get('/sms', [\App\Http\Controllers\Api\V1\SmsController::class, 'index']);
+                Route::get('/customers/{customer}/sms', [\App\Http\Controllers\Api\V1\CustomerTextController::class, 'index']);
+                Route::post('/customers/{customer}/sms', [\App\Http\Controllers\Api\V1\CustomerTextController::class, 'store'])->middleware('throttle:sensitive-writes');
                 Route::put('/sms/settings', [\App\Http\Controllers\Api\V1\SmsController::class, 'settings']);
                 Route::post('/sms/approve-all', [\App\Http\Controllers\Api\V1\SmsController::class, 'approveAll'])->middleware('throttle:sensitive-writes');
                 Route::put('/sms/{message}', [\App\Http\Controllers\Api\V1\SmsController::class, 'update']);
@@ -338,6 +331,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
 
                 // Ordering flow: price the order, plan tailors, confirm it, and record a cancellation refund.
+                Route::post('/jobs/{jobOrder}/accept-request', [OrderFlowController::class, 'acceptRequest']);
                 Route::put('/jobs/{jobOrder}/quotation', [OrderFlowController::class, 'saveQuotation']);
                 Route::put('/jobs/{jobOrder}/assignees', [OrderFlowController::class, 'syncAssignees']);
                 Route::post('/jobs/{jobOrder}/confirm', [OrderFlowController::class, 'confirm']);
@@ -406,9 +400,6 @@ Route::prefix('v1')->group(function () {
                 // Ratings lists for the Services / Catalog Analytics tabs, which branch managers see too.
                 Route::get('/service-reviews', [ServiceReviewController::class, 'indexForStore']);
                 Route::get('/catalog-item-reviews', [CatalogInteractionController::class, 'indexForStore']);
-                Route::post('/service-packages', [ServicePackageController::class, 'store']);
-                Route::put('/service-packages/{servicePackage}', [ServicePackageController::class, 'update']);
-                Route::delete('/service-packages/{servicePackage}', [ServicePackageController::class, 'destroy']);
 
                 // Read moved here from the store_owner-only group below —
                 // Catalog Designs is shown to isStoreOwner||isBranchManager
@@ -425,6 +416,21 @@ Route::prefix('v1')->group(function () {
                 Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
                 Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
 
+                // The shop page customers see ("My Store Profile") is run by the branch manager: its details,
+                // special hours and posts. The owner can still edit it too.
+                Route::put('', [StoreController::class, 'update']);
+                // Temporary Special Hours & Announcements
+                Route::get('/special-hours', [StoreSpecialHourController::class, 'index']);
+                Route::post('/special-hours', [StoreSpecialHourController::class, 'store']);
+                Route::put('/special-hours/{specialHour}', [StoreSpecialHourController::class, 'update']);
+                Route::delete('/special-hours/{specialHour}', [StoreSpecialHourController::class, 'destroy']);
+
+                // Store Posts — completed-work showcase the owner posts to their storefront
+                Route::get('/posts', [StorePostController::class, 'index']);
+                Route::post('/posts', [StorePostController::class, 'store']);
+                Route::put('/posts/{post}', [StorePostController::class, 'update']);
+                Route::delete('/posts/{post}', [StorePostController::class, 'destroy']);
+
                 // Branch Management — editing an existing branch's own info
                 // (hours, contact, location). StoreBranchController::
                 // branchManagerCrudDenied() enforces "their own branch only,
@@ -437,12 +443,6 @@ Route::prefix('v1')->group(function () {
 
             // Owner Only Access
             Route::middleware('role:store_owner')->group(function () {
-                // Temporary Special Hours & Announcements
-                Route::get('/special-hours', [StoreSpecialHourController::class, 'index']);
-                Route::post('/special-hours', [StoreSpecialHourController::class, 'store']);
-                Route::put('/special-hours/{specialHour}', [StoreSpecialHourController::class, 'update']);
-                Route::delete('/special-hours/{specialHour}', [StoreSpecialHourController::class, 'destroy']);
-
                 // Audit Logs
                 Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
@@ -467,18 +467,12 @@ Route::prefix('v1')->group(function () {
                 // the store-level reviews above.
                 Route::delete('/catalog-item-reviews/{review}', [CatalogInteractionController::class, 'destroyReview']);
 
-                // Store Posts — completed-work showcase the owner posts to their storefront
-                Route::get('/posts', [StorePostController::class, 'index']);
-                Route::post('/posts', [StorePostController::class, 'store']);
-                Route::put('/posts/{post}', [StorePostController::class, 'update']);
-                Route::delete('/posts/{post}', [StorePostController::class, 'destroy']);
-
             });
         });
 
         // Store Management (Owner Only)
         Route::middleware('role:store_owner')->group(function () {
-            Route::apiResource('stores', StoreController::class);
+            Route::apiResource('stores', StoreController::class)->except(['update']);
 
             // Branch Management (list/read is granted to store_owner+branch_manager
             // above). Adding/deleting a whole physical location and designating
@@ -496,7 +490,6 @@ Route::prefix('v1')->group(function () {
             Route::get('/stores/{store}/subscription/upgrade-requests', [SubscriptionUpgradeRequestController::class, 'index']);
             Route::post('/stores/{store}/subscription/upgrade-requests', [SubscriptionUpgradeRequestController::class, 'store']);
             Route::get('/stores/{store}/subscription/upgrade-requests/{upgradeRequest}/receipt', [SubscriptionUpgradeRequestController::class, 'receipt']);
-            Route::put('/stores/{store}', [StoreController::class, 'update']);
         });
 
         // Admin Routes
@@ -568,12 +561,9 @@ Route::prefix('v1')->group(function () {
     // Cross-store catalog showroom feed for the landing page's catalog grid
     Route::get('/public/catalog-items', [CatalogController::class, 'publicShowroom']);
     Route::get('/public/services', [ServiceController::class, 'publicShowroom']);
-    Route::get('/public/service-packages', [ServicePackageController::class, 'publicShowroom']);
     Route::get('/public/stores/{store:slug}', [StoreController::class, 'publicProfile']);
     Route::get('/public/stores/{store:slug}/services', [ServiceController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/payment-methods', [\App\Http\Controllers\Api\V1\PaymentMethodController::class, 'publicIndex']);
-    Route::get('/public/stores/{store:slug}/service-packages', [ServicePackageController::class, 'publicIndex']);
-    Route::get('/public/stores/{store:slug}/service-packages/{servicePackage}/reviews', [ServicePackageReviewController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/posts', [StorePostController::class, 'publicIndex']);
     Route::get('/public/stores/{store:slug}/reviews', [StoreReviewController::class, 'publicIndex']);
     Route::post('/public/stores/{store:slug}/upload-receipt', [FileUploadController::class, 'uploadPublicReceipt'])->middleware('throttle:uploads');
