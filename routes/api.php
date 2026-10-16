@@ -82,6 +82,7 @@ Route::prefix('v1')->group(function () {
     // "Open a shop" application: creates the owner's login + a pending
     // store + the verification packet. Multipart uploads, so rate-limited.
     Route::post('/store-applications', [StoreApplicationController::class, 'store'])->middleware('throttle:5,1,store-application');
+    Route::get('/store-applications/status', [StoreApplicationController::class, 'status']);
     Route::get('/public/subscription-plans', [StoreApplicationController::class, 'plans']);
 
     // Public Job Order Tracking — no account needed, just the tracking_code
@@ -519,6 +520,7 @@ Route::prefix('v1')->group(function () {
                 ->where('document', '[a-z-]+[0-9]*');
             Route::put('/store-applications/{store}/approve', [AdminStoreApplicationController::class, 'approve']);
             Route::put('/store-applications/{store}/reject', [AdminStoreApplicationController::class, 'reject']);
+            Route::post('/store-applications/{store}/reissue-credentials', [AdminStoreApplicationController::class, 'reissueCredentials']);
 
             Route::get('/accounts', [AdminAccountController::class, 'index']);
             Route::put('/accounts/{user}/suspend', [AdminAccountController::class, 'suspend']);

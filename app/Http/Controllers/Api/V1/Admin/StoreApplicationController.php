@@ -208,7 +208,53 @@ class StoreApplicationController extends Controller
     }
 
     /**
+     * Re-issues a fresh temporary password for an approved store owner if the original
+     * modal was closed before credentials could be copied.
+     */
+    public function reissueCredentials(Request $request, Store $store): JsonResponse
+    {
+        if ($store->status !== 'approved') {
+            return response()->json(['success' => false, 'message' => 'Credentials can only be reissued for approved stores.'], 422);
+        }
+
+        $owner = $store->owner;
+        if (! $owner) {
+            return response()->json(['success' => false, 'message' => 'Store owner account not found.'], 404);
+        }
+
+        $loginEmail = $owner->email;
+        $temporaryPassword = ShopLogin::temporaryPassword();
+
+        DB::transaction(function () use ($owner, $temporaryPassword) {
+            $owner->forceFill([
+                'password' => Hash::make($temporaryPassword),
+                'password_set_at' => now(),
+                'must_change_password' => true,
+            ])->save();
+        });
+
+        try {
+            $owner->notify(new ShopLoginIssuedNotification($store->fresh(), $loginEmail, $temporaryPassword));
+        } catch (\Throwable $e) {
+            Log::warning("Store {$store->id} credential reissue email failed: {$e->getMessage()}");
+        }
+
+        AdminAudit::record($request, 'store_credentials_reissued', Store::class, $store->id, $store->name, $store->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => "New temporary credentials generated for {$store->name}.",
+            'credentials' => [
+                'login_email' => $loginEmail,
+                'temporary_password' => $temporaryPassword,
+                'sent_to' => $owner->contact_email ?: $owner->email,
+            ],
+        ]);
+    }
+
+    /**
      * QUEUE_CONNECTION=sync sends mail in-request; a mail outage must not
+
      * turn an already-committed decision into a 500.
      */
     private function notifyOwner(Store $store, string $decision): void

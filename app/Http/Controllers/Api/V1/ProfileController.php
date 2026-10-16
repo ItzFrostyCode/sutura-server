@@ -103,21 +103,32 @@ class ProfileController extends Controller
      */
     public function updatePassword(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'current_password' => 'required|current_password',
-            // `different`: an admin-issued temporary password can't just be
-            // "changed" to itself to clear must_change_password.
-            'password' => ['required', 'confirmed', 'different:current_password', Password::defaults()],
-        ]);
+        $user = $request->user();
+        $mustChange = (bool) $user->must_change_password;
 
-        $request->user()->forceFill([
+        $rules = [
+            'password' => ['required', 'confirmed', Password::defaults()],
+        ];
+
+        if (! $mustChange) {
+            $rules['current_password'] = 'required|current_password';
+            $rules['password'][] = 'different:current_password';
+        } else {
+            // First sign-in after admin approval: they just authenticated with
+            // the temporary password, so don't make them re-type it again.
+            $rules['current_password'] = 'nullable|current_password';
+        }
+
+        $validated = $request->validate($rules);
+
+        $user->forceFill([
             'password' => Hash::make($validated['password']),
             'must_change_password' => false,
         ])->save();
 
         // A changed password signs out every other device/tab (a stolen token dies with the
         // old password); the session making the change stays signed in.
-        $request->user()->tokens()->where('id', '!=', $request->user()->currentAccessToken()?->id)->delete();
+        $user->tokens()->where('id', '!=', $user->currentAccessToken()?->id)->delete();
 
         return response()->json([
             'success' => true,

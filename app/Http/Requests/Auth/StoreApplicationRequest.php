@@ -27,9 +27,10 @@ class StoreApplicationRequest extends FormRequest
 
         return [
             // Owner
-            'first_name' => ['required', 'string', 'max:100'],
+            'full_name' => ['sometimes', 'nullable', 'string', 'max:191'],
+            'first_name' => ['required_without:full_name', 'nullable', 'string', 'max:100'],
             'middle_name' => ['nullable', 'string', 'max:100'],
-            'last_name' => ['required', 'string', 'max:100'],
+            'last_name' => ['required_without:full_name', 'nullable', 'string', 'max:100'],
             'suffix' => ['nullable', 'string', 'max:20'],
             'birthday' => ['required', 'date', 'before:-18 years'],
             // The owner's real inbox — where the issued login is sent. Not a

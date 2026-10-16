@@ -30,9 +30,8 @@ class DatabaseSeeder extends Seeder
             LocalTestSeeder::class,
             // Demo data for payment methods, requirements, staff and the newer appointment/measurement states.
             StaffAndPaymentsDemoSeeder::class,
-            // One customer (Juan dela Cruz) with something on every customer screen — orders at each stage made with his
-            // measurements, appointments, notifications, saved / viewed items, ratings — for the UI/UX review.
-            CustomerJourneyDemoSeeder::class,
+            // Customer accounts removed per user request:
+            // CustomerJourneyDemoSeeder::class,
             // Deliberately disabled (2026-09-29) — the owner wants the local
             // demo down to a single shop (Thread & Needle Tailoring / Maria
             // Cruz) only, and had the other 4 shops this seeder creates

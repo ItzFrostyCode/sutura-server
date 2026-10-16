@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Support\DavaoLocations;
 use App\Support\ShopLogin;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -47,13 +48,50 @@ class StoreApplicationController extends Controller
         ]);
     }
 
+    public function status(Request $request): JsonResponse
+    {
+        $email = trim((string) $request->input('email'));
+        $storeId = $request->input('store_id');
+
+        $query = Store::query()->with('owner');
+
+        if ($storeId) {
+            $query->where('id', $storeId);
+        } elseif ($email) {
+            $query->whereHas('owner', function ($q) use ($email) {
+                $q->where('contact_email', $email)->orWhere('email', $email);
+            });
+        } else {
+            return response()->json(['success' => false, 'message' => 'Email or store ID required.'], 422);
+        }
+
+        $store = $query->latest('id')->first();
+
+        if (! $store) {
+            return response()->json(['success' => false, 'message' => 'Application not found.'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'store_id' => $store->id,
+                'store_name' => $store->name,
+                'status' => $store->status,
+                'login_email' => $store->owner?->email,
+                'rejection_reason' => $store->rejection_reason,
+                'approved_at' => $store->approved_at,
+            ],
+        ]);
+    }
+
     public function store(StoreApplicationRequest $request): JsonResponse
     {
         $plan = SubscriptionPlan::findOrFail($request->plan_id);
         $paths = $this->storeDocuments($request);
 
+        $store = null;
         try {
-            $this->createApplication($request, $paths, $plan);
+            $store = $this->createApplication($request, $paths, $plan);
         } catch (\Throwable $e) {
             // Don't leave orphaned government IDs on disk for a rolled-back row.
             Storage::disk(self::privateDisk())->delete(collect($paths)->flatten()->filter()->all());
@@ -63,14 +101,46 @@ class StoreApplicationController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Application submitted. We will email your shop login once it is approved.',
-            'data' => ['contact_email' => $request->email],
+            'data' => [
+                'contact_email' => $request->email,
+                'store_id' => $store?->id,
+                'store_name' => $store?->name,
+                'status' => $store?->status ?? 'pending',
+            ],
         ], 201);
     }
 
-    private function createApplication(StoreApplicationRequest $request, array $paths, SubscriptionPlan $plan): void
+    private function createApplication(StoreApplicationRequest $request, array $paths, SubscriptionPlan $plan): Store
     {
-        DB::transaction(function () use ($request, $paths, $plan) {
-            $name = trim(preg_replace('/\s+/', ' ', "{$request->first_name} {$request->middle_name} {$request->last_name} {$request->suffix}"));
+        return DB::transaction(function () use ($request, $paths, $plan) {
+            $fullName = trim((string) ($request->full_name ?? ''));
+            if ($fullName !== '') {
+                $parts = preg_split('/\s+/', $fullName);
+                $suffixes = ['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v'];
+                $suffix = null;
+                if (count($parts) > 1 && in_array(strtolower(end($parts)), $suffixes, true)) {
+                    $suffix = array_pop($parts);
+                }
+                $lastName = count($parts) > 1 ? array_pop($parts) : ($parts[0] ?? '');
+                $middleName = null;
+                if (count($parts) > 1 && strlen(rtrim(end($parts), '.')) === 1) {
+                    $middleName = array_pop($parts);
+                }
+                $firstName = implode(' ', $parts) ?: $lastName;
+
+                $firstName = $request->first_name ?: $firstName;
+                $middleName = $request->middle_name ?: $middleName;
+                $lastName = $request->last_name ?: $lastName;
+                $suffix = $request->suffix ?: $suffix;
+                $name = $fullName;
+            } else {
+                $firstName = $request->first_name;
+                $middleName = $request->middle_name;
+                $lastName = $request->last_name;
+                $suffix = $request->suffix;
+                $name = trim(preg_replace('/\s+/', ' ', "{$firstName} {$middleName} {$lastName} {$suffix}"));
+            }
+
             $user = User::create([
                 'name' => $name,
                 'email' => ShopLogin::suggest($request->store_name),
@@ -123,10 +193,10 @@ class StoreApplicationController extends Controller
             StoreApplication::create([
                 'user_id' => $user->id,
                 'store_id' => $store->id,
-                'first_name' => $request->first_name,
-                'middle_name' => $request->middle_name,
-                'last_name' => $request->last_name,
-                'suffix' => $request->suffix,
+                'first_name' => $firstName,
+                'middle_name' => $middleName,
+                'last_name' => $lastName,
+                'suffix' => $suffix,
                 'birthday' => $request->birthday,
                 'contact_number' => $request->contact_number,
                 'requested_plan_id' => $plan->id,
@@ -137,6 +207,7 @@ class StoreApplicationController extends Controller
                 ...$paths,
             ]);
 
+            return $store;
         });
     }
 

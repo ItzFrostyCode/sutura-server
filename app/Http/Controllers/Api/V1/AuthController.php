@@ -9,10 +9,12 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Models\Role;
 use App\Models\User;
+use App\Notifications\CustomerWelcomeNotification;
 use App\Support\ActivityRecorder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 
 class AuthController extends Controller
@@ -73,9 +75,15 @@ class AuthController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
         ActivityRecorder::forUser($request, $user, $existing ? 'account_activated' : 'account_registered', $existing ? 'Activated their account' : 'Created an account');
 
+        try {
+            $user->notify(new CustomerWelcomeNotification($user));
+        } catch (\Throwable $e) {
+            Log::warning("Customer welcome email failed: {$e->getMessage()}");
+        }
+
         return response()->json([
             'success' => true,
-            'message' => $existing ? 'Account activated — your previous booking history is now linked to this account.' : 'Account created successfully.',
+            'message' => $existing ? 'Account activated — your previous booking history is now linked to this account.' : 'Account created successfully. A confirmation email has been sent.',
             'data' => [
                 'user' => $user->load('roles:id,name'),
                 'token' => $token,

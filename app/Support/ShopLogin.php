@@ -45,19 +45,12 @@ class ShopLogin
     }
 
     /**
-     * Temporary password that satisfies Password::defaults() (mixed case,
-     * number, symbol) and avoids look-alike characters, since an admin may
-     * read it out over the phone.
+     * Temporary password for newly approved shops. Default is 'password' so it is
+     * easy to remember and communicate until the owner sets their own password.
      */
     public static function temporaryPassword(): string
     {
-        $pick = fn (string $set, int $n) => collect(range(1, $n))->map(fn () => $set[random_int(0, strlen($set) - 1)])->implode('');
-
-        $chars = $pick('ABCDEFGHJKLMNPQRSTUVWXYZ', 3)
-            .$pick('abcdefghijkmnpqrstuvwxyz', 5)
-            .$pick('23456789', 3)
-            .$pick('@#$%&*!', 1);
-
-        return str_shuffle($chars);
+        return config('app.shop_temporary_password', 'password');
     }
 }
+
