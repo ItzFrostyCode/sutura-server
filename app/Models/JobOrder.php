@@ -122,14 +122,11 @@ class JobOrder extends Model
      * not refunded. The other three carry no reversal or reporting logic.
      */
     public const CANCELLATION_REASONS = [
-        'customer_request', 'store_unable_to_fulfill', 'forfeited_deposit_abandoned', 'other',
+        'customer_request', 'store_unable_to_fulfill', 'forfeited_deposit_abandoned', 'quotation_declined', 'other',
     ];
 
-    // Every view of an order (owner, staff, customer, public tracker) names the combo it's for.
-    protected $with = ['servicePackage:id,name,bundle_price,service_category', 'servicePackage.services:id,name'];
-
     protected $fillable = [
-        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id', 'service_package_id',
+        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id',
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'quantity', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
@@ -140,7 +137,7 @@ class JobOrder extends Model
         'estimated_ready_at', 'customer_material_status',
         // Ordering flow -- server-derived only (no request rule accepts them); the *_at / *_by
         // stamps are written with forceFill() by OrderReadiness / OrderFlowController.
-        'uses_confirmation_flow', 'quotation_status', 'quotation',
+        'uses_confirmation_flow', 'quotation_status', 'quotation', 'shop_accepted_at',
     ];
 
     protected $casts = [
@@ -174,6 +171,12 @@ class JobOrder extends Model
         'production_started_at' => 'datetime',
         'qc_passed_at' => 'datetime',
         'fitting_passed_at' => 'datetime',
+        'shop_accepted_at' => 'datetime',
+        'quotation_sent_at' => 'datetime',
+        'quotation_valid_until' => 'date:Y-m-d',
+        'customer_decided_at' => 'datetime',
+        'payment_terms_locked_at' => 'datetime',
+        'production_authorized_at' => 'datetime',
     ];
 
     public function store(): BelongsTo
@@ -189,12 +192,6 @@ class JobOrder extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class)->withTrashed();
-    }
-
-    /** Set when the order is a whole combo package (one job order for the set). */
-    public function servicePackage(): BelongsTo
-    {
-        return $this->belongsTo(ServicePackage::class);
     }
 
     public function catalogItem(): BelongsTo
@@ -241,6 +238,16 @@ class JobOrder extends Model
     public function assignees(): HasMany
     {
         return $this->hasMany(JobOrderAssignee::class)->orderBy('id');
+    }
+
+    public function quotationVersions(): HasMany
+    {
+        return $this->hasMany(OrderQuotationVersion::class)->orderBy('version');
+    }
+
+    public function assigneeEvents(): HasMany
+    {
+        return $this->hasMany(JobOrderAssigneeEvent::class)->orderBy('id');
     }
 
     public function refunds(): HasMany
@@ -335,21 +342,16 @@ class JobOrder extends Model
     protected static function booted(): void
     {
         // Snapshot the requirements at creation (design -> linked service -> store;
-        // combo -> own else store). Every creation path goes through here.
+        // store). Every creation path goes through here.
         static::creating(function (JobOrder $job) {
             $store = $job->store_id ? Store::find($job->store_id) : null;
             if (! $store) {
                 return;
             }
-            $chain = [];
-            if ($job->service_package_id) {
-                $chain = [ServicePackage::find($job->service_package_id)];
-            } else {
-                $item = $job->catalog_item_id ? CatalogItem::find($job->catalog_item_id) : null;
-                $chain = [$item, $item?->service_id ? Service::find($item->service_id) : null];
-                if (! $item && $job->service_id) {
-                    $chain[] = Service::find($job->service_id);
-                }
+            $item = $job->catalog_item_id ? CatalogItem::find($job->catalog_item_id) : null;
+            $chain = [$item, $item?->service_id ? Service::find($item->service_id) : null];
+            if (! $item && $job->service_id) {
+                $chain[] = Service::find($job->service_id);
             }
             $resolved = OrderRequirements::resolve($store, $chain);
             foreach ($resolved as $field => $value) {

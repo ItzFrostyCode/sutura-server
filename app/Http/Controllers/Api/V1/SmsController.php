@@ -28,7 +28,9 @@ class SmsController extends Controller
         if ($branch) {
             $q->where(function ($w) use ($branch) {
                 $w->where(fn ($a) => $a->where('related_type', 'appointment')->whereIn('related_id', \App\Models\Appointment::where('store_branch_id', $branch)->select('id')))
-                    ->orWhere(fn ($j) => $j->where('related_type', 'job_order')->whereIn('related_id', \App\Models\JobOrder::where('store_branch_id', $branch)->select('id')));
+                    ->orWhere(fn ($j) => $j->where('related_type', 'job_order')->whereIn('related_id', \App\Models\JobOrder::where('store_branch_id', $branch)->select('id')))
+                    // Texts written from a customer's profile belong to no branch; the branch manager who may write them may send them.
+                    ->orWhere('event', 'manual');
             });
         }
 
@@ -40,7 +42,7 @@ class SmsController extends Controller
         $measure = SmsText::measure($m->body);
 
         return [
-            'id' => $m->id, 'event' => $m->event, 'event_label' => SmsTemplates::EVENTS[$m->event] ?? $m->event, 'status' => $m->status,
+            'id' => $m->id, 'event' => $m->event, 'event_label' => $m->event === 'manual' ? 'Written by the shop' : (SmsTemplates::EVENTS[$m->event] ?? $m->event), 'status' => $m->status,
             'customer' => $m->recipient?->name, 'to_number' => $m->to_number, 'raw_number' => $m->raw_number, 'blocked_reason' => $m->blocked_reason,
             'body' => $m->body, 'chars' => $measure['chars'], 'segments' => $measure['segments'], 'is_test' => $m->is_test,
             'error' => $m->error, 'created_at' => $m->created_at, 'sent_at' => $m->sent_at, 'related_type' => $m->related_type, 'related_id' => $m->related_id,

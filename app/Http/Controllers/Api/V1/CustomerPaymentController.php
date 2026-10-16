@@ -7,6 +7,7 @@ use App\Models\JobOrder;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Notifications\PaymentReceivedNotification;
+use App\Support\OrderReadiness;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +50,11 @@ class CustomerPaymentController extends Controller
                 $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
                 if (in_array($locked->status, ['cancelled', 'rejected'], true)) {
                     throw new \RuntimeException('This order is no longer active.');
+                }
+                // The first payment comes after the customer accepts the final price, so a price that was never
+                // agreed can never have money waiting on it.
+                if (OrderReadiness::gated($locked) && $locked->status === 'pending' && ! $locked->customer_approved_at) {
+                    throw new \RuntimeException('Please review and approve the price first. You can pay after that.');
                 }
                 $pending = (float) $locked->payments()->whereNull('verified_at')->whereNull('rejected_at')->sum('amount');
                 $outstanding = round((float) $locked->balance - $pending, 2);

@@ -124,11 +124,6 @@ class Store extends Model
         return $this->hasMany(PaymentMethod::class);
     }
 
-    public function servicePackages(): HasMany
-    {
-        return $this->hasMany(ServicePackage::class);
-    }
-
     public function branches(): HasMany
     {
         return $this->hasMany(StoreBranch::class);

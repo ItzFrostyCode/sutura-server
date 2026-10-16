@@ -17,11 +17,14 @@ class UpdateAppointmentRequest extends FormRequest
     public function rules(): array
     {
         $store = $this->route('store');
+        // Fitting and pickup only exist on system-made production rows; nobody can switch a visit to them.
+        $existing = $this->route('appointment');
+        $types = $existing?->kind === 'production' ? Appointment::TYPES : Appointment::BOOKABLE_TYPES;
 
         return [
             // Customer and appointment details updatable by owner/manager
             'customer_id' => ['sometimes', 'required', 'integer', 'exists:users,id'],
-            'appointment_type' => ['sometimes', 'required', 'in:'.implode(',', Appointment::TYPES)],
+            'appointment_type' => ['sometimes', 'required', Rule::in($types)],
             'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'service_id' => [
                 'sometimes', 'nullable', 'integer',

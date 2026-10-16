@@ -74,9 +74,6 @@ class ActivityRecorder
         'POST stores/{store}/services' => ['service_created', 'Added a service'],
         'PUT stores/{store}/services/{service}' => ['service_updated', 'Updated a service'],
         'DELETE stores/{store}/services/{service}' => ['service_deleted', 'Deleted a service'],
-        'POST stores/{store}/service-packages' => ['package_created', 'Added a combo package'],
-        'PUT stores/{store}/service-packages/{servicePackage}' => ['package_updated', 'Updated a combo package'],
-        'DELETE stores/{store}/service-packages/{servicePackage}' => ['package_deleted', 'Deleted a combo package'],
 
         // Customers & measurements
         'POST stores/{store}/customers' => ['customer_added', 'Added a customer'],
@@ -134,7 +131,6 @@ class ActivityRecorder
         'POST stores/{store}/catalog/{catalogItem}/reviews' => ['design_review_posted', 'Reviewed a catalog design'],
         'DELETE stores/{store}/catalog-item-reviews/{review}' => ['design_review_removed', 'Removed a design review'],
         'POST stores/{store}/services/{service}/reviews' => ['service_review_posted', 'Rated a service'],
-        'POST stores/{store}/service-packages/{servicePackage}/reviews' => ['package_review_posted', 'Rated a combo package'],
         'POST stores/{store}/catalog/{catalogItem}/save' => ['design_save_toggled', 'Saved or unsaved a catalog design'],
         'POST stores/{store}/services/{service}/save' => ['service_save_toggled', 'Saved or unsaved a service'],
         'POST stores/{store}/catalog/{catalogItem}/report' => ['design_reported', 'Reported a catalog design'],

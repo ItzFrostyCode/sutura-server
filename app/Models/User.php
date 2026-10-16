@@ -28,7 +28,7 @@ class User extends Authenticatable
     // exist in Laravel 13, and since the downgrade to 12 PHP silently ignored
     // them: every User::create() threw MassAssignmentException and the
     // password hash was serialized into API responses.
-    protected $fillable = ['name', 'email', 'contact_email', 'password', 'password_set_at', 'phone', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery', 'profile_picture', 'cover_photo', 'sms_opt_out'];
+    protected $fillable = ['name', 'email', 'contact_email', 'password', 'password_set_at', 'phone', 'gender', 'suki_tag', 'last_seen_at', 'bio', 'experience', 'education', 'skills', 'social_links', 'creations_gallery', 'profile_picture', 'cover_photo', 'sms_opt_out'];
 
     protected $hidden = ['password', 'remember_token'];
 

@@ -8,7 +8,7 @@ use Illuminate\Validation\Rule;
 
 /**
  * Deliberately narrower than StoreAppointmentRequest — Staff may create an
- * operational follow-up visit (consultation/fitting/adjustment/pickup)
+ * operational follow-up visit (consultation, measurement, alteration or other)
  * without the full owner/manager booking form's fields (payment_method,
  * answers, priority, etc.). See docs/CUSTOMER-WORKFLOW.md §7.4,
  * docs/STAFF-WORKFLOW.md §17.
@@ -23,8 +23,6 @@ class StoreFollowUpAppointmentRequest extends FormRequest
     public function rules(): array
     {
         $store = $this->route('store');
-        $branchCount = $store ? $store->branches()->count() : 0;
-
         return [
             // At least one of customer_id/job_order_id is required — enforced
             // in the controller, since "required_without" alone can't express
@@ -34,13 +32,12 @@ class StoreFollowUpAppointmentRequest extends FormRequest
                 'nullable', 'integer',
                 Rule::exists('job_orders', 'id')->where('store_id', $store?->id),
             ],
-            'appointment_type' => ['required', 'in:'.implode(',', Appointment::TYPES)],
+            // Fitting and pickup are made from a production order, never typed in.
+            'appointment_type' => ['required', Rule::in(Appointment::BOOKABLE_TYPES)],
+            'on_conflict' => ['nullable', Rule::in(Appointment::ON_CONFLICT)],
             'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'scheduled_at' => ['required', 'date', 'after_or_equal:today'],
-            'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
-            'store_branch_id' => $branchCount > 1
-                ? ['required', 'integer', Rule::exists('store_branches', 'id')->where('store_id', $store?->id)]
-                : ['nullable', 'integer', Rule::exists('store_branches', 'id')->where('store_id', $store?->id)],
+            // No branch field: the server books the visit at the branch that has the customer's order.
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }
@@ -49,8 +46,8 @@ class StoreFollowUpAppointmentRequest extends FormRequest
     {
         return [
             'appointment_type.required' => 'Please select what this visit is for.',
+            'appointment_type.in' => 'Fitting and pickup are made from a production order, not booked here.',
             'scheduled_at.after_or_equal' => 'The follow-up must be scheduled today or later.',
-            'store_branch_id.required' => 'Please select a branch for this visit.',
         ];
     }
 }

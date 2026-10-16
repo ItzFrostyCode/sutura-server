@@ -198,7 +198,23 @@ class StaffController extends Controller
         // never mint another branch manager (that's a supervisory promotion,
         // owner-only, same reasoning as StaffProfile::is_branch_manager
         // being owner-gated everywhere else it's touched).
-        if ($denied = $this->staffManagerCrudDenied($request, (int) $request->store_branch_id, $request->boolean('is_branch_manager'))) {
+        // Nobody picks a branch here: a branch manager adds staff to their own branch. The owner adds staff to the
+        // branch they run themselves: the main branch, as long as it has no branch manager of its own.
+        // Branch managers are created from Store Branches, never from this form.
+        if ($request->user()->hasRole('store_owner')) {
+            $main = $store->branches()->where('is_main', true)->first() ?? $store->branches()->first();
+            $hasManager = $main && StaffProfile::where('store_id', $store->id)->where('store_branch_id', $main->id)->where('is_branch_manager', true)->exists();
+            if (! $main || $hasManager) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Staff are added by each branch manager. Add a branch manager from Store Branches, or leave a branch without one to run it yourself.',
+                ], 422);
+            }
+            $branchId = (int) $main->id;
+        } else {
+            $branchId = (int) ($request->user()->staffProfile?->store_branch_id ?? 0);
+        }
+        if ($denied = $this->staffManagerCrudDenied($request, $branchId, false)) {
             return $denied;
         }
 
@@ -274,8 +290,8 @@ class StaffController extends Controller
             ]);
         }
 
-        $isBranchManager = $request->boolean('is_branch_manager');
-        $this->syncPlatformRole($user, $isBranchManager);
+        $isBranchManager = false;
+        $this->syncPlatformRole($user, false);
 
         $staff = $store->staff()->create([
             'user_id' => $user->id,
@@ -283,7 +299,7 @@ class StaffController extends Controller
             'additional_roles' => $request->additional_roles,
             'specialization' => $request->specialization,
             'hired_at' => $request->hired_at,
-            'store_branch_id' => $request->store_branch_id,
+            'store_branch_id' => $branchId,
             'is_branch_manager' => $isBranchManager,
             'bio' => $request->bio,
         ]);
@@ -302,8 +318,8 @@ class StaffController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $targetBranchId = $request->has('store_branch_id') ? (int) $request->store_branch_id : $staff->store_branch_id;
-        if ($denied = $this->staffManagerCrudDenied($request, $targetBranchId, $request->boolean('is_branch_manager'), $staff)) {
+        $targetBranchId = (int) $staff->store_branch_id;
+        if ($denied = $this->staffManagerCrudDenied($request, $targetBranchId, false, $staff)) {
             return $denied;
         }
 
@@ -318,11 +334,7 @@ class StaffController extends Controller
         }
 
         // Update the StaffProfile
-        $staff->update($request->only(['role', 'additional_roles', 'specialization', 'hired_at', 'is_active', 'store_branch_id', 'is_branch_manager', 'bio', 'is_available']));
-
-        if ($user && $request->has('is_branch_manager')) {
-            $this->syncPlatformRole($user, $staff->is_branch_manager);
-        }
+        $staff->update($request->only(['role', 'additional_roles', 'specialization', 'hired_at', 'is_active', 'bio', 'is_available']));
 
         Cache::driver('file')->forget("store_staff_{$store->id}");
 

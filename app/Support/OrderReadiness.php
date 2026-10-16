@@ -88,6 +88,18 @@ final class OrderReadiness
         return ($job->fitting_requirement ?? 'optional') !== 'none';
     }
 
+    /** The agreed payment terms in plain words, for the price notice and the customer's order page. */
+    public static function termsText(JobOrder $job): string
+    {
+        $percent = (int) ($job->payment_policy_percent ?? 50);
+
+        return match ($job->payment_policy ?? 'deposit') {
+            'none' => 'You pay when you pick up your order.',
+            'full' => 'You pay the full ₱'.number_format(max(0.0, (float) $job->total_amount - (float) $job->discount_amount), 2).' before we start.',
+            default => 'You pay ₱'.number_format(self::requiredDeposit($job), 2).' ('.$percent.'%) before we start, and the rest when you pick up.',
+        };
+    }
+
     /** @return list<array{key:string,message:string}> */
     public static function confirmationBlockers(JobOrder $job): array
     {
@@ -125,6 +137,9 @@ final class OrderReadiness
         if (! $job->assignees()->exists()) {
             $out[] = ['key' => 'tailor', 'message' => 'No tailor is assigned to this order yet.'];
         }
+        if (! $job->production_authorized_at) {
+            $out[] = ['key' => 'authorization', 'message' => 'The owner or branch manager has not authorized production yet.'];
+        }
 
         return $out;
     }
@@ -144,6 +159,10 @@ final class OrderReadiness
     {
         if (! self::gated($job)) {
             return null;
+        }
+        // A finished or closed order stays closed; it is not quietly reopened by a status change.
+        if (in_array($old, ['completed', 'cancelled', 'rejected'], true)) {
+            return ['message' => 'This order is closed and can no longer change.', 'blockers' => []];
         }
         $from = self::effectiveStatus($job, $old);
         $strict = $old !== 'on_hold';

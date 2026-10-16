@@ -537,7 +537,7 @@ class CatalogController extends Controller
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.
             // The service's price too: a design is priced by its service (it only changes for custom work or add-ons).
-            'service:id,name,service_types,min_order_qty,roster_fields,base_price,sale_price,sale_starts_at,sale_ends_at',
+            'service:id,name,service_category,showcase_category,service_types,min_order_qty,roster_fields,base_price,sale_price,sale_starts_at,sale_ends_at',
         ];
 
         if ($this->belongsToStore($request, $store)) {

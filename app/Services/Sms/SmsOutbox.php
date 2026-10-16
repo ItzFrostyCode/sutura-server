@@ -18,7 +18,9 @@ class SmsOutbox
 {
     public static function queue(Store $store, ?User $recipient, string $event, string $body, ?string $relatedType = null, ?int $relatedId = null, ?string $dedupe = null): ?SmsMessage
     {
-        if ($store->sms_mode === 'off' || ! PlanGate::allows($store, 'pro') || ! in_array($event, SmsTemplates::enabledFor($store->sms_events), true)) {
+        // 'manual' is a text the shop wrote itself (customer profile): it is not one of the switchable automatic events.
+        $allowed = $event === 'manual' || in_array($event, SmsTemplates::enabledFor($store->sms_events), true);
+        if ($store->sms_mode === 'off' || ! PlanGate::allows($store, 'pro') || ! $allowed) {
             return null;
         }
         if ($dedupe && ($existing = SmsMessage::where('dedupe_key', $dedupe)->first())) {

@@ -33,6 +33,7 @@ final class OrderFlowPresenter
                 'can_confirm' => $money && $gated && $job->status === 'pending',
                 'can_approve_change' => $money && $gated,
                 'can_manage_refund' => $money && $job->status === 'cancelled',
+                'can_accept_request' => $money && $gated && $job->status === 'pending' && ! $job->shop_accepted_at,
             ],
         ];
         if (! $gated) {
@@ -95,6 +96,20 @@ final class OrderFlowPresenter
                 'quantity' => $job->quantity,
             ],
             'checklist' => $checklist,
+            'pre_production' => OrderPreProduction::steps($job),
+            'queue' => ['received_at' => $job->created_at, 'accepted_at' => $job->shop_accepted_at, 'authorized_at' => $job->production_authorized_at],
+            'terms' => [
+                'policy' => $job->payment_policy, 'percent' => $job->payment_policy_percent,
+                'text' => OrderReadiness::termsText($job), 'locked' => $job->payment_terms_locked_at !== null,
+            ],
+            'decision' => [
+                'value' => $job->customer_decision, 'note' => $job->customer_decision_note, 'at' => $job->customer_decided_at,
+                'valid_until' => $job->quotation_valid_until?->toDateString(),
+            ],
+            'assignee_history' => $job->assigneeEvents()->with(['fromUser:id,name', 'toUser:id,name', 'byUser:id,name'])->get()->map(fn ($e) => [
+                'action' => $e->action, 'from' => $e->fromUser?->name, 'to' => $e->toUser?->name, 'by' => $e->byUser?->name,
+                'reason' => $e->reason, 'at' => $e->created_at,
+            ])->values(),
             'blockers' => [
                 'confirm' => OrderReadiness::confirmationBlockers($job),
                 'start' => OrderReadiness::startBlockers($job),
@@ -125,6 +140,11 @@ final class OrderFlowPresenter
 
         if ($money) {
             $out['quotation']['data'] = $job->quotation;
+            $out['quotation']['versions'] = $job->quotationVersions()->with('author:id,name')->get()->map(fn ($v) => [
+                'version' => $v->version, 'status' => $v->status, 'total' => $v->total, 'due_date' => $v->due_date?->toDateString(),
+                'payment_policy' => $v->payment_policy, 'payment_policy_percent' => $v->payment_policy_percent,
+                'reason' => $v->reason, 'by' => $v->author?->name, 'at' => $v->created_at,
+            ])->values();
             $out['quotation']['total'] = (float) $job->total_amount;
             $out['capacity'] = OrderCapacity::forJob($job);
             $out['refunds'] = $job->refunds()->get();

@@ -39,18 +39,6 @@ class StoreStaffRequest extends FormRequest
             'specialization' => ['nullable', 'array'],
             'specialization.*' => ['string', 'max:100'],
             'hired_at' => ['nullable', 'date'],
-            'store_branch_id' => [
-                // A branch manager scoped to no branch would functionally
-                // act with no branch restriction at all — every
-                // branch-scoping check in this codebase (JobOrderController,
-                // StaffController) reads staffProfile->store_branch_id, and
-                // null there means "sees everything," the same as an owner.
-                // Granting manager authority must pin them to one branch.
-                Rule::requiredIf(fn () => $this->boolean('is_branch_manager')),
-                'nullable',
-                Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
-            ],
-            'is_branch_manager' => ['sometimes', 'boolean'],
             // Model/migration have carried this column since day one, but
             // nothing ever validated or wrote to it — a real "structurally
             // dead" field, same bug class as CatalogOrderController's

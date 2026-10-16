@@ -4,18 +4,14 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
-use App\Models\CatalogItem;
-use App\Models\Role;
+use App\Models\Service;
 use App\Models\Store;
-use App\Models\User;
 use App\Notifications\AppointmentBookedNotification;
 use App\Notifications\AppointmentStatusNotification;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class PublicBookingController extends Controller
@@ -32,24 +28,6 @@ class PublicBookingController extends Controller
                 'description' => $store->description,
                 'business_type' => $store->business_type,
                 'specializations' => $store->specializations ?? [],
-                // The booking form's payment step showed a hardcoded
-                // placeholder ("Printify Store") regardless of which store was
-                // being booked — this store's own real payment details, set
-                // via SettingsBasicInfo.tsx, were never exposed here at all.
-                'gcash_number' => $store->gcash_number,
-                'gcash_account_name' => $store->gcash_account_name,
-                'gcash_qr_path' => $store->gcash_qr_path,
-                'bank_name' => $store->bank_name,
-                'bank_account_number' => $store->bank_account_number,
-                'bank_account_name' => $store->bank_account_name,
-                'bank_qr_path' => $store->bank_qr_path,
-                // Drives whether the booking form even shows a payment step
-                // at all — a plain consultation/fitting request shouldn't
-                // ask for a deposit unless this store actually charges one to
-                // reserve the slot (the Tailor-Gated Handshake rule: booking
-                // is a request, not a paid commitment — that's the JobOrder
-                // downpayment's job, once staff formalizes the request).
-                'fitting_fee' => $store->fitting_fee,
                 'booking_policy' => $store->booking_policy,
                 'booking_questions' => $store->booking_questions ?? [],
                 'max_appointments_per_day' => $store->max_appointments_per_day,
@@ -63,14 +41,11 @@ class PublicBookingController extends Controller
                 'services' => $store->services()
                     ->where('is_active', true)
                     ->get(['id', 'name', 'base_price', 'estimated_days', 'service_types', 'min_order_qty', 'custom_fields']),
-                'appointment_types' => Appointment::TYPES,
-                'gcash_number' => $store->gcash_number,
-                'gcash_account_name' => $store->gcash_account_name,
-                'gcash_qr_path' => $store->gcash_qr_path,
-                'bank_name' => $store->bank_name,
-                'bank_account_number' => $store->bank_account_number,
-                'bank_account_name' => $store->bank_account_name,
-                'bank_qr_path' => $store->bank_qr_path,
+                // Fitting and pickup are made by the system for a production order, never booked.
+                'appointment_types' => Appointment::BOOKABLE_TYPES,
+                'appointment_kinds' => Appointment::BOOKABLE_KINDS,
+                // One duration table for online and walk-in; the form only shows the length.
+                'durations' => Appointment::TYPE_DEFAULT_DURATIONS,
             ],
         ]);
     }
@@ -84,6 +59,7 @@ class PublicBookingController extends Controller
         // Returning only scheduled_at and duration_minutes to keep customer details anonymous
         $appointments = $store->appointments()
             ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
+            ->where(fn ($q) => $q->where('kind', '!=', 'production')->orWhere('status', '!=', 'pending'))
             ->where('scheduled_at', '>=', now()->subDay())
             ->get(['scheduled_at', 'duration_minutes', 'store_branch_id']);
 
@@ -94,23 +70,26 @@ class PublicBookingController extends Controller
     }
 
     /**
-     * Submit a public appointment booking (unauthenticated customer).
+     * Book an appointment online. The customer must be signed in: the booking goes on their own account
+     * (no typed name or email). It waits as `pending` until the shop accepts it. No payment is taken here;
+     * the first payment is the production order's deposit.
      */
     public function submit(Request $request, Store $store): JsonResponse
     {
+        $customer = $request->user();
+
         $branchCount = $store->branches()->live()->count();
         if ($branchCount === 0) {
             return response()->json(['success' => false, 'message' => 'This shop has no verified branch to book at yet.'], 422);
         }
 
         $validated = $request->validate([
-            // Customer info
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255'],
             'phone' => ['nullable', 'string', 'max:20'],
 
             // Booking details
-            'appointment_type' => ['required', 'in:'.implode(',', Appointment::TYPES)],
+            'kind' => ['required', Rule::in(Appointment::BOOKABLE_KINDS)],
+            // Fitting and pickup are not bookable: the system makes them for a production order.
+            'appointment_type' => ['nullable', Rule::in(Appointment::BOOKABLE_TYPES)],
             'purpose_label' => ['nullable', 'string', 'max:60', 'required_if:appointment_type,other'],
             'store_branch_id' => $branchCount > 1
                 ? ['required', Rule::exists('store_branches', 'id')->where('store_id', $store->id)->where('status', 'active')->where('verification_status', 'verified')]
@@ -119,58 +98,42 @@ class PublicBookingController extends Controller
             // The catalog design this booking came from (the "Book an
             // Appointment" button on a design's page), scoped to this store.
             'catalog_item_id' => ['nullable', Rule::exists('catalog_items', 'id')->where('store_id', $store->id)],
-            // The combo package this booking came from ("Book this package"), scoped to this store.
-            'service_package_id' => ['nullable', Rule::exists('service_packages', 'id')->where('store_id', $store->id)],
             'selected_size' => ['nullable', 'string', 'max:50'],
             'selected_color' => ['nullable', 'string', 'max:100'],
             'scheduled_at' => ['required', 'date', 'after_or_equal:'.now()->addMinutes(Appointment::MIN_BOOKING_LEAD_MINUTES)->toDateTimeString()],
-            'duration_minutes' => ['nullable', 'integer', 'min:15', 'max:480'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'reference_images' => ['nullable', 'array', 'max:10'],
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link' => ['nullable', 'url', 'max:500'],
             'answers' => ['nullable', 'array'],
-            'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya'],
-            'payment_reference' => ['nullable', 'string', 'max:255'],
-            'payment_receipt_path' => ['nullable', 'string', 'max:1000'],
         ], [
             'scheduled_at.after_or_equal' => 'Please choose a time at least 2 hours from now.',
         ]);
 
-        $type = $validated['appointment_type'];
+        $kind = $validated['kind'];
 
-        // A package stands in for its services: when the type needs a service and
-        // none was picked, the package's first service is used.
-        if (! empty($validated['service_package_id']) && empty($validated['service_id'])) {
-            $validated['service_id'] = \App\Models\ServicePackage::find($validated['service_package_id'])?->services()->value('services.id');
-        }
-
-        // ── Conditional service_id required ───────────────────────────────────
-        if (
-            in_array($type, Appointment::TYPES_REQUIRING_SERVICE)
-            && empty($validated['service_id'])
-        ) {
+        // A package stands in for its services: when none was picked, the package's first service is used.
+        // A service visit needs the service or design it is for; a shop visit is none of those.
+        $hasServiceLink = ! empty($validated['service_id']) || ! empty($validated['catalog_item_id']);
+        if ($kind === 'service' && ! $hasServiceLink) {
             return response()->json([
                 'success' => false,
-                'message' => "A service must be selected for appointment type: {$type}.",
-                'errors' => ['service_id' => ["Service is required for {$type} appointments."]],
+                'message' => 'Please choose the service this visit is for.',
+                'errors' => ['service_id' => ['Choose a service or design for a service visit.']],
             ], 422);
         }
+        if ($kind === 'shop') {
+            $validated['service_id'] = $validated['catalog_item_id'] = null;
+        }
 
-        // ── Conditional receipt required for non-cash payments ────────────────
-        // The frontend's file-input `required` attribute is satisfied the
-        // instant a file is *selected*, not once the async upload actually
-        // finishes — this backstop makes sure a booking can't be submitted
-        // with an empty receipt path if the upload was still in flight, failed,
-        // or was simply skipped for a non-cash method.
-        if (
-            in_array($validated['payment_method'] ?? 'cash', ['gcash', 'paymaya'], true)
-            && empty($validated['payment_receipt_path'])
-        ) {
+        // The purpose follows the service for a service visit; a shop visit is what the customer picked.
+        $serviceCategory = $validated['service_id'] ? Service::find($validated['service_id'])?->service_category : null;
+        $type = Appointment::purposeFor($kind, $validated['appointment_type'] ?? null, $serviceCategory);
+        if ($type === 'other' && trim((string) ($validated['purpose_label'] ?? '')) === '') {
             return response()->json([
                 'success' => false,
-                'message' => 'A payment receipt is required for GCash/PayMaya bookings.',
-                'errors' => ['payment_receipt_path' => ['Please upload your payment receipt before confirming.']],
+                'message' => 'Please say what the visit is for.',
+                'errors' => ['purpose_label' => ['Tell the shop what the visit is for.']],
             ], 422);
         }
 
@@ -182,7 +145,8 @@ class PublicBookingController extends Controller
 
         // ── Double-booking check: checks both pending and confirmed appointments ───
         $scheduledAt = Carbon::parse($validated['scheduled_at']);
-        $durationMinutes = $validated['duration_minutes'] ?? 60;
+        // One duration table for online and walk-in (the form no longer sends its own).
+        $durationMinutes = Appointment::TYPE_DEFAULT_DURATIONS[$type] ?? 60;
 
         // Same "we are not open" backstop AppointmentController enforces for
         // owner-created bookings/reschedules
@@ -208,6 +172,7 @@ class PublicBookingController extends Controller
         if ($store->max_appointments_per_day) {
             $sameDayCount = $store->appointments()
                 ->whereNotIn('status', ['cancelled'])
+                ->where('kind', '!=', 'production')
                 ->whereDate('scheduled_at', $scheduledAt->toDateString())
                 ->count();
 
@@ -219,26 +184,12 @@ class PublicBookingController extends Controller
             }
         }
 
-        // ── Find or create customer ────────────────────────────────────────────
-        $customer = User::where('email', $validated['email'])->first();
-
-        if (! $customer) {
-            $customer = User::create([
-                'name' => $validated['name'],
-                'email' => $validated['email'],
-                'phone' => $validated['phone'] ?? null,
-                'password' => Hash::make(Str::random(16)),
-            ]);
-
-            $customerRole = Role::where('name', 'customer')->first();
-            if ($customerRole) {
-                $customer->roles()->attach($customerRole);
-            }
+        // A signed-in customer with no number yet can add one here, so the shop can text them.
+        if (! empty($validated['phone']) && ! $customer->phone) {
+            $customer->forceFill(['phone' => $validated['phone']])->save();
         }
 
         // ── Anti-spam / rebooking-block guards ─────────────────────────────────
-        // Only meaningful for a customer with prior history at this store — a
-        // brand-new account (just created above) can't trip either check.
         if (Appointment::isBlockedFromRebooking($store, $customer->id)) {
             return response()->json([
                 'success' => false,
@@ -277,7 +228,7 @@ class PublicBookingController extends Controller
         }
 
         // ── Create appointment (with transactional concurrency guard) ──────────
-        $appointment = DB::transaction(function () use ($store, $customer, $branchId, $type, $validated, $scheduledAt, $durationMinutes) {
+        $appointment = DB::transaction(function () use ($store, $customer, $branchId, $type, $kind, $validated, $scheduledAt, $durationMinutes) {
             if (Appointment::hasSchedulingConflict($store, $branchId, $scheduledAt, $durationMinutes, null, true)) {
                 return null;
             }
@@ -287,10 +238,10 @@ class PublicBookingController extends Controller
                 'store_branch_id' => $branchId,
                 'service_id' => $validated['service_id'] ?? null,
                 'catalog_item_id' => $validated['catalog_item_id'] ?? null,
-                'service_package_id' => $validated['service_package_id'] ?? null,
                 'selected_size' => $validated['selected_size'] ?? null,
                 'selected_color' => $validated['selected_color'] ?? null,
                 'appointment_type' => $type,
+                'kind' => $kind,
                 'purpose_label' => $type === 'other' ? trim((string) ($validated['purpose_label'] ?? '')) : null,
                 'intake_channel' => 'online',
                 'scheduled_at' => $validated['scheduled_at'],
@@ -300,10 +251,6 @@ class PublicBookingController extends Controller
                 'reference_link' => $validated['reference_link'] ?? null,
                 'answers' => $validated['answers'] ?? null,
                 'status' => 'pending',
-                'payment_method' => $validated['payment_method'] ?? 'cash',
-                'payment_reference' => $validated['payment_reference'] ?? null,
-                'payment_receipt_path' => $validated['payment_receipt_path'] ?? null,
-                'payment_status' => 'pending',
             ]);
         });
 

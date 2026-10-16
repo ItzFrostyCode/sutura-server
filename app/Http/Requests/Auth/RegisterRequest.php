@@ -35,6 +35,7 @@ class RegisterRequest extends FormRequest
             // password-change rule and the frontend's live checklist.
             'password' => ['required', 'confirmed', Password::defaults()],
             'phone' => ['nullable', 'string', 'max:20'],
+            'gender' => ['nullable', 'in:male,female'],
             // Was `exists:roles,name`, which let anyone POST role=admin and
             // self-register a System Admin account. Self-signup is customers
             // only now: store owners go through /store-applications (admin

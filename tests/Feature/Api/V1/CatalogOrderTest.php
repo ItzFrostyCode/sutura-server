@@ -90,15 +90,13 @@ class CatalogOrderTest extends TestCase
     public function test_public_booking_creates_appointment_only(): void
     {
         $payload = [
-            'name' => 'Juan Dela Cruz',
-            'email' => 'juan@example.com',
-            'phone' => '09171234567',
+            'kind' => 'shop',
             'appointment_type' => 'consultation',
             'scheduled_at' => now()->addDays(5)->format('Y-m-d H:i:s'),
-            'payment_method' => 'cash',
         ];
 
-        $response = $this->postJson("/api/v1/catalog/{$this->store->slug}/book", $payload);
+        // Online booking needs a signed-in customer, and takes no payment.
+        $response = $this->actingAs(\App\Models\User::factory()->create())->postJson("/api/v1/catalog/{$this->store->slug}/book", $payload);
 
         $response->assertStatus(201);
         $this->assertDatabaseHas('appointments', [

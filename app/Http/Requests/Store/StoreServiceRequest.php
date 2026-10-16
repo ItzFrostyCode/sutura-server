@@ -54,7 +54,8 @@ class StoreServiceRequest extends FormRequest
             // Garments it works on (old slugs accepted, saved as the garment they were merged into) and the
             // tasks it offers — which must belong to the chosen service.
             'garment_types' => ['nullable', 'array'],
-            'garment_types.*' => ['string', Rule::in(CanonicalTaxonomy::knownGarmentSlugs())],
+            // A garment from the list, or a name the shop typed under "Other garments" (checked by SUTURA, like a design's).
+            'garment_types.*' => ['string', 'max:100'],
             'capabilities' => ['nullable', 'array'],
             'capabilities.*' => ['string', Rule::in(CanonicalTaxonomy::capabilitiesOf($group))],
             // Which "Service Categories" chip it sits under on the shop page.

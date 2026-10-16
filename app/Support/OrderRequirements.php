@@ -4,7 +4,6 @@ namespace App\Support;
 
 use App\Models\CatalogItem;
 use App\Models\Service;
-use App\Models\ServicePackage;
 use App\Models\Store;
 use Illuminate\Validation\Rule;
 
@@ -12,7 +11,7 @@ use Illuminate\Validation\Rule;
  * Measurement / final-fitting / payment requirements.
  *
  * Precedence (most specific wins, per field): design -> its linked service ->
- * store default. A combo package uses its own setting, else the store default.
+ * store default.
  * Job orders snapshot the resolved values when they are created.
  */
 class OrderRequirements
@@ -23,7 +22,7 @@ class OrderRequirements
 
     public const PAYMENT = ['none', 'full', 'deposit', 'custom'];
 
-    /** Validation rules for the nullable offering-level fields (service/design/combo). */
+    /** Validation rules for the nullable offering-level fields (service/design). */
     public static function offeringRules(): array
     {
         return [
@@ -46,7 +45,7 @@ class OrderRequirements
     }
 
     /**
-     * @param  array<int, CatalogItem|ServicePackage|Service|null>  $chain  most specific first
+     * @param  array<int, CatalogItem|Service|null>  $chain  most specific first
      * @return array{measurement_requirement:string,fitting_requirement:string,payment_policy:string,payment_policy_percent:int}
      */
     public static function resolve(Store $store, array $chain): array

@@ -29,12 +29,12 @@ class DecisionQueueController extends Controller
             ->when($branchId, fn ($q) => $q->where('store_branch_id', $branchId));
         $apptCount = (clone $apptQuery)->count();
         $appointments = (clone $apptQuery)
-            ->with(['customer:id,name', 'service:id,name', 'catalogItem:id,name', 'servicePackage:id,name', 'branch:id,name'])
+            ->with(['customer:id,name', 'service:id,name', 'catalogItem:id,name', 'branch:id,name'])
             ->orderBy('scheduled_at')->limit(self::PREVIEW)->get()
             ->map(fn (Appointment $a) => [
                 'id' => $a->id,
                 'customer' => $a->customer?->name,
-                'what' => $a->catalogItem?->name ?? $a->servicePackage?->name ?? $a->service?->name,
+                'what' => $a->catalogItem?->name ?? $a->service?->name,
                 'appointment_type' => $a->appointment_type,
                 'purpose_label' => $a->purpose_label,
                 'scheduled_at' => $a->scheduled_at,
