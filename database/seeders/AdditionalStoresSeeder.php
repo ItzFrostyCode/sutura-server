@@ -88,8 +88,8 @@ class AdditionalStoresSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '09:00', 'close' => '14:00'],
                     'sunday' => ['is_open' => false, 'open' => '09:00', 'close' => '14:00'],
                 ],
-                'logo_path' => \Illuminate\Support\Facades\Storage::url('logos/bautista_tailors_logo.jpg'),
-                'banner_path' => \Illuminate\Support\Facades\Storage::url('banners/bautista_tailors_banner.jpg'),
+                'logo_path' => null,
+                'banner_path' => null,
             ]
         );
 
@@ -370,11 +370,7 @@ class AdditionalStoresSeeder extends Seeder
                     'saturday' => ['is_open' => true, 'open' => '08:00', 'close' => '18:00'],
                     'sunday' => ['is_open' => true, 'open' => '08:00', 'close' => '12:00'],
                 ],
-                // Deliberately no logo_path/banner_path — this was previously
-                // copy-pasted from LocalTestSeeder's unrelated "Villanueva
-                // Bespoke Atelier" store (villanueva_atelier_logo.jpg), a
-                // mismatch that would have shown Fely's storefront with
-                // another store's branding. Leaving these null instead
+                // Deliberately no logo_path/banner_path. Leaving these null
                 // exercises the "no logo uploaded yet" empty state, which
                 // fits this store's own intent as "deliberately the smallest
                 // tenant."

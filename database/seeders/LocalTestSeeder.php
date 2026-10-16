@@ -46,9 +46,6 @@ class LocalTestSeeder extends Seeder
         'owner@sutura.com' => 'maria.cruz@gmail.com',
         'staff@sutura.com' => 'juan.delacruz@sutura.com',
         'manager@sutura.com' => 'miguel.manager@sutura.com',
-        'customer@sutura.com' => 'juan.delacruz@gmail.com',
-        'booking.tester1@sutura.com' => 'tess.tester@gmail.com',
-        'booking.tester2@sutura.com' => 'tomas.tester@gmail.com',
     ];
 
     private function renameLegacyAccounts(): void
@@ -63,9 +60,6 @@ class LocalTestSeeder extends Seeder
         foreach ([
             'juan.delacruz@sutura.com' => 'Juan Dela Cruz',
             'miguel.manager@sutura.com' => 'Miguel Manager',
-            'juan.delacruz@gmail.com' => 'Juan dela Cruz',
-            'tess.tester@gmail.com' => 'Tess Tester',
-            'tomas.tester@gmail.com' => 'Tomas Tester',
         ] as $email => $name) {
             User::where('email', $email)->update(['name' => $name]);
         }
@@ -126,6 +120,7 @@ class LocalTestSeeder extends Seeder
                 'phone' => '+639000000000',
                 'status' => 'approved', // Bypasses Admin Approval!
                 'approved_at' => now(),
+                'is_featured' => true,
                 'operating_hours' => [
                     'monday' => ['is_open' => true, 'open' => '09:00', 'close' => '18:00'],
                     'tuesday' => ['is_open' => true, 'open' => '09:00', 'close' => '18:00'],
@@ -555,7 +550,8 @@ class LocalTestSeeder extends Seeder
         $lanangStaff = User::where('email', 'ferdinand.cruz@sutura.com')->first() ?? $staffUsers[1];
         $matinaStaff = User::where('email', 'rowena.aquino@sutura.com')->first() ?? $staffUsers[0];
 
-        // 9. Seed 3 Customers
+        // 9. Seed Customers (Disabled per user request - only seeded if SEED_DEMO_CUSTOMERS=true)
+        if (filter_var(env('SEED_DEMO_CUSTOMERS', false), FILTER_VALIDATE_BOOL)) {
         $customerRole = Role::where('name', 'customer')->first();
         $customers = [];
         $customerNames = [
@@ -1588,6 +1584,7 @@ class LocalTestSeeder extends Seeder
             }
             $n->save();
         }
+        }
 
         // Keep the walk-in order rows consistent: each one belongs to a branch
         // (single-branch shop → Main) and records the size that was ordered
@@ -1607,9 +1604,5 @@ class LocalTestSeeder extends Seeder
                 }
             });
 
-        // 21/22. The second and third store owners (owner2@ Bautista Custom
-        // Tailors, owner3@ Villanueva Bespoke Atelier) were removed on
-        // request — the demo is Thread & Needle Tailoring only. Recreating
-        // them here would silently undo that on the next db:seed.
     }
 }

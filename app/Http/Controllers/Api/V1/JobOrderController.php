@@ -128,8 +128,6 @@ class JobOrderController extends Controller
         }
         $known = [
             'thread-needle' => 'TNED',
-            'bautista-tailors' => 'BAUT',
-            'villanueva-atelier' => 'VILL',
         ];
         if (isset($known[$store->slug])) {
             return $known[$store->slug];

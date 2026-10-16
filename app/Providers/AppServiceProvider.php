@@ -29,6 +29,32 @@ class AppServiceProvider extends ServiceProvider
         // does not exceed the 1000-byte index limit on utf8mb4 unique/primary keys.
         Schema::defaultStringLength(191);
 
+        $registerSqlite = function ($pdo) {
+            if ($pdo && method_exists($pdo, 'sqliteCreateFunction')) {
+                $pdo->sqliteCreateFunction('least', fn (...$args) => count($args) ? min($args) : null);
+                $pdo->sqliteCreateFunction('greatest', fn (...$args) => count($args) ? max($args) : null);
+                $pdo->sqliteCreateFunction('radians', fn ($deg) => deg2rad((float) $deg));
+                $pdo->sqliteCreateFunction('acos', fn ($num) => acos(max(-1.0, min(1.0, (float) $num))));
+                $pdo->sqliteCreateFunction('cos', fn ($num) => cos((float) $num));
+                $pdo->sqliteCreateFunction('sin', fn ($num) => sin((float) $num));
+                $pdo->sqliteCreateFunction('regexp', fn ($pattern, $value) => preg_match('/' . $pattern . '/', (string) $value) ? 1 : 0);
+            }
+        };
+
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Database\Events\ConnectionEstablished::class, function ($event) use ($registerSqlite) {
+            if ($event->connection instanceof \Illuminate\Database\SQLiteConnection) {
+                $registerSqlite($event->connection->getPdo());
+            }
+        });
+
+        try {
+            if (\Illuminate\Support\Facades\DB::connection() instanceof \Illuminate\Database\SQLiteConnection) {
+                $registerSqlite(\Illuminate\Support\Facades\DB::connection()->getPdo());
+            }
+        } catch (\Throwable) {
+            // Ignored if DB is not ready during boot
+        }
+
         // Point password-reset emails at the Next.js reset page instead of
         // Laravel's default backend-only URL — there is no server-rendered
         // reset view in this API-only app.
