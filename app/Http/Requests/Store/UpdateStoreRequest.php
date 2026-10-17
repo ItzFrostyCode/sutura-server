@@ -61,8 +61,8 @@ class UpdateStoreRequest extends FormRequest
             // Shown to the customer before they approve a quotation; empty = the built-in default text.
             'cancellation_policy' => ['nullable', 'string', 'max:2000'],
             'specializations' => ['nullable', 'array'],
-            // Men/Women/Kids departments + Services categories — the same axes
-            // the header nav and /search use (see CanonicalTaxonomy).
+            // Signboard-style service tags (CanonicalTaxonomy::STORE_SERVICE_TAGS) plus old tags that shops
+            // saved earlier and may still send back.
             'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::selectableStoreSpecializations())],
             // is_featured is deliberately NOT owner-writable here — it's a
             // Premium-plan perk the system keeps in sync automatically

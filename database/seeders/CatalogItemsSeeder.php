@@ -14,9 +14,8 @@ use Illuminate\Support\Collection;
 
 /**
  * Thread & Needle Tailoring's catalog. Every design is placed in the
- * canonical taxonomy (department → subcategory → garment structure →
- * garment type, see App\Support\CanonicalTaxonomy) so it shows up under the
- * header nav's MEN / WOMEN / KIDS menus and the matching /search filters.
+ * 2-level taxonomy (garment category → garment, see App\Support\CanonicalTaxonomy)
+ * so it shows up under All Categories and the matching /search results.
  *
  * Convergent, not just idempotent: earlier revisions of this seeder keyed
  * `firstOrCreate` on titles that later changed, so every rename left the old
@@ -108,9 +107,6 @@ class CatalogItemsSeeder extends Seeder
             'fabric_image_url' => $def['fabric'] ?? null,
             'sizes' => $def['sizes'],
             'description' => $def['desc'],
-            'department' => $def['dept'],
-            'subcategory' => $def['sub'],
-            'garment_structure' => $def['struct'],
             // Saved as the 2-level garment (an old 4-level slug is resolved through the old-slug map).
             'garment_type' => CanonicalTaxonomy::canonicalGarment($def['type']) ?? $def['type'],
             'service_id' => isset($def['service']) ? ($serviceIds[$def['service']] ?? null) : null,
@@ -177,17 +173,15 @@ class CatalogItemsSeeder extends Seeder
     /** @return array<int, array<string, mixed>> */
     private function items(): array
     {
-        $women = ['dept' => 'women'];
-        $men = ['dept' => 'men'];
-        $gown = ['sub' => 'dresses_gowns', 'struct' => 'one_piece', 'service' => self::SVC_BRIDAL, 'material' => 'Chiffon & Tulle', 'sizes' => self::SIZES_WOMEN];
-        $formalSet = ['sub' => 'formal_wear', 'struct' => 'sets', 'service' => self::SVC_SUIT, 'material' => 'Premium Wool', 'fabric' => self::FABRIC_WOOL, 'sizes' => self::SIZES_SUIT, 'days' => 14];
-        $barong = ['sub' => 'traditional_wear', 'struct' => 'top_wear', 'service' => self::SVC_BARONG, 'material' => 'Piña Cocoon', 'fabric' => self::FABRIC_PINA, 'color' => 'Ivory', 'sizes' => self::SIZES_ADULT, 'days' => 10];
-        $sportTop = ['sub' => 'sportswear_teamwear', 'struct' => 'top_wear', 'service' => self::SVC_JERSEY, 'material' => 'Drifit Mesh', 'fabric' => self::FABRIC_DRIFIT, 'sizes' => self::SIZES_ADULT];
-        $sportSet = ['sub' => 'sportswear_teamwear', 'struct' => 'sets', 'service' => self::SVC_JERSEY, 'material' => 'Drifit Mesh', 'fabric' => self::FABRIC_DRIFIT, 'sizes' => self::SIZES_ADULT];
+        $gown = ['service' => self::SVC_BRIDAL, 'material' => 'Chiffon & Tulle', 'sizes' => self::SIZES_WOMEN];
+        $formalSet = ['service' => self::SVC_SUIT, 'material' => 'Premium Wool', 'fabric' => self::FABRIC_WOOL, 'sizes' => self::SIZES_SUIT, 'days' => 14];
+        $barong = ['service' => self::SVC_BARONG, 'material' => 'Piña Cocoon', 'fabric' => self::FABRIC_PINA, 'color' => 'Ivory', 'sizes' => self::SIZES_ADULT, 'days' => 10];
+        $sportTop = ['service' => self::SVC_JERSEY, 'material' => 'Drifit Mesh', 'fabric' => self::FABRIC_DRIFIT, 'sizes' => self::SIZES_ADULT];
+        $sportSet = ['service' => self::SVC_JERSEY, 'material' => 'Drifit Mesh', 'fabric' => self::FABRIC_DRIFIT, 'sizes' => self::SIZES_ADULT];
 
         return [
             // ── WOMEN · Dresses & Gowns ───────────────────────────────────
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => self::ANDREA_LEO_NAME,
                 'aliases' => ['Off-Shoulder Floral Tulle A-Line Gown'],
                 'type' => 'evening_dresses', 'price' => 4500,
@@ -211,41 +205,41 @@ class CatalogItemsSeeder extends Seeder
                     ['/catalog/wedding-gown-sequined-puff-sleeve.jpg', 'Ivory'],
                 ],
             ]),
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => 'Pleated Chiffon Maid of Honor Dress',
                 'aliases' => ['Long Maid Of Honour Dresses Leia Modest Sweetheart Pleated Chiffon Maid Of Honor'],
                 'type' => 'formal_dresses', 'price' => 4500, 'color' => 'Blush', 'fabric' => self::FABRIC_SATIN,
                 'desc' => 'Floor-length maid of honor dress with a modest sweetheart neckline and soft pleated chiffon skirt.',
                 'images' => [['/catalog/maid-of-honor-dress-chiffon.jpg', 'front']],
             ]),
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => 'Long-Tail White Wedding Gown',
                 'aliases' => ['Shop Long Tail Wedding Gown', 'Store Long Tail Wedding Gown', 'Long-Train Wedding Gown'],
                 'type' => 'custom_gowns', 'price' => 4500, 'color' => 'White', 'fabric' => self::FABRIC_BRIDAL, 'days' => 14,
                 'desc' => 'Classic white wedding gown with a long flowing tail, made to order for your wedding day.',
                 'images' => [['/catalog/Shop Long Tail Wedding Gown.jpg', 'front']],
             ]),
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => 'Emerald Green Multiway Convertible Bridesmaid Gown',
                 'type' => 'formal_dresses', 'price' => 4500, 'color' => 'Emerald', 'fabric' => '/catalog/fabrics/emerald_lace_fabric.jpg',
                 'desc' => 'Convertible bridesmaid gown that can be wrapped and tied several ways to suit every member of the entourage.',
                 'images' => [['/catalog/bridesmaid-dresses-maid-of-honor.webp', 'front']],
             ]),
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => 'Pink Chiffon Mother of the Bride Tea-Length Dress',
                 'aliases' => ['Pink Chiffon Mother of the Bride Dresses Simple Scoop Neck Long Sleeves Pearls Tea-Length A-LINE Evening Mother Gowns'],
                 'type' => 'evening_dresses', 'price' => 4500, 'color' => 'Blush', 'fabric' => self::FABRIC_SATIN,
                 'desc' => 'Tea-length A-line dress with a scoop neck, long sleeves, and pearl detailing for the mother of the bride.',
                 'images' => [['/catalog/mother-of-bride-dress-chiffon-pink.jpg', 'front']],
             ]),
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => 'Bridal Crew Bridesmaid Dress',
                 'aliases' => ['9 Luxury Designer Bridesmaid Dresses for the Bridal Crew'],
                 'type' => 'formal_dresses', 'price' => 4500, 'color' => 'Blush', 'fabric' => self::FABRIC_SATIN,
                 'desc' => 'Coordinated bridesmaid dress for the whole bridal crew, tailored individually for each member.',
                 'images' => [['/catalog/bridesmaid-dresses-bridal-crew.jpg', 'front']],
             ]),
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => 'Regal A-Line Floor-Length Satin Corset Mother of the Bride Dress',
                 'aliases' => [
                     'Light Pink Regal A-line Flower Floor-Length Satin Corset Mother of the Bride Dress - Glamlora',
@@ -261,7 +255,7 @@ class CatalogItemsSeeder extends Seeder
                     ['/catalog/mother-of-bride-dress-red.webp', 'Crimson Red'],
                 ],
             ]),
-            array_merge($women, $gown, [
+            array_merge($gown, [
                 'name' => 'Tailored Casual Day Dress',
                 'type' => 'casual_dresses', 'price' => 1800, 'material' => 'Cotton Blend', 'service' => null,
                 'desc' => 'Everyday day dress tailored to your measurements for an easy, comfortable fit.',
@@ -269,33 +263,33 @@ class CatalogItemsSeeder extends Seeder
             ]),
 
             // ── WOMEN · Traditional & Cultural / Formal / Workwear / Casual ─
-            array_merge($women, [
+            array_merge([
                 'name' => 'Modern Filipiniana Terno Top',
-                'sub' => 'traditional_cultural_wear', 'struct' => 'top_wear', 'type' => 'modern_filipiniana_tops',
+                'type' => 'modern_filipiniana_tops',
                 'service' => self::SVC_BRIDAL, 'price' => 3800, 'material' => 'Piña-Jusi Blend', 'fabric' => self::FABRIC_PINA,
                 'sizes' => self::SIZES_WOMEN, 'days' => 14,
                 'desc' => 'Modern Filipiniana top with structured butterfly sleeves, for formal events and Buwan ng Wika.',
                 'images' => [['/images/categories/filipiniana.jpg', 'front']],
             ]),
-            array_merge($women, [
+            array_merge([
                 'name' => "Women's Tailored Power Suit",
-                'sub' => 'formal_wear', 'struct' => 'sets', 'type' => 'womens_suits',
+                'type' => 'womens_suits',
                 'service' => self::SVC_SUIT, 'price' => 7500, 'material' => 'Premium Wool Blend', 'fabric' => self::FABRIC_WOOL,
                 'sizes' => self::SIZES_WOMEN, 'days' => 14,
                 'desc' => 'Two-piece tailored suit for the office and formal occasions, cut to your measurements.',
                 'images' => [['/images/categories/women_suit.jpg', 'front']],
             ]),
-            array_merge($women, [
+            array_merge([
                 'name' => "Women's Tailored Office Blazer",
-                'sub' => 'uniforms_workwear', 'struct' => 'top_wear', 'type' => 'blazers',
+                'type' => 'blazers',
                 'service' => self::SVC_SUIT, 'price' => 3200, 'material' => 'Poly-Viscose Suiting', 'fabric' => self::FABRIC_WOOL,
                 'sizes' => self::SIZES_WOMEN, 'days' => 10,
                 'desc' => 'Single-breasted office blazer, tailored for corporate wear and company uniforms.',
                 'images' => [['/images/categories/blazer.jpg', 'front']],
             ]),
-            array_merge($women, [
+            array_merge([
                 'name' => "Women's Tailored Trousers",
-                'sub' => 'casual_wear', 'struct' => 'bottom_wear', 'type' => 'trousers',
+                'type' => 'trousers',
                 'service' => null, 'price' => 1300, 'material' => 'Poly-Viscose',
                 'sizes' => self::SIZES_WOMEN, 'days' => 7,
                 'desc' => 'Straight-leg trousers tailored to your waist, hip, and inseam.',
@@ -303,7 +297,7 @@ class CatalogItemsSeeder extends Seeder
             ]),
 
             // ── WOMEN · Sportswear ────────────────────────────────────────
-            array_merge($women, $sportTop, [
+            array_merge($sportTop, [
                 'name' => "Women's Esports Jersey - Custom Print",
                 'aliases' => ['Esports-Jersey-women', "Women's Esports Jersey with Customized Design"],
                 'type' => 'esports_jerseys', 'price' => 660, 'color' => 'Blue',
@@ -312,42 +306,42 @@ class CatalogItemsSeeder extends Seeder
             ]),
 
             // ── MEN · Formal Wear ─────────────────────────────────────────
-            array_merge($men, $formalSet, [
+            array_merge($formalSet, [
                 'name' => 'Bespoke Two-Piece Suit - Charcoal Wool',
                 'aliases' => ['Bespoke_Suits2'],
                 'type' => 'suits', 'price' => 11500, 'color' => 'Black',
                 'desc' => 'Two-piece bespoke suit in charcoal wool, fully canvassed and cut to your measurements.',
                 'images' => [['/catalog/Bespoke_Suits2.jpg', 'front']],
             ]),
-            array_merge($men, $formalSet, [
+            array_merge($formalSet, [
                 'name' => 'Bespoke Three-Piece Suit - Navy Wool',
                 'aliases' => ['Bespoke_Suits'],
                 'type' => 'suits', 'price' => 11800, 'color' => 'Navy',
                 'desc' => 'Three-piece bespoke suit in navy wool with a matching waistcoat.',
                 'images' => [['/catalog/Bespoke_Suits.png', 'front']],
             ]),
-            array_merge($men, $formalSet, [
+            array_merge($formalSet, [
                 'name' => "Men's Custom Tuxedo - Classic Peak Lapel",
                 'aliases' => ['mens-custom-tuxedos-its-all-about-the-fit'],
                 'type' => 'tuxedo_sets', 'price' => 12500, 'color' => 'Black',
                 'desc' => 'Classic tuxedo with satin peak lapels, tailored for weddings and black-tie events.',
                 'images' => [['/catalog/mens-custom-tuxedos-its-all-about-the-fit.jpeg', 'front']],
             ]),
-            array_merge($men, $formalSet, [
+            array_merge($formalSet, [
                 'name' => "Men's Classic Black Tuxedo",
                 'aliases' => ['Custom_Tuxedos_men'],
                 'type' => 'tuxedo_sets', 'price' => 12200, 'color' => 'Black',
                 'desc' => 'Timeless black tuxedo, cut and fitted to your measurements.',
                 'images' => [['/catalog/Custom_Tuxedos_men.jpeg', 'front']],
             ]),
-            array_merge($men, $formalSet, [
+            array_merge($formalSet, [
                 'name' => 'Custom Groom Tuxedo - Event Package',
                 'aliases' => ['Custom Tuxedos for Memorable Events'],
                 'type' => 'tuxedo_sets', 'price' => 12800, 'color' => 'Black',
                 'desc' => 'Groom tuxedo package with fittings scheduled around your wedding date.',
                 'images' => [['/catalog/Custom Tuxedos for Memorable Events.jpeg', 'front']],
             ]),
-            array_merge($men, $formalSet, [
+            array_merge($formalSet, [
                 'name' => 'Navy Blue Tuxedo with Contrast Belt',
                 'aliases' => ['Blue Tuxedo Belt Tuxedo Blue Suit Brown Belt Core Navy'],
                 'type' => 'tuxedo_sets', 'price' => 12400, 'color' => 'Navy',
@@ -356,14 +350,14 @@ class CatalogItemsSeeder extends Seeder
             ]),
 
             // ── MEN · Traditional Wear ────────────────────────────────────
-            array_merge($men, $barong, [
+            array_merge($barong, [
                 'name' => 'Traditional Ivory Barong Tagalog - Formal Fit',
                 'aliases' => ['Traditional Ivory Color Barong Tagalog - Formal Fit'],
                 'type' => 'barong_tagalog', 'price' => 4500,
                 'desc' => 'Ivory Barong Tagalog in piña cocoon with delicate hand embroidery, in a formal fit.',
                 'images' => [['/catalog/barong-tagalog-ivory-formal.jpg', 'front']],
             ]),
-            array_merge($men, $barong, [
+            array_merge($barong, [
                 'name' => 'Short-Sleeve Barong Polo',
                 'aliases' => ['Traditional Barong Tagalog Polo Shirt for Men'],
                 'type' => 'short_sleeve_barong', 'price' => 4500,
@@ -372,156 +366,156 @@ class CatalogItemsSeeder extends Seeder
             ]),
 
             // ── MEN · Casual / Outerwear / Workwear ──────────────────────
-            array_merge($men, [
+            array_merge([
                 'name' => 'Tailored Button-Down Shirt',
-                'sub' => 'casual_wear', 'struct' => 'top_wear', 'type' => 'button_down_shirts',
+                'type' => 'button_down_shirts',
                 'service' => null, 'price' => 1200, 'material' => 'Cotton Oxford', 'sizes' => self::SIZES_ADULT,
                 'desc' => 'Button-down shirt cut to your neck, chest, and sleeve length.',
                 'images' => [['/images/categories/shirt.jpg', 'front']],
             ]),
-            array_merge($men, [
+            array_merge([
                 'name' => 'Tailored Chino Trousers',
-                'sub' => 'casual_wear', 'struct' => 'bottom_wear', 'type' => 'chinos',
+                'type' => 'chinos',
                 'service' => null, 'price' => 1100, 'material' => 'Cotton Twill', 'sizes' => self::SIZES_ADULT,
                 'desc' => 'Everyday chinos tailored to your waist and inseam.',
                 'images' => [['/images/categories/pants.jpg', 'front']],
             ]),
-            array_merge($men, [
+            array_merge([
                 'name' => 'Tailored Wool Overcoat',
-                'sub' => 'outerwear', 'struct' => 'top_wear', 'type' => 'coats',
+                'type' => 'coats',
                 'service' => self::SVC_SUIT, 'price' => 6500, 'material' => 'Wool Melton', 'fabric' => self::FABRIC_WOOL,
                 'sizes' => self::SIZES_SUIT, 'days' => 14,
                 'desc' => 'Knee-length wool overcoat, tailored to wear over a suit.',
                 'images' => [['/images/categories/men_outerwear.jpg', 'front']],
             ]),
-            array_merge($men, [
+            array_merge([
                 'name' => 'Medical Scrub Top',
-                'sub' => 'uniforms_workwear', 'struct' => 'top_wear', 'type' => 'medical_tops',
+                'type' => 'medical_tops',
                 'service' => self::SVC_UNIFORM, 'price' => 850, 'material' => 'Poly-Cotton Twill', 'sizes' => self::SIZES_ADULT,
                 'desc' => 'Durable scrub top for clinics and hospitals — bulk orders sized per staff roster.',
                 'images' => [['/images/categories/scrubs.jpg', 'front']],
             ]),
 
             // ── MEN · Sportswear & Teamwear ───────────────────────────────
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Pro-Fit Cycling Jersey - Team Kit',
                 'aliases' => ['Cycling_Jerseys_1'],
                 'type' => 'cycling_jerseys', 'price' => 620, 'color' => 'Blue',
                 'desc' => 'Full-sublimation cycling jersey in breathable drifit mesh, printed with your team kit.',
                 'images' => [['/catalog/Cycling_Jerseys_1.jpeg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Cycling Jersey - Sublimated Print',
                 'aliases' => ['Cycling_Jerseys_2'],
                 'type' => 'cycling_jerseys', 'price' => 640, 'color' => 'Blue',
                 'desc' => 'Short-sleeve cycling jersey with an all-over sublimated print.',
                 'images' => [['/catalog/Cycling_Jerseys_2.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Long-Sleeve Cycling Jersey - Aero Fit',
                 'aliases' => ['Cycling_Jerseys_3'],
                 'type' => 'cycling_jerseys', 'price' => 670, 'color' => 'Blue',
                 'desc' => 'Long-sleeve aero-fit cycling jersey for sun protection on long rides.',
                 'images' => [['/catalog/Cycling_Jerseys_3.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Motorcycle Riders Long-Sleeve Jersey',
                 'type' => 'cycling_jerseys', 'price' => 1400, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Black',
                 'desc' => 'Long-sleeve riding jersey for motorcycle clubs, printed with your club design.',
                 'images' => [['/catalog/Riders_Long_Sleeves.webp', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Riders Club Long-Sleeve Jersey',
                 'aliases' => ['Riders_Long_Sleeves'],
                 'type' => 'cycling_jerseys', 'price' => 1450, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Black',
                 'desc' => 'Riders club long-sleeve jersey with sublimated club colors.',
                 'images' => [['/catalog/Riders_Long_Sleeves.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Riders Club Long-Sleeve Jersey V2',
                 'aliases' => ['Riders_Long_Sleeves_2'],
                 'type' => 'cycling_jerseys', 'price' => 1450, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Black',
                 'desc' => 'Second-edition riders club jersey with an updated panel layout.',
                 'images' => [['/catalog/Riders_Long_Sleeves_2.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Compression Rash Guard - Long Sleeve',
                 'aliases' => ['rashguard_1'],
                 'type' => 'cycling_jerseys', 'price' => 580, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Blue',
                 'desc' => 'Long-sleeve compression rash guard for training, surfing, and combat sports.',
                 'images' => [['/catalog/rashguard_1.webp', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Compression Rash Guard - Short Sleeve',
                 'aliases' => ['rashguard_3'],
                 'type' => 'cycling_jerseys', 'price' => 590, 'material' => 'Compression Spandex', 'fabric' => self::FABRIC_SPANDEX, 'color' => 'Blue',
                 'desc' => 'Short-sleeve compression rash guard with a sublimated design.',
                 'images' => [['/catalog/rashguard_3.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Custom Basketball Jersey - Away Kit',
                 'aliases' => ['Bulls-Basketball-Jersey'],
                 'type' => 'basketball_jerseys', 'price' => 700, 'color' => 'Crimson',
                 'desc' => 'Away-kit basketball jersey with your team name and player numbers.',
                 'images' => [['/catalog/Bulls-Basketball-Jersey.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Custom Basketball Jersey - Home Kit',
                 'aliases' => ['Bears-Basketball-Jersey'],
                 'type' => 'basketball_jerseys', 'price' => 660, 'color' => 'Blue',
                 'desc' => 'Home-kit basketball jersey with your team name and player numbers.',
                 'images' => [['/catalog/Bears-Basketball-Jersey.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Retro Basketball Jersey - Purple & Gold',
                 'aliases' => ['KobeBryant-Basketball-Jersey'],
                 'type' => 'basketball_jerseys', 'price' => 700, 'color' => 'Purple',
                 'desc' => 'Retro-style basketball jersey in purple and gold.',
                 'images' => [['/catalog/KobeBryant-Basketball-Jersey.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Retro Basketball Jersey - Gold Edition',
                 'aliases' => ['Lebron James-Lakers-Basketball-Jersey'],
                 'type' => 'basketball_jerseys', 'price' => 710, 'color' => 'Gold',
                 'desc' => 'Retro-style basketball jersey, gold edition.',
                 'images' => [['/catalog/Lebron James-Lakers-Basketball-Jersey.webp', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Football Club Jersey - Custom Print',
                 'aliases' => ['Arsenal-Jersey'],
                 'type' => 'basketball_jerseys', 'price' => 690, 'color' => 'Crimson',
                 'desc' => 'Club-style football jersey with a custom sublimated print.',
                 'images' => [['/catalog/Arsenal-Jersey.jpg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Esports Team Jersey - Royal Blue',
                 'aliases' => ['esport tshirt blue'],
                 'type' => 'esports_jerseys', 'price' => 680, 'color' => 'Royal Blue',
                 'desc' => 'Esports team jersey in royal blue, printed with team and player names.',
                 'images' => [['/catalog/esport tshirt blue.jpeg', 'front']],
             ]),
-            array_merge($men, $sportTop, [
+            array_merge($sportTop, [
                 'name' => 'Esports Team Jersey - Classic Cut',
                 'aliases' => ['esport tshirt'],
                 'type' => 'esports_jerseys', 'price' => 630, 'color' => 'Blue',
                 'desc' => 'Classic-cut esports team jersey with a full sublimated design.',
                 'images' => [['/catalog/esport tshirt.webp', 'front']],
             ]),
-            array_merge($men, $sportSet, [
+            array_merge($sportSet, [
                 'name' => 'Volleyball Team Jersey - Sleeveless Set',
                 'aliases' => ['Volleyball Jersey_2'],
                 'type' => 'volleyball_sets', 'price' => 600, 'color' => 'Blue',
                 'desc' => 'Sleeveless volleyball jersey and shorts set for your team.',
                 'images' => [['/catalog/Volleyball Jersey_2.jpg', 'front']],
             ]),
-            array_merge($men, $sportSet, [
+            array_merge($sportSet, [
                 'name' => 'Volleyball Round-Neck Jersey Set',
                 'aliases' => ['volleyballroundneckSET'],
                 'type' => 'volleyball_sets', 'price' => 1300, 'color' => 'Blue',
                 'desc' => 'Round-neck volleyball jersey and shorts set.',
                 'images' => [['/catalog/volleyballroundneckSET.webp', 'front']],
             ]),
-            array_merge($men, $sportSet, [
+            array_merge($sportSet, [
                 'name' => 'Volleyball Pre-Order Jersey Set',
                 'aliases' => ['VBALL_PRE-2001_800x800'],
                 'type' => 'volleyball_sets', 'price' => 1350, 'color' => 'Blue',
@@ -532,14 +526,14 @@ class CatalogItemsSeeder extends Seeder
             // ── KIDS ──────────────────────────────────────────────────────
             [
                 'name' => "Boys' School Uniform Set",
-                'dept' => 'children', 'sub' => 'boys_apparel', 'struct' => 'sets', 'type' => 'school_uniform_sets',
+                'type' => 'school_uniform_sets',
                 'service' => self::SVC_UNIFORM, 'price' => 650, 'material' => 'Poly-Cotton', 'sizes' => self::SIZES_KIDS, 'days' => 14,
                 'desc' => 'Polo and trousers school uniform set, sized per student — bulk school orders welcome.',
                 'images' => [['/catalog/school-uniforms.jpg', 'front']],
             ],
             [
                 'name' => "Girls' School Uniform Set",
-                'dept' => 'children', 'sub' => 'girls_apparel', 'struct' => 'sets', 'type' => 'school_uniform_sets',
+                'type' => 'school_uniform_sets',
                 'service' => self::SVC_UNIFORM, 'price' => 650, 'material' => 'Poly-Cotton', 'sizes' => self::SIZES_KIDS, 'days' => 14,
                 'desc' => 'Blouse and skirt school uniform set, sized per student — bulk school orders welcome.',
                 'images' => [['/images/categories/school_uniform.jpg', 'front']],

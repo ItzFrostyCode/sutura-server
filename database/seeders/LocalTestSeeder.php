@@ -244,14 +244,8 @@ class LocalTestSeeder extends Seeder
             [
                 'description' => 'Full sublimation jerseys using high-quality drifit fabrics. Perfect for sports teams, tournaments, and athletic wear. Price varies based on quantity, fabric (Mesh, Honeycomb), and design complexity.',
                 'category' => 'Sublimation & Digital Printing',
-                // 'office' isn't a valid department anymore (Categories.md
-                // demotes Office to a filter, not a department) — team
-                // jerseys are gender-neutral, so left unset here rather than
-                // guessing men/women.
-                'department' => null,
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
                 'service_category' => 'uniform_production', // jerseys: Uniform, Jersey & Teamwear (2026-10-14)
-                'service_leaf_type' => 'sports_jersey_printing',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => 1000,
                 'min_order_qty' => 10,
@@ -297,10 +291,8 @@ class LocalTestSeeder extends Seeder
             [
                 'description' => 'Premium bespoke custom suits tailored to your exact measurements with premium fabrics, lining, and custom details. Price varies based on wool quality and lining.',
                 'category' => 'Custom Tailoring & Bespoke',
-                'department' => 'men',
                 'categories' => ['Suit & Tuxedo Tailoring', 'Formal & Cultural Wear'],
                 'service_category' => 'custom_tailoring',
-                'service_leaf_type' => 'formal_wear_tailoring',
                 'service_types' => ['custom_tailoring'],
                 'base_price' => 3500,
                 'estimated_days' => 15,
@@ -351,10 +343,8 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Barong Tagalog Tailoring',
                 'description' => 'Classic Filipiniana formal wear, hand-tailored to fit. Choose from plain cotton, jusi, or premium piña fabric. Includes one fitting session before final delivery.',
-                'department' => 'men',
                 'categories' => ['Barong Tagalog Tailoring', 'Formal & Cultural Wear'],
                 'service_category' => 'custom_tailoring',
-                'service_leaf_type' => 'traditional_wear_tailoring',
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 1500,
                 'estimated_days' => 10,
@@ -368,13 +358,8 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Bridal & Wedding Gown Design',
                 'description' => 'Custom-designed wedding gowns from sketch to final fitting. Two fitting sessions included.',
-                // 'wedding' isn't a valid department anymore (Categories.md
-                // demotes Wedding to a filter, not a department) — bridal
-                // gowns are women's formal wear.
-                'department' => 'women',
                 'categories' => ['Custom Bridal Tailoring', 'Gown & Evening Wear Designing', 'Formal & Cultural Wear'],
                 'service_category' => 'custom_tailoring',
-                'service_leaf_type' => 'formal_wear_tailoring',
                 'service_types' => ['fashion_bridal'],
                 'base_price' => 8000,
                 'estimated_days' => 30,
@@ -388,10 +373,8 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'School & Organization Uniform Sewing',
                 'description' => 'Bulk uniform sewing for schools and organizations, sized per student roster.',
-                'department' => null,
                 'categories' => ['School Uniforms', 'Institutional & Uniform Wear', 'Corporate & Team Uniforms'],
                 'service_category' => 'uniform_production',
-                'service_leaf_type' => 'school_uniforms',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 20,
@@ -407,7 +390,6 @@ class LocalTestSeeder extends Seeder
                 'description' => 'Resizing, hemming, and repair work on existing garments.',
                 'categories' => ['General Clothing Alterations', 'Alterations & Adjustments'],
                 'service_category' => 'alterations_repairs',
-                'service_leaf_type' => 'garment_repair_restoration',
                 'service_types' => ['alteration_repair'],
                 'base_price' => null,
                 'estimated_days' => 3,
@@ -422,10 +404,8 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Corporate & Team Jersey Printing',
                 'description' => 'Sublimation-printed jerseys for corporate teams and events.',
-                'department' => null,
                 'categories' => ['Custom Jersey Printing', 'Corporate & Team Uniforms'],
                 'service_category' => 'uniform_production', // jerseys: Uniform, Jersey & Teamwear (2026-10-14)
-                'service_leaf_type' => 'teamwear_printing',
                 'service_types' => ['bulk_sublimation'],
                 'base_price' => null,
                 'estimated_days' => 12,
@@ -438,11 +418,9 @@ class LocalTestSeeder extends Seeder
             [
                 'name' => 'Embroidery & Logo Digitizing',
                 'description' => 'Custom embroidery for logos, names, and designs on garments, uniforms, jackets, and accessories. New logo designs include one-time digitizing to convert artwork into a stitchable file.',
-                'department' => null,
                 'categories' => ['Embroidered Logos & Team Names', 'Custom Apparel, Printing & Embroidery'],
                 // Embroidery on the customer's garments: one of the 4 approved services (2026-10-14).
                 'service_category' => 'garment_customization',
-                'service_leaf_type' => 'custom_apparel_printing',
                 'service_types' => ['custom_tailoring'],
                 'base_price' => null,
                 'estimated_days' => 4,
@@ -459,10 +437,8 @@ class LocalTestSeeder extends Seeder
                 // which otherwise led to an empty results page.
                 'name' => 'Cultural & Stage Costume Tailoring',
                 'description' => 'Made-to-order costumes for school programs, cultural dance troupes, and stage productions — Buwan ng Wika attire, folk dance ensembles, and character costumes.',
-                'department' => null,
                 'categories' => ['Costume Tailoring', 'Formal & Cultural Wear'],
                 'service_category' => 'custom_tailoring', // costumes: Custom Tailoring + Costumes garments (2026-10-14)
-                'service_leaf_type' => 'cultural_dance_costumes',
                 'service_types' => ['custom_tailoring'],
                 'base_price' => null,
                 'estimated_days' => 14,
