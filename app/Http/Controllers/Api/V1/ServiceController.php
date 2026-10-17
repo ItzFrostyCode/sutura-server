@@ -86,18 +86,8 @@ class ServiceController extends Controller
             $query->whereHas('store.branches', $place);
         }
 
-        // Same men/women/children axis as CatalogController's own
-        // publicShowroom() — see CatalogItem::DEPARTMENTS.
-        if ($request->filled('department')) {
-            $dept = strtolower(trim((string) $request->string('department')));
-            if ($dept !== 'services' && $dept !== 'service') {
-                $query->whereRaw('LOWER(department) = ?', [$dept]);
-            }
-        }
-
-        // Canonical Services.md taxonomy — the SERVICES header mega-menu and
-        // /search?tab=services filter on these, distinct from the free-text
-        // category/categories search above.
+        // One of the 4 services (CanonicalTaxonomy::SERVICE_GROUPS) — /search?tab=services and the
+        // All Categories page filter on it, distinct from the free-text category search above.
         if ($request->filled('service_category')) {
             $query->whereRaw('LOWER(service_category) = ?', [strtolower($request->string('service_category'))]);
         }
@@ -116,9 +106,6 @@ class ServiceController extends Controller
         // chips on All Categories link here.
         if ($request->filled('capability')) {
             $query->whereJsonContains('capabilities', (string) $request->string('capability'));
-        }
-        if ($request->filled('service_leaf_type')) {
-            $query->whereRaw('LOWER(service_leaf_type) = ?', [strtolower($request->string('service_leaf_type'))]);
         }
 
         if ($request->filled('min_price')) {
@@ -190,7 +177,7 @@ class ServiceController extends Controller
                 // sibling item-detail lookup already embeds catalog reviews.
                 'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest(),
             ])
-            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'showcase_category', 'garment_types', 'capabilities', 'service_leaf_type', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
+            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'garment_types', 'capabilities', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
             ->each(function (Service $service) {
                 // withAvg() returns a numeric string, not a float — round it
                 // the same way ServiceController::publicShowroom does.

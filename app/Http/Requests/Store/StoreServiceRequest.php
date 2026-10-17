@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests\Store;
 
-use App\Models\CatalogItem;
 use App\Models\Service;
 use App\Support\CanonicalTaxonomy;
 use Illuminate\Foundation\Http\FormRequest;
@@ -23,14 +22,7 @@ class StoreServiceRequest extends FormRequest
 
     public function rules(): array
     {
-        // 'others' is a deliberate safety-valve service_category (see
-        // App\Support\CanonicalTaxonomy) — free text for its leaf type
-        // rather than an empty Rule::in() list that would reject everything.
         $group = (string) ($this->input('service_category') ?? $this->route('service')?->service_category ?? '');
-
-        $serviceLeafTypeRule = $this->input('service_category') === 'others'
-            ? ['nullable', 'string', 'max:100']
-            : ['nullable', 'string', Rule::in(CanonicalTaxonomy::allServiceTypeSlugs())];
 
         return [
             ...\App\Support\OrderRequirements::offeringRules(),
@@ -38,16 +30,8 @@ class StoreServiceRequest extends FormRequest
             'description' => ['nullable', 'string'],
             'categories' => ['nullable', 'array'],
             'categories.*' => ['string', 'max:100'],
-            // Same men/women/wedding/office axis as CatalogItem::DEPARTMENTS
-            // — distinct from `category`/`categories` above, which stay
-            // free-text marketing copy on purpose.
-            'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
             'service_types' => ['nullable', 'array'],
             'service_types.*' => [Rule::in(Service::SERVICE_TYPES)],
-            // Canonical Services.md taxonomy — additive to service_types
-            // above (an unrelated, operational enum). service_leaf_type is
-            // only checked against its parent service_category's own leaf
-            // list when both are present; either may be set alone.
             // One of the 4 approved services (CanonicalTaxonomy::SERVICE_GROUPS, 2026-10-14). The order
             // types below are worked out from it on save (Service::deriveOrderTypes), not ticked.
             'service_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::serviceGroups())],
@@ -58,9 +42,6 @@ class StoreServiceRequest extends FormRequest
             'garment_types.*' => ['string', 'max:100'],
             'capabilities' => ['nullable', 'array'],
             'capabilities.*' => ['string', Rule::in(CanonicalTaxonomy::capabilitiesOf($group))],
-            // Which "Service Categories" chip it sits under on the shop page.
-            'showcase_category' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::SERVICE_SHOWCASE_CATEGORIES)],
-            'service_leaf_type' => $serviceLeafTypeRule,
             'base_price' => ['nullable', 'numeric', 'min:0'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
             'sale_starts_at' => ['nullable', 'date'],

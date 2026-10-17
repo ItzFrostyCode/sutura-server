@@ -118,7 +118,7 @@ class AppointmentController extends Controller
         // ?upcoming=1: still-active bookings from today on, soonest first (Ask SUTURA's "My next appointment").
         $upcoming = $request->boolean('upcoming');
         $appointments = Appointment::where('customer_id', $request->user()->id)
-            ->with(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type'])
+            ->with(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category', 'catalogItem:id,name,garment_type'])
             ->when($upcoming, fn ($q) => $q->whereIn('status', ['pending', 'confirmed', 'in_progress'])
                 ->where('scheduled_at', '>=', now()->startOfDay())
                 ->orderBy('scheduled_at'))
@@ -136,9 +136,9 @@ class AppointmentController extends Controller
             'checked_in_at' => $appointment->checked_in_at,
             'duration_minutes' => $appointment->duration_minutes,
             'service_name' => $appointment->service?->name,
-            'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category', 'service_leaf_type']) : null,
+            'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category']) : null,
             // The catalog design this was booked from, with the size/color picked on its page.
-            'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'department', 'subcategory', 'garment_structure', 'garment_type']),
+            'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'garment_type']),
             'selected_size' => $appointment->selected_size,
             'selected_color' => $appointment->selected_color,
             'payment_status' => $appointment->payment_status,
@@ -305,7 +305,7 @@ class AppointmentController extends Controller
             return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
         }
 
-        $appointment->load(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type']);
+        $appointment->load(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category', 'catalogItem:id,name,garment_type']);
 
         return response()->json([
             'success' => true,
@@ -320,9 +320,9 @@ class AppointmentController extends Controller
                 'checked_in_at' => $appointment->checked_in_at,
                 'duration_minutes' => $appointment->duration_minutes,
                 'service_name' => $appointment->service?->name,
-                'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category', 'service_leaf_type']) : null,
+                'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category']) : null,
                 // The catalog design this was booked from, with the size/color picked on its page.
-                'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'department', 'subcategory', 'garment_structure', 'garment_type']),
+                'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'garment_type']),
                 'selected_size' => $appointment->selected_size,
                 'selected_color' => $appointment->selected_color,
                 // New bookings take no payment; an old booking that did still shows it.
@@ -363,7 +363,7 @@ class AppointmentController extends Controller
 
         $query = $store->appointments()->with([
             'customer:id,name,email,phone',
-            'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type',
+            'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type',
             'branch:id,name',
             'assignedStaff:id,name',
             'jobOrder:id,order_number',
@@ -567,7 +567,7 @@ class AppointmentController extends Controller
         }
 
         $appointment = $store->appointments()->create($data);
-        $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+        $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         // The owner chose to serve the walk-in: each waiting online request is told to pick another time.
         $preemptedCount = 0;
@@ -588,7 +588,7 @@ class AppointmentController extends Controller
                 ? "Walk-in appointment confirmed. {$preemptedCount} pending online booking(s) for this slot were notified to reschedule."
                 : 'Appointment created successfully.',
             'preempted_count' => $preemptedCount,
-            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
         ], 201);
     }
 
@@ -890,7 +890,7 @@ class AppointmentController extends Controller
                     $appointment->forceFill(['reminder_sent_at' => null])->save();
                 }
 
-                $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+                $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
                 // ── Notifications ─────────────────────────────────────────────────────
                 $customer = $appointment->customer;
@@ -1007,7 +1007,7 @@ class AppointmentController extends Controller
             'success' => true,
             'started' => $started,
             'message' => $started ? 'Visit started.' : 'Arrival recorded. Another visit is using the branch until the booked time, so the customer waits.',
-            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
         ]);
     }
 
@@ -1081,7 +1081,7 @@ class AppointmentController extends Controller
                 ]);
             }
         }
-        $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+        $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         $customer = $appointment->customer;
         $newStatus = $updateData['status'];
@@ -1174,7 +1174,7 @@ class AppointmentController extends Controller
                 'cancellation_reason' => $validated['reason'],
                 'rebooking_blocked' => $validated['block_rebooking'] ?? false,
             ]);
-            $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+            $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
             $customer = $appointment->customer;
             if ($customer) {
@@ -1324,7 +1324,7 @@ class AppointmentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment status updated.',
-            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category,service_leaf_type', 'catalogItem:id,name,department,subcategory,garment_structure,garment_type', 'branch:id,name']),
+            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name']),
         ]);
     }
 }

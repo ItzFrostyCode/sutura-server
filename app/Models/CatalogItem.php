@@ -7,15 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class CatalogItem extends Model
 {
-    // Canonical garment taxonomy — the single source of truth the public
-    // header nav's category links (navColumns.ts), the /search page's
-    // category filter, and this field's own validation all key off.
-    // Transcribed from Mocked Layout/Categories.md via
-    // App\Support\CanonicalTaxonomy (mirrored on the frontend at
-    // src/lib/canonicalTaxonomy.ts) — this is the flattened leaf-level
-    // (Category → Subcategory → Garment Structure → Garment Type) list,
-    // not a flat ad hoc enum anymore. See `subcategory`/`garment_structure`
-    // below for the rest of the hierarchy.
     // Since the 2-level taxonomy (2026-10-14) this is every known garment slug, old and new: an old slug
     // still saved on a design must not be mistaken for a typed-in custom name (which would hide the design
     // until the admin approves it). Old slugs resolve through CanonicalTaxonomy::LEGACY_GARMENT_SLUGS.
@@ -24,24 +15,6 @@ class CatalogItem extends Model
         return CanonicalTaxonomy::knownGarmentSlugs();
     }
 
-    public static function garmentCategoryLabels(): array
-    {
-        return [...CanonicalTaxonomy::GARMENT_TYPE_LABELS, ...array_map(fn ($g) => $g['label'], CanonicalTaxonomy::GARMENTS)];
-    }
-
-    // The public header nav's other axis (MEN/WOMEN/KIDS) — sent as
-    // ?department= on nearly every nav link. Independent of garment
-    // category: a "suit" can be men's or women's. Wedding/Office are no
-    // longer departments — per Categories.md they're cross-cutting
-    // filters/attributes, not part of the category tree.
-    public const DEPARTMENTS = CanonicalTaxonomy::DEPARTMENTS;
-
-    public const DEPARTMENT_LABELS = CanonicalTaxonomy::DEPARTMENT_LABELS;
-
-    public const SUBCATEGORIES = CanonicalTaxonomy::SUBCATEGORY_LABELS;
-
-    public const GARMENT_STRUCTURES = CanonicalTaxonomy::GARMENT_STRUCTURES;
-
     protected $fillable = [
         'store_id', 'service_id', 'name', 'price', 'estimated_days', 'estimated_days_max',
         // How the design is priced against its service (App\Support\DesignPricing).
@@ -49,8 +22,7 @@ class CatalogItem extends Model
         'material', 'color', 'fabric_image_url', 'sizes', 'description',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
         'measurement_guide',
-        'features', 'care_instructions', 'garment_type', 'department',
-        'subcategory', 'garment_structure', 'listing_type', 'external_gallery_url',
+        'features', 'care_instructions', 'garment_type', 'listing_type', 'external_gallery_url',
         'is_active',
         'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
         // Server-resolved from garment_type in CatalogController, never client input.
@@ -67,6 +39,9 @@ class CatalogItem extends Model
         'sizes' => 'array',
         'is_active' => 'boolean',
     ];
+
+    // Men / Women / Kids, subcategory and top/bottom (2026-10-14) stay in the table, unused and never shown.
+    protected $hidden = ['department', 'subcategory', 'garment_structure'];
 
     protected $appends = ['category', 'apparel_review'];
 

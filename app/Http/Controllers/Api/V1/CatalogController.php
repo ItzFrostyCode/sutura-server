@@ -210,30 +210,10 @@ class CatalogController extends Controller
             $query->ofGarment((string) $request->string('category'));
         }
 
-        // The nav's other axis (men/women/children) — sent as ?department=
-        // on nearly every header nav link. Previously silently ignored:
-        // every department under a given category returned the exact same
-        // result set with no way to actually tell them apart.
-        if ($request->filled('department')) {
-            $dept = strtolower(trim((string) $request->string('department')));
-            if ($dept !== 'services' && $dept !== 'service') {
-                $query->whereRaw('LOWER(department) = ?', [$dept]);
-            }
-        }
-
         // 2-level taxonomy (2026-10-14): a garment category = all its garments (old slugs included).
         if ($request->filled('garment_category')) {
             $garments = CanonicalTaxonomy::garmentsInCategory((string) $request->string('garment_category'));
             $garments === [] ? $query->whereRaw('1 = 0') : $query->ofGarments($garments);
-        }
-
-        // Canonical Categories.md taxonomy — Subcategory and Garment
-        // Structure, the two levels between department and garment_type.
-        if ($request->filled('subcategory')) {
-            $query->whereRaw('LOWER(subcategory) = ?', [strtolower($request->string('subcategory'))]);
-        }
-        if ($request->filled('garment_structure')) {
-            $query->whereRaw('LOWER(garment_structure) = ?', [strtolower($request->string('garment_structure'))]);
         }
 
         // Scopes "More Like This" (and any other same-garment-type lookup)
@@ -389,7 +369,6 @@ class CatalogController extends Controller
     {
         // 2-level taxonomy (2026-10-14): a garment from the list (old slugs too — saved as the garment they
         // were merged into) or a typed-in name, which goes to the System Admin for approval (customApparelTypeId).
-        // Department / subcategory / structure are no longer needed and are kept only if a caller still sends them.
         $garmentTypeRule = ['nullable', 'string', 'max:100'];
 
         $validated = $request->validate([
@@ -408,9 +387,6 @@ class CatalogController extends Controller
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
             'garment_type' => $garmentTypeRule,
-            'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
-            'subcategory' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::allSubcategorySlugs())],
-            'garment_structure' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::GARMENT_STRUCTURES)],
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
@@ -452,9 +428,6 @@ class CatalogController extends Controller
             'sizes' => $validated['sizes'] ?? null,
             'description' => $validated['description'] ?? null,
             'garment_type' => $validated['garment_type'] ?? null,
-            'department' => $validated['department'] ?? null,
-            'subcategory' => $validated['subcategory'] ?? null,
-            'garment_structure' => $validated['garment_structure'] ?? null,
             // Made-to-order only — no ready-to-wear inventory or rental stock,
             // the approved thesis frames this as a tailoring tracker, not a
             // retail/rental system.
@@ -537,7 +510,7 @@ class CatalogController extends Controller
             // whether its linked service is bulk_sublimation-typed — the
             // frontend needs service_types to decide, not just the id.
             // The service's price too: a design is priced by its service (it only changes for custom work or add-ons).
-            'service:id,name,service_category,showcase_category,service_types,min_order_qty,roster_fields,base_price,sale_price,sale_starts_at,sale_ends_at',
+            'service:id,name,service_category,service_types,min_order_qty,roster_fields,base_price,sale_price,sale_starts_at,sale_ends_at',
         ];
 
         if ($this->belongsToStore($request, $store)) {
@@ -612,7 +585,6 @@ class CatalogController extends Controller
 
         // 2-level taxonomy (2026-10-14): a garment from the list (old slugs too — saved as the garment they
         // were merged into) or a typed-in name, which goes to the System Admin for approval (customApparelTypeId).
-        // Department / subcategory / structure are no longer needed and are kept only if a caller still sends them.
         $garmentTypeRule = ['nullable', 'string', 'max:100'];
 
         $validated = $request->validate([
@@ -630,9 +602,6 @@ class CatalogController extends Controller
             'sizes.*' => 'string|max:50',
             'description' => 'nullable|string',
             'garment_type' => $garmentTypeRule,
-            'department' => ['nullable', 'string', Rule::in(CatalogItem::DEPARTMENTS)],
-            'subcategory' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::allSubcategorySlugs())],
-            'garment_structure' => ['nullable', 'string', Rule::in(CanonicalTaxonomy::GARMENT_STRUCTURES)],
             'size_chart_image_url' => 'nullable|string|max:500',
             'size_chart_columns' => 'nullable|array',
             'size_chart_rows' => 'nullable|array',
@@ -688,9 +657,6 @@ class CatalogController extends Controller
             'material' => array_key_exists('material', $validated) ? $validated['material'] : $catalog->material,
             'description' => array_key_exists('description', $validated) ? $validated['description'] : $catalog->description,
             'garment_type' => array_key_exists('garment_type', $validated) ? $validated['garment_type'] : $catalog->garment_type,
-            'department' => array_key_exists('department', $validated) ? $validated['department'] : $catalog->department,
-            'subcategory' => array_key_exists('subcategory', $validated) ? $validated['subcategory'] : $catalog->subcategory,
-            'garment_structure' => array_key_exists('garment_structure', $validated) ? $validated['garment_structure'] : $catalog->garment_structure,
             'size_chart_image_url' => array_key_exists('size_chart_image_url', $validated) ? $validated['size_chart_image_url'] : $catalog->size_chart_image_url,
             'size_chart_columns' => array_key_exists('size_chart_columns', $validated) ? $validated['size_chart_columns'] : $catalog->size_chart_columns,
             'size_chart_rows' => array_key_exists('size_chart_rows', $validated) ? $validated['size_chart_rows'] : $catalog->size_chart_rows,

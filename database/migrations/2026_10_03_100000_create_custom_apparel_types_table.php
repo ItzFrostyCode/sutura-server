@@ -36,7 +36,7 @@ return new class extends Migration
 
         // Designs already live with a custom name stay live: their names
         // start out approved instead of vanishing from storefronts.
-        $fixed = CanonicalTaxonomy::allGarmentTypeSlugs();
+        $fixed = CanonicalTaxonomy::knownGarmentSlugs();
         DB::table('catalog_items')->whereNotNull('garment_type')->whereNotIn('garment_type', $fixed)
             ->orderBy('id')->get(['id', 'store_id', 'garment_type'])
             ->each(function ($item) {

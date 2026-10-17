@@ -33,20 +33,19 @@ class Service extends Model
 
     protected $fillable = [
         'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
-        'store_id', 'name', 'description', 'category', 'categories', 'department', 'service_type', 'service_types', 'tags',
-        // service_category/service_leaf_type: the new canonical Services.md
-        // taxonomy (Custom Tailoring > Bespoke Tailoring, etc) — additive to,
-        // not a replacement for, the free-text category/categories above and
-        // the operational service_type/service_types (TYPE_CUSTOM_TAILORING
-        // etc, drives Job Order conditional fields) below. See
-        // App\Support\CanonicalTaxonomy.
-        'service_category', 'showcase_category', 'service_leaf_type',
+        'store_id', 'name', 'description', 'category', 'categories', 'service_type', 'service_types', 'tags',
+        // service_category: one of the 4 services (App\Support\CanonicalTaxonomy::SERVICE_GROUPS), additive to
+        // the free-text category/categories above and the operational service_types below (derived from it).
+        // The old department / service_leaf_type / showcase_category columns stay in the table, unused.
+        'service_category',
         // 2-level taxonomy (2026-10-14): the garments it works on and the tasks it offers.
         'garment_types', 'capabilities',
         'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
         'estimated_days', 'estimated_days_max', 'min_order_qty', 'is_active', 'custom_fields', 'roster_fields', 'image_url',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
     ];
+
+    protected $hidden = ['department', 'service_leaf_type', 'showcase_category'];
 
     protected $casts = [
         'base_price' => 'decimal:2',

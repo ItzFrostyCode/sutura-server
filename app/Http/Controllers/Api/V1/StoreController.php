@@ -14,12 +14,21 @@ use App\Models\SubscriptionPlan;
 use App\Support\CanonicalTaxonomy;
 use App\Support\DesignPricing;
 use App\Support\SearchIntent;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class StoreController extends Controller
 {
+    private const DEFAULT_TIMEZONE = 'Asia/Manila';
+    private const SQL_LOWER_NAME_LIKE = 'LOWER(name) LIKE ?';
+    private const SQL_LOWER_CATEGORY_LIKE = 'LOWER(category) LIKE ?';
+    private const SQL_LOWER_GARMENT_TYPE_LIKE = 'LOWER(garment_type) LIKE ?';
+
     public function index(Request $request): JsonResponse
     {
         $stores = $request->user()->stores()->with('subscriptions.plan')->get();
@@ -126,10 +135,43 @@ class StoreController extends Controller
         // search that names none of them (a shop's name, a street, a barangay) uses the plain text match below.
         $intent = $request->filled('q') ? SearchIntent::parse((string) $request->string('q')) : null;
 
+        $this->applySearchFilters($query, $request, $intent);
+        $this->applyTaxonomyAndCategoryFilters($query, $request);
+        $this->applyOpenNowFilter($query, $request);
+        $this->applyPriceFilter($query, $request);
+        $this->applyAggregatesAndSearchCount($query, $request);
+        $this->applyDistanceFilter($query, $request);
+        $this->applySorting($query, $request);
+
+        $stores = $this->fetchStoresWithRelations($query, $request);
+
+        // Designs are priced by their service (App\Support\DesignPricing).
+        DesignPricing::attach($stores->getCollection()->flatMap(fn ($st) => $st->catalogItems));
+
+        $matchingServiceIds = $this->resolveMatchingServices($stores, $request, $intent);
+
+        $this->transformStoreCollection($stores, $request, $matchingServiceIds);
+
+        return response()->json([
+            'success' => true,
+            'data' => $stores->items(),
+            'meta' => [
+                'current_page' => $stores->currentPage(),
+                'last_page' => $stores->lastPage(),
+                'per_page' => $stores->perPage(),
+                'total' => $stores->total(),
+                // How the search was read (work, tasks, garments), so the page can say it; null for a plain text search.
+                'search' => $intent,
+            ],
+        ]);
+    }
+
+    private function applySearchFilters(Builder $query, Request $request, ?array $intent): void
+    {
         if ($intent !== null) {
             $search = strtolower((string) $request->string('q'));
             $query->where(function ($q) use ($search, $intent) {
-                $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
+                $q->whereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.$search.'%'])
                     ->orWhereHas('services', fn ($sq) => SearchIntent::constrainServices($sq, $intent));
                 if (SearchIntent::designsAnswer($intent)) {
                     $q->orWhereHas('catalogItems', fn ($cq) => $cq->listed()->ofGarments($intent['garments']));
@@ -138,28 +180,31 @@ class StoreController extends Controller
         } elseif ($request->filled('q')) {
             $search = strtolower((string) $request->string('q'));
             $query->where(function ($q) use ($search) {
-                $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
+                $q->whereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.$search.'%'])
                     ->orWhereRaw('LOWER(specializations) LIKE ?', ['%'.$search.'%'])
                     // "Ubalde" finds shops in that barangay; "Jasmin" finds the street.
                     ->orWhereHas('branches', fn ($bq) => $bq->whereRaw('LOWER(barangay) LIKE ?', ['%'.$search.'%'])->orWhereRaw('LOWER(address) LIKE ?', ['%'.$search.'%']))
                     ->orWhereHas('services', function ($sq) use ($search) {
-                        $sq->whereRaw('LOWER(category) LIKE ?', ['%'.$search.'%'])
-                            ->orWhereRaw('LOWER(name) LIKE ?', ['%'.$search.'%']);
+                        $sq->whereRaw(self::SQL_LOWER_CATEGORY_LIKE, ['%'.$search.'%'])
+                            ->orWhereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.$search.'%']);
                     })
                     ->orWhereHas('catalogItems', function ($cq) use ($search) {
                         $cq->listed()
                             ->where(function ($ccq) use ($search) {
-                                $ccq->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
-                                    ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%'.$search.'%'])
+                                $ccq->whereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.$search.'%'])
+                                    ->orWhereRaw(self::SQL_LOWER_GARMENT_TYPE_LIKE, ['%'.$search.'%'])
                                     ->orWhereRaw('LOWER(material) LIKE ?', ['%'.$search.'%'])
                                     ->orWhereRaw('LOWER(description) LIKE ?', ['%'.$search.'%']);
                             });
                     });
             });
         }
+    }
 
+    private function applyTaxonomyAndCategoryFilters(Builder $query, Request $request): void
+    {
         // A tailoring shop that has not listed any service or design yet is still a tailoring shop: the nav filters
-        // (garment, department, specialization) never hide it, they only narrow shops that have something listed.
+        // (garment, specialization) never hide it, they only narrow shops that have something listed.
         $nothingListed = fn ($q) => $q
             ->whereDoesntHave('services', fn ($sq) => $sq->where('is_active', true))
             ->whereDoesntHave('catalogItems', fn ($cq) => $cq->listed());
@@ -182,47 +227,24 @@ class StoreController extends Controller
             });
         }
 
-        // Header nav's MEN/WOMEN/KIDS/SERVICES axis — Store itself has no
-        // department column, so this filters to stores that actually carry
-        // something in that department: a catalog item tagged with it for
-        // men/women/children, or (a store has no equivalent column for
-        // "does services" other than having any) any active service at all
-        // for 'services'.
-        if ($request->filled('department')) {
-            $department = strtolower(trim((string) $request->string('department')));
-            if ($department === 'services' || $department === 'service') {
-                $query->where(fn ($w) => $w->where($nothingListed)
-                    ->orWhereHas('services', fn ($sq) => $sq->where('is_active', true)));
-            } else {
-                $query->where(fn ($w) => $w->where($nothingListed)
-                    ->orWhereHas('catalogItems', function ($cq) use ($department) {
-                        $cq->listed()->whereRaw('LOWER(department) = ?', [$department]);
-                    }));
-            }
-        }
-
         $spec = $request->input('specialization') ?: $request->input('category');
         if ($spec) {
             $query->where(function ($sq) use ($spec, $nothingListed) {
-                // Specializations are now the canonical Men/Women/Kids +
-                // Services axes (CanonicalTaxonomy::storeSpecializations()),
-                // so also match a store by what it actually carries — a
-                // catalog item in that department, or a service in that
-                // service category — not only by its self-declared tags.
+                // Match a store by its self-declared tags and by what it actually carries —
+                // a design of that garment, or a service in that service group.
                 $sq->whereJsonContains('specializations', (string) $spec)
                     ->orWhereHas('catalogItems', function ($cq) use ($spec) {
                         $cq->listed()
                             ->where(function ($ccq) use ($spec) {
                                 $ccq->where(fn ($g) => $g->ofGarment((string) $spec))
-                                    ->orWhere('department', (string) $spec)
-                                    ->orWhereRaw('LOWER(name) LIKE ?', ['%'.strtolower((string) $spec).'%']);
+                                    ->orWhereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.strtolower((string) $spec).'%']);
                             });
                     })
                     ->orWhereHas('services', function ($svq) use ($spec) {
                         $svq->where('is_active', true)
                             ->where(function ($ssq) use ($spec) {
                                 $ssq->where('service_category', (string) $spec)
-                                    ->orWhereRaw('LOWER(category) LIKE ?', ['%'.strtolower((string) $spec).'%']);
+                                    ->orWhereRaw(self::SQL_LOWER_CATEGORY_LIKE, ['%'.strtolower((string) $spec).'%']);
                             });
                     })
                     ->orWhere($nothingListed);
@@ -233,83 +255,96 @@ class StoreController extends Controller
         if ($place = StoreBranch::placeFilter($request)) {
             $query->whereHas('branches', $place);
         }
+    }
 
-        if ($request->boolean('open_now')) {
-            // Real-time branch availability, per Objective 3's own wording.
-            // Two things this has to get right, both already-known failure
-            // modes elsewhere in this codebase:
-            // 1. Asia/Manila, not the app's UTC default — Store::getActiveSpecialHoursAttribute()
-            //    already carries this exact warning; a bare now() here would
-            //    put the day/time boundary up to 8 hours off from the
-            //    store's actual local day during Manila's early-morning hours.
-            // 2. A store can declare a store-wide special-hours override
-            //    (holiday closure, or a special open/close time) via
-            //    StoreSpecialHour — checking only the regular weekly
-            //    operating_hours would show a specially-closed store as
-            //    "open" (or vice versa) on exactly the dates an owner most
-            //    needs this to be accurate.
-            $day = strtolower(now('Asia/Manila')->format('l'));
-            $time = now('Asia/Manila')->format('H:i');
-            $today = now('Asia/Manila')->toDateString();
-
-            // Most-recent store-wide (not branch-specific) special-hours row
-            // covering today, if any — same "most recently created wins on
-            // overlap" tiebreak as Store::getActiveSpecialHoursAttribute().
-            $todaySpecial = \DB::table('store_special_hours')
-                ->selectRaw('store_id, is_closed, special_open_time, special_close_time, ROW_NUMBER() OVER (PARTITION BY store_id ORDER BY created_at DESC) as rn')
-                ->whereNull('store_branch_id')
-                ->where('start_date', '<=', $today)
-                ->where('end_date', '>=', $today);
-
-            $query->leftJoinSub($todaySpecial, 'today_special', function ($join) {
-                $join->on('today_special.store_id', '=', 'stores.id')->where('today_special.rn', '=', 1);
-            })
-                ->where(function ($q) use ($day, $time) {
-                    $q->where(function ($qq) use ($day, $time) {
-                        // No special-hours override today — fall back to the
-                        // regular weekly schedule. MySQL's ->> operator is
-                        // JSON_UNQUOTE(JSON_EXTRACT(...)) shorthand; is_open
-                        // compares against the unquoted string since
-                        // JSON_UNQUOTE always yields a string, even for a JSON
-                        // boolean.
-                        $qq->whereNull('today_special.store_id')
-                            // Laravel's JSON-path where() compiles to the right syntax on MySQL and Postgres
-                            // ($day is one of the seven weekday names, never user input).
-                            ->where("stores.operating_hours->{$day}->is_open", true)
-                            ->where("stores.operating_hours->{$day}->open", '<=', $time)
-                            ->where("stores.operating_hours->{$day}->close", '>', $time);
-                    })->orWhere(function ($qq) use ($time) {
-                        // Override exists today and it's not a full closure —
-                        // check the special hours instead of the regular ones.
-                        $qq->where('today_special.is_closed', false)
-                            ->where('today_special.special_open_time', '<=', $time)
-                            ->where('today_special.special_close_time', '>', $time);
-                    });
-                });
+    private function applyOpenNowFilter(Builder $query, Request $request): void
+    {
+        if (! $request->boolean('open_now')) {
+            return;
         }
 
-        if ($request->filled('min_price') || $request->filled('max_price')) {
-            $query->where(function ($q) use ($request) {
-                $q->whereHas('services', function ($sq) use ($request) {
-                    $sq->where('is_active', true);
-                    if ($request->filled('min_price')) {
-                        $sq->where('base_price', '>=', $request->float('min_price'));
-                    }
-                    if ($request->filled('max_price')) {
-                        $sq->where('base_price', '<=', $request->float('max_price'));
-                    }
-                })->orWhereHas('catalogItems', function ($cq) use ($request) {
-                    $cq->listed();
-                    if ($request->filled('min_price')) {
-                        $cq->where('price', '>=', $request->float('min_price'));
-                    }
-                    if ($request->filled('max_price')) {
-                        $cq->where('price', '<=', $request->float('max_price'));
-                    }
+        // Real-time branch availability, per Objective 3's own wording.
+        // Two things this has to get right, both already-known failure
+        // modes elsewhere in this codebase:
+        // 1. Asia/Manila, not the app's UTC default — Store::getActiveSpecialHoursAttribute()
+        //    already carries this exact warning; a bare now() here would
+        //    put the day/time boundary up to 8 hours off from the
+        //    store's actual local day during Manila's early-morning hours.
+        // 2. A store can declare a store-wide special-hours override
+        //    (holiday closure, or a special open/close time) via
+        //    StoreSpecialHour — checking only the regular weekly
+        //    operating_hours would show a specially-closed store as
+        //    "open" (or vice versa) on exactly the dates an owner most
+        //    needs this to be accurate.
+        $day = strtolower(now(self::DEFAULT_TIMEZONE)->format('l'));
+        $time = now(self::DEFAULT_TIMEZONE)->format('H:i');
+        $today = now(self::DEFAULT_TIMEZONE)->toDateString();
+
+        // Most-recent store-wide (not branch-specific) special-hours row
+        // covering today, if any — same "most recently created wins on
+        // overlap" tiebreak as Store::getActiveSpecialHoursAttribute().
+        $todaySpecial = DB::table('store_special_hours')
+            ->selectRaw('store_id, is_closed, special_open_time, special_close_time, ROW_NUMBER() OVER (PARTITION BY store_id ORDER BY created_at DESC) as rn')
+            ->whereNull('store_branch_id')
+            ->where('start_date', '<=', $today)
+            ->where('end_date', '>=', $today);
+
+        $query->leftJoinSub($todaySpecial, 'today_special', function ($join) {
+            $join->on('today_special.store_id', '=', 'stores.id')->where('today_special.rn', '=', 1);
+        })
+            ->where(function ($q) use ($day, $time) {
+                $q->where(function ($qq) use ($day, $time) {
+                    // No special-hours override today — fall back to the
+                    // regular weekly schedule. MySQL's ->> operator is
+                    // JSON_UNQUOTE(JSON_EXTRACT(...)) shorthand; is_open
+                    // compares against the unquoted string since
+                    // JSON_UNQUOTE always yields a string, even for a JSON
+                    // boolean.
+                    $qq->whereNull('today_special.store_id')
+                        // Laravel's JSON-path where() compiles to the right syntax on MySQL and Postgres
+                        // ($day is one of the seven weekday names, never user input).
+                        ->where("stores.operating_hours->{$day}->is_open", true)
+                        ->where("stores.operating_hours->{$day}->open", '<=', $time)
+                        ->where("stores.operating_hours->{$day}->close", '>', $time);
+                })->orWhere(function ($qq) use ($time) {
+                    // Override exists today and it's not a full closure —
+                    // check the special hours instead of the regular ones.
+                    $qq->where('today_special.is_closed', false)
+                        ->where('today_special.special_open_time', '<=', $time)
+                        ->where('today_special.special_close_time', '>', $time);
                 });
             });
+    }
+
+    private function applyPriceFilter(Builder $query, Request $request): void
+    {
+        if (! $request->filled('min_price') && ! $request->filled('max_price')) {
+            return;
         }
 
+        $query->where(function ($q) use ($request) {
+            $q->whereHas('services', function ($sq) use ($request) {
+                $sq->where('is_active', true);
+                if ($request->filled('min_price')) {
+                    $sq->where('base_price', '>=', $request->float('min_price'));
+                }
+                if ($request->filled('max_price')) {
+                    $sq->where('base_price', '<=', $request->float('max_price'));
+                }
+            })->orWhereHas('catalogItems', function ($cq) use ($request) {
+                $cq->listed();
+                if ($request->filled('min_price')) {
+                    $cq->where('price', '>=', $request->float('min_price'));
+                }
+                if ($request->filled('max_price')) {
+                    $cq->where('price', '<=', $request->float('max_price'));
+                }
+            });
+        });
+    }
+
+    private function applyAggregatesAndSearchCount(Builder $query, Request $request): void
+    {
         $query->withCount('reviews')->withAvg('reviews', 'rating');
 
         // Real, uncapped totals — the catalogItems/services relations
@@ -332,8 +367,8 @@ class StoreController extends Controller
                 'catalogItems as matching_items_count' => function ($cq) use ($search) {
                     $cq->listed()
                         ->where(function ($ccq) use ($search) {
-                            $ccq->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
-                                ->orWhereRaw('LOWER(garment_type) LIKE ?', ['%'.$search.'%'])
+                            $ccq->whereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.$search.'%'])
+                                ->orWhereRaw(self::SQL_LOWER_GARMENT_TYPE_LIKE, ['%'.$search.'%'])
                                 ->orWhereRaw('LOWER(material) LIKE ?', ['%'.$search.'%'])
                                 ->orWhereRaw('LOWER(description) LIKE ?', ['%'.$search.'%']);
                         });
@@ -345,24 +380,32 @@ class StoreController extends Controller
             // Same AVG as withAvg() above, repeated: a select alias cannot be used in WHERE/HAVING on Postgres.
             $query->whereRaw('(SELECT AVG(r.rating) FROM store_reviews r WHERE r.store_id = stores.id) >= ?', [$request->float('min_rating')]);
         }
+    }
 
-        if ($request->filled('lat') && $request->filled('lng')) {
-            $lat = $request->float('lat');
-            $lng = $request->float('lng');
-
-            // No geospatial package exists anywhere in this codebase — plain
-            // Haversine formula against each store's nearest active branch.
-            // No "stores.*," prefix here — withCount()/withAvg() above already
-            // add it implicitly; repeating it caused a "duplicate column
-            // 'id'" error once paginate() wrapped this into a COUNT subquery.
-            $distanceSql = self::distanceSql('stores.id');
-            $query->selectRaw("($distanceSql) as distance_km", [$lat, $lng, $lat]);
-
-            if ($request->filled('radius_km')) {
-                $query->whereRaw("$distanceSql <= ?", [$lat, $lng, $lat, $request->float('radius_km')]);
-            }
+    private function applyDistanceFilter(Builder $query, Request $request): void
+    {
+        if (! $request->filled('lat') || ! $request->filled('lng')) {
+            return;
         }
 
+        $lat = $request->float('lat');
+        $lng = $request->float('lng');
+
+        // No geospatial package exists anywhere in this codebase — plain
+        // Haversine formula against each store's nearest active branch.
+        // No "stores.*," prefix here — withCount()/withAvg() above already
+        // add it implicitly; repeating it caused a "duplicate column
+        // 'id'" error once paginate() wrapped this into a COUNT subquery.
+        $distanceSql = self::distanceSql('stores.id');
+        $query->selectRaw("($distanceSql) as distance_km", [$lat, $lng, $lat]);
+
+        if ($request->filled('radius_km')) {
+            $query->whereRaw("$distanceSql <= ?", [$lat, $lng, $lat, $request->float('radius_km')]);
+        }
+    }
+
+    private function applySorting(Builder $query, Request $request): void
+    {
         $sortBy = $request->string('sort_by')->toString();
         if (! $sortBy) {
             if ($request->filled('lat') && $request->filled('lng')) {
@@ -397,8 +440,11 @@ class StoreController extends Controller
                 default => $query->orderByDesc('is_featured')->orderByDesc('created_at'),
             };
         }
+    }
 
-        $stores = $query->with([
+    private function fetchStoresWithRelations(Builder $query, Request $request): LengthAwarePaginator
+    {
+        return $query->with([
             'branches' => fn ($q) => $q->live(),
             'services' => fn ($q) => $q->where('is_active', true)->withCount('reviews')->withAvg('reviews', 'rating'),
             'owner:id,name',
@@ -419,31 +465,37 @@ class StoreController extends Controller
                 $cq->latest()->take(10);
             },
         ])->paginate($request->input('per_page', 20));
+    }
 
-        // Designs are priced by their service (App\Support\DesignPricing).
-        DesignPricing::attach($stores->getCollection()->flatMap(fn ($st) => $st->catalogItems));
-
+    private function resolveMatchingServices(LengthAwarePaginator $stores, Request $request, ?array $intent): Collection
+    {
         // Which of each shop's services the search is actually about: the service itself matches, or one of
         // its listed designs does ("tuxedo" -> Bespoke Suit). The list shows those, not every service the shop
         // has, so a broad service is not offered as a match just because the shop also carries something else.
-        $matchingServiceIds = collect();
-        if ($intent !== null && $stores->isNotEmpty()) {
+        if ($stores->isEmpty()) {
+            return collect();
+        }
+
+        if ($intent !== null) {
             // The services that do what was searched ("fix my pants" -> the alteration service, not the one
             // that makes pants), by the same rule the shop was matched with.
-            $matchingServiceIds = Service::whereIn('store_id', $stores->getCollection()->pluck('id'))
+            return Service::whereIn('store_id', $stores->getCollection()->pluck('id'))
                 ->where(fn ($sq) => SearchIntent::constrainServices($sq, $intent))
                 ->get(['id', 'store_id'])
                 ->groupBy('store_id')
                 ->map(fn ($rows) => $rows->pluck('id')->values());
-        } elseif ($request->filled('q') && $stores->isNotEmpty()) {
+        }
+
+        if ($request->filled('q')) {
             $search = '%'.strtolower((string) $request->string('q')).'%';
-            $matchingServiceIds = Service::whereIn('store_id', $stores->getCollection()->pluck('id'))
+
+            return Service::whereIn('store_id', $stores->getCollection()->pluck('id'))
                 ->where('is_active', true)
                 ->where(function ($sq) use ($search) {
-                    $sq->whereRaw('LOWER(name) LIKE ?', [$search])
-                        ->orWhereRaw('LOWER(category) LIKE ?', [$search])
+                    $sq->whereRaw(self::SQL_LOWER_NAME_LIKE, [$search])
+                        ->orWhereRaw(self::SQL_LOWER_CATEGORY_LIKE, [$search])
                         ->orWhereHas('catalogItems', fn ($cq) => $cq->listed()->where(function ($ccq) use ($search) {
-                            $ccq->whereRaw('LOWER(name) LIKE ?', [$search])->orWhereRaw('LOWER(garment_type) LIKE ?', [$search]);
+                            $ccq->whereRaw(self::SQL_LOWER_NAME_LIKE, [$search])->orWhereRaw(self::SQL_LOWER_GARMENT_TYPE_LIKE, [$search]);
                         }));
                 })
                 ->get(['id', 'store_id'])
@@ -451,6 +503,11 @@ class StoreController extends Controller
                 ->map(fn ($rows) => $rows->pluck('id')->values());
         }
 
+        return collect();
+    }
+
+    private function transformStoreCollection(LengthAwarePaginator $stores, Request $request, Collection $matchingServiceIds): void
+    {
         // withAvg() returns reviews_avg_rating as whatever PDO hands back for
         // AVG() (a numeric string, not a float) since it's not a real column
         // Eloquent can cast — publicProfile()/show() round() it per-model for
@@ -473,19 +530,6 @@ class StoreController extends Controller
 
             return $store;
         });
-
-        return response()->json([
-            'success' => true,
-            'data' => $stores->items(),
-            'meta' => [
-                'current_page' => $stores->currentPage(),
-                'last_page' => $stores->lastPage(),
-                'per_page' => $stores->perPage(),
-                'total' => $stores->total(),
-                // How the search was read (work, tasks, garments), so the page can say it; null for a plain text search.
-                'search' => $intent,
-            ],
-        ]);
     }
 
     public function publicProfile(Store $store): JsonResponse
