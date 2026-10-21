@@ -1805,5 +1805,18 @@
         "ip_address": "127.0.0.1",
         "created_at": "2026-10-21 22:18:30",
         "updated_at": "2026-10-21 22:18:30"
+    },
+    {
+        "id": 198,
+        "store_id": 4,
+        "user_id": 20,
+        "actor_role": "store_owner",
+        "action": "appointment_discarded",
+        "model_type": "App\\Models\\Appointment",
+        "model_id": 35,
+        "payload": "{\"description\": \"Removed a walk-in visit started by mistake\"}",
+        "ip_address": "127.0.0.1",
+        "created_at": "2026-10-21 22:45:36",
+        "updated_at": "2026-10-21 22:45:36"
     }
 ]
