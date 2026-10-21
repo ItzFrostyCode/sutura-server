@@ -50,16 +50,6 @@
         "updated_at": "2026-10-21 22:17:31"
     },
     {
-        "id": "745079cb-36d1-47ef-9961-fe0d211bdd77",
-        "type": "App\\Notifications\\AppointmentBookedNotification",
-        "notifiable_type": "App\\Models\\User",
-        "notifiable_id": 20,
-        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Walk-in customer booked an appointment for Oct 21, 2026 05:40 PM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":35,\"customer_name\":\"Walk-in customer\",\"scheduled_at\":\"2026-10-21T09:40:02.000000Z\"}",
-        "read_at": null,
-        "created_at": "2026-10-21 17:40:02",
-        "updated_at": "2026-10-21 17:40:02"
-    },
-    {
         "id": "76c1a97e-9c41-43c2-b870-2e316d1d9af2",
         "type": "App\\Notifications\\AppointmentBookedNotification",
         "notifiable_type": "App\\Models\\User",

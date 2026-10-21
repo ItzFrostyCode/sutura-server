@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\DataSnapshot;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -11,6 +12,16 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // The saved data (database/snapshot) is the default: the same shops, accounts, appointments, orders and photos on
+        // every computer. It already holds the roles and plans. SEED_FROM=demo seeds the older generated demo shop instead.
+        $fromSnapshot = DataSnapshot::exists() && env('SEED_FROM', 'snapshot') !== 'demo';
+        $production = app()->environment('production') && ! filter_var(env('ALLOW_DEMO_SEED', false), FILTER_VALIDATE_BOOL);
+        if ($fromSnapshot && ! $production) {
+            $this->call(SnapshotSeeder::class);
+
+            return;
+        }
+
         $this->call([
             RoleSeeder::class,
             SubscriptionPlanSeeder::class,
