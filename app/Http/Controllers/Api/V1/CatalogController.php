@@ -140,16 +140,16 @@ class CatalogController extends Controller
             $item->total_revenue = (float) $item->catalog_revenue + $netJobRevenue;
             $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
 
-            // Sales/performance figures are the store owner's own business data —
-            // exact revenue and order counts have no business being visible to an
-            // anonymous storefront visitor (or a competitor). The public catalog
-            // card only ever renders reviews_count/reviews_avg_rating, so those
-            // stay; everything money- or count-related below is owner/staff-only.
+            $item->saves_count = (int) ($item->saves_count ?? 0);
+            $item->order_count = (int) (($item->catalog_orders_count ?? 0) + ($item->job_orders_count ?? 0));
+
+            // Revenue and view counts remain owner/staff only; order_count and saves_count
+            // are public engagement indicators displayed on the catalog card.
             if (! $isOwnerOrStaff) {
                 $item->makeHidden([
-                    'views_count', 'saves_count', 'catalog_orders_count', 'job_orders_count',
+                    'views_count', 'catalog_orders_count', 'job_orders_count',
                     'catalog_revenue', 'job_revenue', 'job_balance_sum', 'job_discount_sum',
-                    'total_revenue', 'order_count',
+                    'total_revenue',
                 ]);
             }
         });
@@ -194,13 +194,11 @@ class CatalogController extends Controller
                 // own frontend consumer (store/[store_id]/page.tsx) already
                 // falls back to the first image when none is primary; do the
                 // same here instead of silently showing no image at all.
+                'service:id,name',
                 'images',
             ])
-            ->withCount('reviews')
-            ->withAvg('reviews', 'rating')
-            // Order count only -- exact revenue stays owner-only, same
-            // privacy line index() already draws for storefront visitors.
-            ->withCount(['catalogOrders', 'jobOrders']);
+            ->withCount(['reviews', 'saves', 'catalogOrders', 'jobOrders'])
+            ->withAvg('reviews', 'rating');
 
         // A garment matches its old slugs too (CanonicalTaxonomy::LEGACY_GARMENT_SLUGS), so old links and
         // designs saved before the 2-level taxonomy still line up.
@@ -341,7 +339,8 @@ class CatalogController extends Controller
                 ? round((float) $item->reviews_avg_rating, 1)
                 : null;
             $item->price = $item->price !== null ? (float) $item->price : null;
-            $item->order_count = $item->catalog_orders_count + $item->job_orders_count;
+            $item->order_count = (int) ($item->catalog_orders_count + $item->job_orders_count);
+            $item->saves_count = (int) ($item->saves_count ?? 0);
             $item->distance_km = isset($item->distance_km) && $item->distance_km !== null
                 ? round((float) $item->distance_km, 1)
                 : null;
@@ -374,17 +373,21 @@ class CatalogController extends Controller
         $validated = $request->validate([
             ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'required|string|max:255',
-            'price' => 'nullable|numeric|min:0',
+            'price' => 'nullable|numeric|min:0|required_if:pricing_mode,set',
             // Priced by its service unless the shop says otherwise (App\Support\DesignPricing).
             'pricing_mode' => ['nullable', Rule::in(DesignPricing::MODES)],
             'extra_charge' => 'nullable|numeric|min:0|max:9999999|required_if:pricing_mode,extra',
             'estimated_days' => 'nullable|integer|min:1',
             'estimated_days_max' => 'nullable|integer|min:1|gt:estimated_days',
             'material' => 'nullable|string|max:255',
-            'color' => 'nullable|string|max:100',
+            'color' => 'nullable|string|max:1000',
             'fabric_image_url' => 'nullable|string|max:500',
             'sizes' => 'nullable|array',
             'sizes.*' => 'string|max:50',
+            'add_ons' => 'nullable|array|max:30',
+            'add_ons.*.id' => 'nullable|string|max:50',
+            'add_ons.*.name' => 'required|string|max:100',
+            'add_ons.*.price' => 'required|numeric|min:0|max:999999.99',
             'description' => 'nullable|string',
             'garment_type' => $garmentTypeRule,
             'size_chart_image_url' => 'nullable|string|max:500',
@@ -426,6 +429,7 @@ class CatalogController extends Controller
             'color' => $validated['color'] ?? null,
             'fabric_image_url' => $validated['fabric_image_url'] ?? null,
             'sizes' => $validated['sizes'] ?? null,
+            'add_ons' => $validated['add_ons'] ?? null,
             'description' => $validated['description'] ?? null,
             'garment_type' => $validated['garment_type'] ?? null,
             // Made-to-order only — no ready-to-wear inventory or rental stock,
@@ -511,6 +515,7 @@ class CatalogController extends Controller
             // frontend needs service_types to decide, not just the id.
             // The service's price too: a design is priced by its service (it only changes for custom work or add-ons).
             'service:id,name,service_category,service_types,min_order_qty,roster_fields,base_price,sale_price,sale_starts_at,sale_ends_at',
+            'service.pricing:id,service_id,label,amount',
         ];
 
         if ($this->belongsToStore($request, $store)) {
@@ -590,16 +595,20 @@ class CatalogController extends Controller
         $validated = $request->validate([
             ...\App\Support\OrderRequirements::offeringRules(),
             'name' => 'sometimes|string|max:255',
-            'price' => 'sometimes|numeric|min:0',
+            'price' => 'sometimes|nullable|numeric|min:0|required_if:pricing_mode,set',
             'pricing_mode' => ['sometimes', 'nullable', Rule::in(DesignPricing::MODES)],
             'extra_charge' => 'nullable|numeric|min:0|max:9999999|required_if:pricing_mode,extra',
             'estimated_days' => 'nullable|integer|min:1',
             'estimated_days_max' => 'nullable|integer|min:1|gt:estimated_days',
             'material' => 'nullable|string|max:255',
-            'color' => 'nullable|string|max:100',
+            'color' => 'nullable|string|max:1000',
             'fabric_image_url' => 'nullable|string|max:500',
             'sizes' => 'nullable|array',
             'sizes.*' => 'string|max:50',
+            'add_ons' => 'nullable|array|max:30',
+            'add_ons.*.id' => 'nullable|string|max:50',
+            'add_ons.*.name' => 'required|string|max:100',
+            'add_ons.*.price' => 'required|numeric|min:0|max:999999.99',
             'description' => 'nullable|string',
             'garment_type' => $garmentTypeRule,
             'size_chart_image_url' => 'nullable|string|max:500',
@@ -654,6 +663,7 @@ class CatalogController extends Controller
             'color' => array_key_exists('color', $validated) ? $validated['color'] : $catalog->color,
             'fabric_image_url' => array_key_exists('fabric_image_url', $validated) ? $validated['fabric_image_url'] : $catalog->fabric_image_url,
             'sizes' => array_key_exists('sizes', $validated) ? $validated['sizes'] : $catalog->sizes,
+            'add_ons' => array_key_exists('add_ons', $validated) ? $validated['add_ons'] : $catalog->add_ons,
             'material' => array_key_exists('material', $validated) ? $validated['material'] : $catalog->material,
             'description' => array_key_exists('description', $validated) ? $validated['description'] : $catalog->description,
             'garment_type' => array_key_exists('garment_type', $validated) ? $validated['garment_type'] : $catalog->garment_type,

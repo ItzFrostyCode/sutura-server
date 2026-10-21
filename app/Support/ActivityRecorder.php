@@ -91,6 +91,7 @@ class ActivityRecorder
         'PUT stores/{store}/appointments/{appointment}/verify-payment' => ['appointment_payment_verified', 'Checked an appointment deposit'],
         'POST stores/{store}/appointments/{appointment}/complete' => ['appointment_completed', 'Completed an appointment'],
         'POST stores/{store}/appointments/{appointment}/reject' => ['appointment_rejected', 'Rejected an appointment'],
+        'DELETE stores/{store}/appointments/{appointment}/discard' => ['appointment_discarded', 'Removed a walk-in visit started by mistake'],
         'DELETE stores/{store}/appointments/{appointment}' => ['appointment_deleted', 'Deleted an appointment'],
         'POST catalog/{store}/book' => ['booking_submitted', 'Booked through the shop page'],
         'PUT my-appointments/{appointment}/reschedule' => ['appointment_rescheduled', 'Rescheduled their appointment'],

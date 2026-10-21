@@ -37,6 +37,7 @@ class StoreApplicationRequest extends FormRequest
             // sign-in identifier, so it may match an existing customer account.
             'email' => ['required', 'string', 'email', 'max:191'],
             'contact_number' => ['required', 'string', 'max:20'],
+            'gender' => ['nullable', 'in:male,female'],
 
             // Store
             'store_name' => ['required', 'string', 'max:191'],

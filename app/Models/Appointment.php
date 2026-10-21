@@ -7,6 +7,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Notifications\DatabaseNotification;
 
 class Appointment extends Model
@@ -36,6 +37,15 @@ class Appointment extends Model
      */
     public const BOOKABLE_TYPES = ['consultation', 'measurement', 'alteration', 'other'];
 
+    /** What a customer can book online: measuring happens at the consultation, or at a follow-up visit the shop schedules. */
+    public const PUBLIC_TYPES = ['consultation', 'alteration', 'other'];
+
+    /** What a general shop visit (no service chosen) can be. Measuring or altering needs a service: there is nothing to measure or alter without one. */
+    public const SHOP_VISIT_TYPES = ['consultation', 'other'];
+
+    /** Statuses that use up a day's capacity: a request waiting for an answer, a visit that is on, or one already done. Cancelled, rejected and no-show free it. */
+    public const CAPACITY_STATUSES = ['pending', 'confirmed', 'in_progress', 'completed'];
+
     /** The kinds: service (for a service or design), shop (a general visit), production (system-made). */
     public const KINDS = ['service', 'shop', 'production'];
 
@@ -44,6 +54,9 @@ class Appointment extends Model
 
     /** The three results of "Done": consultation only, proceed to a production order, or the customer didn't come. */
     public const DONE_RESULTS = ['completed', 'converted_to_job', 'no_show'];
+
+    /** Where the design comes from: the shop's own, the customer's finished file, the customer's to be redone, or none yet. */
+    public const DESIGN_SOURCES = ['shop_design', 'customer_ready', 'customer_redo', 'none'];
 
     /** What a walk-in clash with a waiting online request can be settled with (the owner decides each time). */
     public const ON_CONFLICT = ['serve_walkin_reschedule_online', 'other_time'];
@@ -93,6 +106,7 @@ class Appointment extends Model
      */
     public const TYPES_REQUIRING_SERVICE = ['measurement', 'alteration'];
 
+
     /**
      * Valid status transitions.
      * Key = current status, value = allowed next statuses.
@@ -120,15 +134,21 @@ class Appointment extends Model
         'purpose_label',
         'intake_channel',
         'scheduled_at',
+        'previous_scheduled_at',
+        'visit_notes',
+        'design_source',
+        'design_link',
+        'people_count',
+        'pieces_count',
         'duration_minutes',
         'assigned_staff_id',
         'status',
         'notes',
         'reference_images',
         'reference_link',
-        'shared_link',
-        'shared_images',
         'answers',
+        'material_source',
+        'material_note',
         'job_order_id',
         'payment_method',
         'payment_reference',
@@ -160,10 +180,12 @@ class Appointment extends Model
 
     protected $casts = [
         'scheduled_at' => 'datetime',
+        'previous_scheduled_at' => 'datetime',
         'duration_minutes' => 'integer',
         'answers' => 'array',
         'reference_images' => 'array',
         'shared_images' => 'array',
+        'shared_links' => 'array',
         'reminder_sent_at' => 'datetime',
         'rebooking_blocked' => 'boolean',
         'checked_in_at' => 'datetime',
@@ -211,6 +233,18 @@ class Appointment extends Model
     public function accommodatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'accommodated_by_id');
+    }
+
+    /** The configurable items (services/designs) included in this appointment request. */
+    public function items(): HasMany
+    {
+        return $this->hasMany(AppointmentItem::class);
+    }
+
+    /** Measurement profiles associated with this appointment session. */
+    public function measurements(): HasMany
+    {
+        return $this->hasMany(Measurement::class);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -284,7 +318,7 @@ class Appointment extends Model
     public static function purposeFor(string $kind, ?string $requested, ?string $serviceCategory = null): string
     {
         if ($kind === 'shop') {
-            return in_array($requested, ['consultation', 'measurement', 'other'], true) ? $requested : 'consultation';
+            return in_array($requested, ['consultation', 'measurement', 'alteration', 'other'], true) ? $requested : 'consultation';
         }
 
         if ($serviceCategory === 'alterations_repairs') {
@@ -292,6 +326,29 @@ class Appointment extends Model
         }
 
         return $requested === 'measurement' ? 'measurement' : 'consultation';
+    }
+
+    /** How many bookings already use up the capacity of the day $day at this store (system-made fitting/pickup rows never count). */
+    public static function capacityUsedOn(Store $store, Carbon $day, ?int $excludeId = null): int
+    {
+        return $store->appointments()
+            ->whereIn('status', self::CAPACITY_STATUSES)
+            ->where('kind', '!=', 'production')
+            ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
+            ->whereDate('scheduled_at', $day->toDateString())
+            ->count();
+    }
+
+    /**
+     * Visits that happened (or are on) and still have no job order: the next orders to write up.
+     * A merely confirmed appointment has not happened yet, so it is not here.
+     */
+    public function scopeAwaitingJob($query)
+    {
+        return $query->whereIn('status', ['in_progress', 'completed'])
+            ->whereNull('job_order_id')
+            ->where('kind', '!=', 'production')
+            ->where(fn ($q) => $q->whereNull('outcome')->orWhereNotIn('outcome', ['no_show', 'cancelled', 'rescheduled']));
     }
 
     /**
@@ -360,35 +417,60 @@ class Appointment extends Model
      * Shop A followed immediately by 2:30 PM at Shop B doesn't overlap, but
      * is still physically impossible. CUSTOMER_TRAVEL_BUFFER_MINUTES is
      * added on both sides of the new slot so back-to-back bookings with no
-     * travel time between them are blocked too: the new appointment's
-     * [start - buffer, end + buffer] window must not touch any existing
-     * active appointment's [start, end] window.
+     * travel time between them are blocked when across different locations.
+     * When two appointments are at the exact same store branch, travel time
+     * between them is zero, so strict time overlap is prevented while allowing
+     * multiple legitimate same-day non-overlapping bookings.
      */
     public static function hasCustomerScheduleConflict(
         int $customerId,
         Carbon $scheduledAt,
         int $durationMinutes,
-        ?int $excludeId = null
+        ?int $excludeId = null,
+        ?int $targetStoreId = null,
+        ?int $targetBranchId = null
     ): bool {
         $buffer = self::CUSTOMER_TRAVEL_BUFFER_MINUTES;
-        $newStart = $scheduledAt->copy()->subMinutes($buffer);
-        $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes)->addMinutes($buffer);
+        $searchEnd = $scheduledAt->copy()->addMinutes($durationMinutes)->addMinutes($buffer);
 
         $query = self::where('customer_id', $customerId)
             ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
-            ->where('scheduled_at', '<', $newEnd);
+            ->where('scheduled_at', '<', $searchEnd);
         self::ignorePendingProduction($query);
 
         if ($excludeId) {
             $query->where('id', '!=', $excludeId);
         }
 
-        return $query->get(['scheduled_at', 'duration_minutes'])
-            ->contains(function (self $appointment) use ($newStart): bool {
-                return $appointment->scheduled_at->copy()
-                    ->addMinutes($appointment->duration_minutes ?? 60)
-                    ->gt($newStart);
-            });
+        $existing = $query->get(['id', 'store_id', 'store_branch_id', 'scheduled_at', 'duration_minutes']);
+
+        $newStart = $scheduledAt->copy();
+        $newEnd = $scheduledAt->copy()->addMinutes($durationMinutes);
+
+        foreach ($existing as $appointment) {
+            $aptStart = $appointment->scheduled_at->copy();
+            $aptEnd = $aptStart->copy()->addMinutes($appointment->duration_minutes ?? 60);
+
+            // Same store location: customer is at the same branch, no cross-town travel needed
+            $isSameLocation = ($targetStoreId !== null && (int) $appointment->store_id === (int) $targetStoreId)
+                && ($targetBranchId === null || (int) $appointment->store_branch_id === (int) $targetBranchId);
+
+            if ($isSameLocation) {
+                // Strict overlap: start < otherEnd && end > otherStart
+                if ($newStart->lt($aptEnd) && $newEnd->gt($aptStart)) {
+                    return true;
+                }
+            } else {
+                // Different store or branch: enforce physical travel buffer
+                $bufferedStart = $aptStart->copy()->subMinutes($buffer);
+                $bufferedEnd = $aptEnd->copy()->addMinutes($buffer);
+                if ($newStart->lt($bufferedEnd) && $newEnd->gt($bufferedStart)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -472,14 +554,8 @@ class Appointment extends Model
     public function preemptByWalkIn(self $walkInAppointment, ?User $actor = null): void
     {
         $oldScheduledAt = $this->scheduled_at ? $this->scheduled_at->format('M d, Y h:i A') : 'N/A';
-        $stamp = '[Walk-in Priority] Time slot claimed by in-person client on '.now()->format('M d, Y h:i A').'. Reschedule required.';
-
-        $newNotes = $this->notes ? ($stamp."\n".$this->notes) : $stamp;
-
-        $this->update([
-            'notes' => $newNotes,
-            'outcome' => 'rescheduled',
-        ]);
+        // The slot was claimed by a customer at the counter: the request stays pending and says it needs a new time.
+        $this->update(['outcome' => 'rescheduled']);
 
         // Notify the online customer about the walk-in preemption & reschedule prompt
         if ($this->customer) {
@@ -520,6 +596,21 @@ class Appointment extends Model
         static::creating(function (self $appointment) {
             if (empty($appointment->getAttributes()['kind'] ?? null)) {
                 $appointment->kind = self::guessKind($appointment->getAttributes());
+            }
+        });
+
+        // A fitting the order made that was cancelled or missed is replaced while the order still waits for it,
+        // so a required fitting can never strand the order (the job order never has to be moved back and forth).
+        static::updated(function (self $appointment) {
+            if (! $appointment->wasChanged('status') || ! in_array($appointment->status, ['cancelled', 'no_show'], true)) {
+                return;
+            }
+            if ($appointment->kind !== 'production' || $appointment->appointment_type !== 'fitting' || ! $appointment->job_order_id) {
+                return;
+            }
+            $job = $appointment->jobOrder;
+            if ($job && ! $job->trashed() && $job->status !== 'cancelled' && $job->awaitsFitting() && $appointment->store) {
+                $job->createFittingPlaceholder($appointment->store, false);
             }
         });
 

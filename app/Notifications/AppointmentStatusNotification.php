@@ -72,13 +72,14 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
     {
         return [
             'submitted' => 'Appointment Request Sent',
-            'confirmed' => 'Appointment Confirmed',
+            'booked' => 'A Visit Was Booked for You',
+            'confirmed' => 'Appointment Approved',
             'rescheduled' => 'Appointment Rescheduled',
             'cancelled' => 'Appointment Cancelled',
-            'rejected' => 'Appointment Rejected',
+            'rejected' => 'Appointment Declined',
             'completed' => 'Appointment Completed',
             'in_progress' => 'Appointment In Progress',
-            'no_show' => 'No-Show Recorded',
+            'no_show' => 'Missed Appointment',
             'walk_in_preempted' => 'Appointment Slot Claimed by Walk-in Client',
             'shared' => 'The Store Shared Something With You',
         ];
@@ -107,13 +108,14 @@ class AppointmentStatusNotification extends Notification implements ShouldQueue
 
         return [
             'submitted' => 'Your '.$purpose.' appointment request with '.$storeName.' for '.$scheduledAt.' has been sent. You\'ll be notified once the store responds.',
-            'confirmed' => 'Your '.$purpose.' appointment with '.$storeName.' for '.$scheduledAt.' has been confirmed by the store.',
+            'booked' => $storeName.' booked a '.$purpose.' visit for you on '.$scheduledAt.'. See you at the shop.',
+            'confirmed' => 'Your '.$purpose.' appointment with '.$storeName.' for '.$scheduledAt.' was approved by the shop.',
             'rescheduled' => 'Your '.$purpose.' appointment with '.$storeName.' has been rescheduled to '.$scheduledAt.'.',
             'cancelled' => 'Your '.$purpose.' appointment with '.$storeName.' for '.$scheduledAt.' has been cancelled.',
-            'rejected' => 'Your '.$purpose.' appointment request with '.$storeName.' for '.$scheduledAt.' was not accepted.'.($this->appointment->rejection_reason_code ? ' Reason: '.(Appointment::REJECTION_REASONS[$this->appointment->rejection_reason_code] ?? 'Other').($this->appointment->rejection_note ? ' — '.$this->appointment->rejection_note : '').'.' : ''),
-            'completed' => 'Your '.$purpose.' appointment with '.$storeName.' on '.$scheduledAt.' is now marked as completed.',
+            'rejected' => 'Your '.$purpose.' appointment request with '.$storeName.' for '.$scheduledAt.' was declined.'.($this->appointment->rejection_reason_code ? ' Reason: '.(Appointment::REJECTION_REASONS[$this->appointment->rejection_reason_code] ?? 'Other').($this->appointment->rejection_note ? ' — '.$this->appointment->rejection_note : '').'.' : ''),
+            'completed' => 'Your '.$purpose.' visit with '.$storeName.' on '.$scheduledAt.' is done.',
             'in_progress' => 'Your '.$purpose.' appointment with '.$storeName.' is now in progress.',
-            'no_show' => 'You were marked as a no-show for your '.$purpose.' appointment with '.$storeName.' at '.$scheduledAt.'.',
+            'no_show' => $storeName.' marked your '.$purpose.' appointment on '.$scheduledAt.' as missed. You can book a new time anytime.',
             'walk_in_preempted' => 'Your requested '.$purpose.' appointment slot with '.$storeName.' for '.$scheduledAt.' was claimed by an in-store walk-in client who arrived earlier. Please choose an alternative time slot.',
         ];
     }

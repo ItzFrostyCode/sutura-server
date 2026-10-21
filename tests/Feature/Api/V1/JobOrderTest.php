@@ -896,4 +896,96 @@ class JobOrderTest extends TestCase
             'rush_fee' => 1500.00, // 15% instead of the standard 30%
         ]);
     }
+
+    public function test_owner_can_update_garment_specification_table()
+    {
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9050',
+            'total_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'pending',
+            'custom_order_data' => [
+                'team_name' => 'Original Team',
+            ],
+        ]);
+
+        $specTable = [
+            'columns' => [
+                ['id' => 'col_1', 'key' => 'player_name', 'label' => 'Player Name', 'type' => 'text'],
+                ['id' => 'col_2', 'key' => 'number', 'label' => 'Jersey Number', 'type' => 'text'],
+                ['id' => 'col_3', 'key' => 'size', 'label' => 'Size', 'type' => 'text'],
+            ],
+            'rows' => [
+                ['id' => 'row_1', 'player_name' => 'Arabejo', 'number' => '7', 'size' => 'L', 'completed' => false],
+                ['id' => 'row_2', 'player_name' => 'Santos', 'number' => '10', 'size' => 'M', 'completed' => true],
+            ],
+        ];
+
+        $response = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}",
+            [
+                'custom_order_data' => [
+                    'spec_table' => $specTable,
+                ],
+            ]
+        );
+
+        $response->assertStatus(200);
+
+        $jobOrder->refresh();
+        $this->assertEquals('Original Team', $jobOrder->custom_order_data['team_name'] ?? null);
+        $this->assertCount(3, $jobOrder->custom_order_data['spec_table']['columns']);
+        $this->assertCount(2, $jobOrder->custom_order_data['spec_table']['rows']);
+        $this->assertEquals('Arabejo', $jobOrder->custom_order_data['spec_table']['rows'][0]['player_name']);
+        $this->assertTrue($jobOrder->custom_order_data['spec_table']['rows'][1]['completed']);
+    }
+
+    public function test_owner_can_update_customization_instructions()
+    {
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9051',
+            'total_amount' => 4500,
+            'balance' => 4500,
+            'status' => 'pending',
+        ]);
+
+        $instructions = [
+            [
+                'id' => 'inst_1',
+                'label' => 'Logo Placement',
+                'details' => 'Place company logo on left chest pocket.',
+                'reference_link' => 'https://example.com/logo.svg',
+                'reference_image' => 'https://example.com/mockup.png',
+                'scope' => 'entire_job',
+            ],
+            [
+                'id' => 'inst_2',
+                'label' => 'Collar Style',
+                'details' => 'Mandarin collar with gold piping.',
+                'scope' => 'custom_pieces',
+            ],
+        ];
+
+        $response = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}",
+            [
+                'custom_order_data' => [
+                    'customization_instructions' => $instructions,
+                ],
+            ]
+        );
+
+        $response->assertStatus(200);
+
+        $jobOrder->refresh();
+        $this->assertCount(2, $jobOrder->custom_order_data['customization_instructions']);
+        $this->assertEquals('Logo Placement', $jobOrder->custom_order_data['customization_instructions'][0]['label']);
+        $this->assertEquals('https://example.com/logo.svg', $jobOrder->custom_order_data['customization_instructions'][0]['reference_link']);
+    }
 }

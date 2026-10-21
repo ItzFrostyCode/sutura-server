@@ -25,7 +25,8 @@ class DecisionQueueController extends Controller
         // An owner sees the whole shop; a branch manager only their own branch.
         $branchId = $user->hasRole('store_owner') ? null : ($user->staffProfile->store_branch_id ?? null);
 
-        $apptQuery = $store->appointments()->where('status', 'pending')
+        // Requests to approve or decline: never the fitting a job order made (that one only needs its time confirmed).
+        $apptQuery = $store->appointments()->where('status', 'pending')->where('kind', '!=', 'production')
             ->when($branchId, fn ($q) => $q->where('store_branch_id', $branchId));
         $apptCount = (clone $apptQuery)->count();
         $appointments = (clone $apptQuery)

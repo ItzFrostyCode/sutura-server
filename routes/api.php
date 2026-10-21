@@ -216,7 +216,6 @@ Route::prefix('v1')->group(function () {
                 Route::get(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'show']);
                 Route::post('/measurements', [MeasurementController::class, 'store']);
                 Route::put(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'update']);
-                Route::delete(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'destroy']);
 
                 // Job Orders — staff can view and progress a job's stage/status,
                 // but cannot delete it or reassign who's working on it (that's a
@@ -261,6 +260,12 @@ Route::prefix('v1')->group(function () {
                 // "Customer arrived": one tap records the arrival and starts the visit. "Done" closes it.
                 Route::post('/appointments/{appointment}/arrive', [AppointmentController::class, 'arrive']);
                 Route::post('/appointments/{appointment}/complete', [AppointmentController::class, 'complete']);
+                // "Start consultation": a customer is here now. Any shop user can start one; booking a visit for later is owner / manager only.
+                Route::post('/appointments/consultation', [AppointmentController::class, 'startConsultation']);
+                // A walk-in visit started by mistake can be removed while nothing hangs on it.
+                Route::delete('/appointments/{appointment}/discard', [AppointmentController::class, 'discard']);
+                // A consultation that started with no name moves to the real customer.
+                Route::put('/appointments/{appointment}/customer', [AppointmentController::class, 'attachCustomer']);
                 // Narrow operational follow-up — Staff may create a scheduled
                 // return visit (consultation/fitting/adjustment/pickup) without
                 // the full owner/manager booking form's fields (payment method,
@@ -271,6 +276,8 @@ Route::prefix('v1')->group(function () {
                 // deliberately narrower action than store() below, not a role
                 // addition to it.
                 Route::post('/appointments/follow-up', [AppointmentController::class, 'createFollowUp']);
+                // Which branch a follow-up would go to, so the form shows that branch's free times.
+                Route::get('/appointments/follow-up-branch', [AppointmentController::class, 'followUpBranchFor']);
 
                 // Ready-to-Wear Orders — front-of-house staff record walk-in sales
                 // day to day; this shouldn't require the owner.
@@ -286,12 +293,14 @@ Route::prefix('v1')->group(function () {
                 Route::get(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'show']);
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::put(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'update']);
+                Route::put('/customers/{customer}/trusted', [CustomerController::class, 'setTrusted']);
                 Route::delete(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'destroy']);
 
                 // Services (read-only) — every role that can create/edit an
                 // appointment or job order needs to populate a service picker;
                 // managing services (create/update/delete) stays owner-only below.
                 Route::get('/services', [ServiceController::class, 'index']);
+                Route::get('/services/{service}', [ServiceController::class, 'show']);
 
                 // Staff & Branch directory (read-only) — staff, managers, and owners
                 // need to see the artisan roster, availability, and branch assignments.
@@ -325,6 +334,10 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
                 // "No downpayment for this order" (a customer the shop knows) — owner/manager only, audit-logged.
                 Route::post('/jobs/{jobOrder}/deposit-waiver', [JobOrderController::class, 'depositWaiver']);
+                // The service's rules are the order's starting values: the owner / manager can change them for one order, with a reason.
+                Route::put('/jobs/{jobOrder}/rules', [\App\Http\Controllers\Api\V1\OrderRulesController::class, 'update']);
+                // A group order whose people pay at different times is split into linked orders (batches).
+                Route::post('/jobs/{jobOrder}/split', [\App\Http\Controllers\Api\V1\OrderBatchController::class, 'split'])->middleware('throttle:sensitive-writes');
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment']);
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
@@ -496,6 +509,7 @@ Route::prefix('v1')->group(function () {
         // Admin Routes
         Route::prefix('admin')->middleware('role:admin')->group(function () {
             Route::get('/dashboard', [AdminDashboardController::class, 'overview']);
+            Route::get('/system-health', [AdminDashboardController::class, 'systemHealth']);
             // Branch map-location checks (a new or moved branch stays off the public map until verified)
             Route::get('/branches', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'index']);
             Route::put('/branches/{branch}/verify', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'verify']);

@@ -1,0 +1,26 @@
+[
+    {
+        "id": 8,
+        "store_id": 4,
+        "user_id": null,
+        "event": "appointment_confirmed",
+        "related_type": "appointment",
+        "related_id": 40,
+        "dedupe_key": "appointment:40:confirmed:Thu Dec 10, 10:30AM",
+        "to_number": "+639175550202",
+        "raw_number": "+639175550202",
+        "body": "Sakuragi Embroidery Davao: your consultation on Thu Dec 10, 10:30AM is CONFIRMED. See you!",
+        "segments": 1,
+        "status": "draft",
+        "blocked_reason": null,
+        "is_test": 0,
+        "provider": null,
+        "provider_message_id": null,
+        "error": null,
+        "approved_by": null,
+        "approved_at": null,
+        "sent_at": null,
+        "created_at": "2026-10-21 19:54:18",
+        "updated_at": "2026-10-21 19:54:18"
+    }
+]

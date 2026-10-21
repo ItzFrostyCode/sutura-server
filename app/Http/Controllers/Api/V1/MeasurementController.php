@@ -4,13 +4,38 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\StoreMeasurementRequest;
+use App\Models\Appointment;
+use App\Models\CatalogItem;
 use App\Models\Measurement;
 use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class MeasurementController extends Controller
 {
+    private const RELATIONS = ['customer:id,name', 'service:id,name', 'catalogItem:id,name'];
+
+    /**
+     * What a measurement is for: naming a design also names its service, and a measurement taken at an
+     * appointment is for whatever that appointment booked unless the shop says otherwise.
+     */
+    private function withPurpose(array $data, ?Appointment $appointment): array
+    {
+        $data['service_id'] = $data['service_id'] ?? null;
+        $data['catalog_item_id'] = $data['catalog_item_id'] ?? null;
+
+        if (! $data['service_id'] && ! $data['catalog_item_id'] && $appointment) {
+            $data['service_id'] = $appointment->service_id;
+            $data['catalog_item_id'] = $appointment->catalog_item_id;
+        }
+        if ($data['catalog_item_id'] && ! $data['service_id']) {
+            $data['service_id'] = CatalogItem::whereKey($data['catalog_item_id'])->value('service_id');
+        }
+
+        return $data;
+    }
+
     /**
      * Cross-store "My Measurements" for whoever is logged in — the customer
      * counterpart to index() above, which is store-scoped and staff/owner
@@ -28,6 +53,8 @@ class MeasurementController extends Controller
         $measurements = Measurement::where('customer_id', $customerId)
             ->with([
                 'store:id,name,slug,logo_path',
+                'service:id,name',
+                'catalogItem:id,name',
                 'jobOrders' => fn ($q) => $q->where('customer_id', $customerId)
                     ->select('id', 'measurement_id', 'order_number', 'status', 'garment_category', 'catalog_item_id', 'service_id', 'due_date', 'created_at')
                     ->with(['catalogItem:id,name', 'service:id,name'])
@@ -49,9 +76,11 @@ class MeasurementController extends Controller
         // by profile_name and lets the store owner switch between versions
         // client-side (see MeasurementList's version selector), so history
         // has to be in this same response, not a separate endpoint.
-        $query = $store->measurements()->with('customer:id,name,email');
+        $query = $store->measurements()->with(['customer:id,name,email', 'service:id,name', 'catalogItem:id,name']);
 
-        if ($request->has('customer_id')) {
+        if ($request->has('appointment_id')) {
+            $query->where('appointment_id', $request->appointment_id);
+        } elseif ($request->has('customer_id')) {
             $query->where('customer_id', $request->customer_id);
         }
 
@@ -65,11 +94,12 @@ class MeasurementController extends Controller
     {
         $data = $request->validated();
         $data['metrics'] = $data['metrics'] ?? []; // photo-only profiles carry no typed values
+        $data = $this->withPurpose($data, isset($data['appointment_id']) ? Appointment::find($data['appointment_id']) : null);
         $measurement = $store->measurements()->create($data);
 
         return response()->json([
             'success' => true,
-            'data' => $measurement->load('customer:id,name'),
+            'data' => $measurement->load(self::RELATIONS),
         ], 201);
     }
 
@@ -81,7 +111,7 @@ class MeasurementController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $measurement->load('customer:id,name'),
+            'data' => $measurement->load(self::RELATIONS),
         ]);
     }
 
@@ -100,6 +130,8 @@ class MeasurementController extends Controller
 
         $validated = $request->validate([
             'source' => 'nullable|in:store_owner,customer',
+            'service_id' => ['nullable', 'integer', Rule::exists('services', 'id')->where('store_id', $store->id)],
+            'catalog_item_id' => ['nullable', 'integer', Rule::exists('catalog_items', 'id')->where('store_id', $store->id)],
             'metrics' => 'sometimes|array',
             'measurements' => 'sometimes|array',
             'notes' => 'nullable|string',
@@ -120,8 +152,16 @@ class MeasurementController extends Controller
         // updated.
         $measurement->update(['superseded_at' => now()]);
 
+        $purpose = $this->withPurpose([
+            'service_id' => array_key_exists('service_id', $validated) ? $validated['service_id'] : $measurement->service_id,
+            'catalog_item_id' => array_key_exists('catalog_item_id', $validated) ? $validated['catalog_item_id'] : $measurement->catalog_item_id,
+        ], null);
+
         $nextVersion = $store->measurements()->create([
             'customer_id' => $measurement->customer_id,
+            'appointment_id' => $measurement->appointment_id,
+            'service_id' => $purpose['service_id'],
+            'catalog_item_id' => $purpose['catalog_item_id'],
             'source' => $validated['source'] ?? $measurement->source,
             'profile_name' => $measurement->profile_name,
             'version' => $measurement->version + 1,
@@ -133,27 +173,7 @@ class MeasurementController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $nextVersion->load('customer:id,name'),
-        ]);
-    }
-
-    public function destroy(Store $store, Measurement $measurement): JsonResponse
-    {
-        if ($measurement->store_id !== $store->id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
-
-        // Deleting a profile removes its whole version history, not just the
-        // current snapshot — otherwise old versions would be left orphaned
-        // with no current row pointing at them.
-        Measurement::where('store_id', $store->id)
-            ->where('customer_id', $measurement->customer_id)
-            ->where('profile_name', $measurement->profile_name)
-            ->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Measurement deleted successfully',
+            'data' => $nextVersion->load(self::RELATIONS),
         ]);
     }
 }

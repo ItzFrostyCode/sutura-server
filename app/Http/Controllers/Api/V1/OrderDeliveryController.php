@@ -244,20 +244,46 @@ class OrderDeliveryController extends Controller
         if ($jobOrder->status !== 'balance_handover') {
             return $this->fail('Move the order to Balance Payment & Handover first.');
         }
-        if ((float) $jobOrder->balance > 0.005) {
-            return $this->fail('Collect the remaining balance of ₱'.number_format((float) $jobOrder->balance, 2).' first. The order stays Ready for Collection until it is paid.');
+        $release = $request->boolean('release_with_balance');
+        $balance = (float) $jobOrder->balance;
+        if ($balance > 0.005) {
+            if (! $release) {
+                return $this->fail('Collect the remaining balance of ₱'.number_format($balance, 2).' first. The order stays Ready for Collection until it is paid.');
+            }
+            // The garments leave before they are paid: only the owner or a branch manager decides that.
+            if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager')) {
+                return $this->fail('Only the owner or a branch manager can release garments with a balance due.', 403);
+            }
         }
-        $v = $request->validate(['quantity' => 'required|integer|min:1', 'received_by' => 'nullable|string|max:120', 'note' => 'nullable|string|max:500']);
+        $v = $request->validate([
+            'quantity' => 'required|integer|min:1',
+            'received_by' => [$release && $balance > 0.005 ? 'required' : 'nullable', 'string', 'max:120'],
+            'note' => 'nullable|string|max:500',
+            'pay_by' => 'nullable|date|after_or_equal:today',
+        ]);
 
-        $remaining = (int) $jobOrder->quantity - OrderReadiness::handedOver($jobOrder);
+        $remaining = $jobOrder->garmentCount() - OrderReadiness::handedOver($jobOrder);
         if ($v['quantity'] > $remaining) {
-            return $this->fail("Only {$remaining} garment".($remaining === 1 ? ' is' : 's are').' left to hand over.');
+            return $this->fail($jobOrder->garmentCount() > 1 && ! empty($jobOrder->custom_order_data['people_count'])
+                ? "Only {$remaining} of the {$jobOrder->garmentCount()} people's garments ".($remaining === 1 ? 'is' : 'are').' left to hand over.'
+                : "Only {$remaining} garment".($remaining === 1 ? ' is' : 's are').' left to hand over.');
         }
         $jobOrder->handovers()->create([
             'quantity' => $v['quantity'], 'received_by' => $v['received_by'] ?? null, 'note' => $v['note'] ?? null,
             'recorded_by' => $request->user()->id, 'handed_over_at' => now(),
         ]);
         $this->logOrderAction($request, $store, $jobOrder, 'order_handover_recorded', ['quantity' => $v['quantity']]);
+        if ($release && $balance > 0.005) {
+            $jobOrder->forceFill([
+                'released_with_balance_at' => $jobOrder->released_with_balance_at ?? now(),
+                'released_with_balance_by' => $request->user()->id,
+                'balance_due_by' => $v['pay_by'] ?? $jobOrder->balance_due_by,
+            ])->save();
+            $this->logOrderAction($request, $store, $jobOrder, 'handover_released_with_balance', [
+                'quantity' => $v['quantity'], 'balance' => $balance, 'pay_by' => $v['pay_by'] ?? null,
+                'received_by' => $v['received_by'] ?? null, 'note' => $v['note'] ?? null,
+            ]);
+        }
 
         return $this->respond($request, $jobOrder, 'Handover recorded.', 201);
     }

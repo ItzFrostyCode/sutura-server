@@ -143,25 +143,7 @@ class JobOrderController extends Controller
 
     private function generateTrackingCode(?Store $store = null, ?string $orderNumber = null): string
     {
-        $prefix = self::generateStorePrefix($store);
-        $charset = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-
-        while (true) {
-            $suffix = '';
-            // 6 random characters (~1 billion combinations) after the shop prefix: the code is the
-            // only thing standing between the public tracker and someone else's order.
-            for ($i = 0; $i < 6; $i++) {
-                $suffix .= $charset[random_int(0, strlen($charset) - 1)];
-            }
-            // Ensure combination of letters and numbers
-            if (! preg_match('/[0-9]/', $suffix) || ! preg_match('/[A-Z]/', $suffix)) {
-                continue;
-            }
-            $code = "{$prefix}{$suffix}";
-            if (! JobOrder::withTrashed()->where('tracking_code', $code)->exists()) {
-                return $code;
-            }
-        }
+        return \App\Support\TrackingCode::make($store);
     }
 
     /**
@@ -281,12 +263,8 @@ class JobOrderController extends Controller
 
         $totalQty = count($validated['roster']);
 
-        if ($service->min_order_qty > 1 && $totalQty < $service->min_order_qty) {
-            return response()->json([
-                'success' => false,
-                'message' => "This service requires a minimum of {$service->min_order_qty} pieces.",
-            ], 422);
-        }
+        // The minimum is the shop's usual one, not a wall: a smaller request still goes to the shop, which decides.
+        $belowMinimum = $service->min_order_qty > 1 && $totalQty < $service->min_order_qty;
 
         // Keep whatever extra columns the customer added on the roster
         // table (e.g. "Jersey Number") — $request->validate() above only
@@ -301,7 +279,47 @@ class JobOrderController extends Controller
         // Priced by the service (plus the design's extra charge, if any) — never the design's old own price.
         // A design that needs a quotation starts at 0 and the shop quotes it in the order flow.
         $pricing = DesignPricing::resolve($item, $service);
-        $totalAmount = round(($pricing['amount'] ?? 0) * $totalQty, 2);
+        $baseUnit = $pricing['amount'] ?? 0;
+
+        // Size extras per piece from roster
+        $totalSizeExtras = 0.0;
+        foreach ($validated['roster'] as $r) {
+            $totalSizeExtras += DesignPricing::parseSizeExtra($r['size'] ?? '');
+        }
+        $totalSizeExtras = round($totalSizeExtras, 2);
+
+        // Resolve selected add-ons across the bulk order
+        $addOnsResult = DesignPricing::resolveAddOns($item, $service, $request->input('selected_add_ons'));
+        $totalAddOns = round($addOnsResult['total'] * $totalQty, 2);
+
+        $totalAmount = $pricing['needs_quote']
+            ? 0
+            : round(($baseUnit * $totalQty) + $totalSizeExtras + $totalAddOns, 2);
+
+        // Pre-build quotation additional charges
+        $additionalCharges = [];
+        if ($totalSizeExtras > 0) {
+            $additionalCharges[] = [
+                'label' => 'Size adjustments (bulk roster)',
+                'amount' => $totalSizeExtras,
+            ];
+        }
+        foreach ($addOnsResult['items'] as $addon) {
+            $levelLabel = $addon['level'] === 'design' ? 'Design add-on' : 'Service add-on';
+            $additionalCharges[] = [
+                'label' => "{$levelLabel}: {$addon['name']} ({$totalQty} pcs)",
+                'amount' => round($addon['price'] * $totalQty, 2),
+            ];
+        }
+
+        $initialQuotation = [
+            'base_price' => round($baseUnit * $totalQty, 2),
+            'quantity_adjustment' => 0,
+            'additional_charges' => $additionalCharges,
+            'customer_provided_deduction' => [],
+            'notes' => null,
+            'total' => $totalAmount,
+        ];
 
         // Customer-picked branch (via the catalog page's Find sheet) wins
         // when it actually belongs to this store; otherwise fall back to the
@@ -327,12 +345,29 @@ class JobOrderController extends Controller
             'payment_status' => 'unpaid',
             'status' => 'pending',
             'uses_confirmation_flow' => true,
+            'quotation' => $initialQuotation,
             'notes' => "Bulk order: {$item->name} — ".$sizeCounts->map(fn ($qty, $size) => "{$qty}x {$size}")->implode(', ')
+                .($totalSizeExtras > 0 ? ' (Size adjustments: ₱'.number_format($totalSizeExtras, 2).')' : '')
+                .($belowMinimum ? " (Below the usual minimum of {$service->min_order_qty}: {$totalQty} requested. The shop confirms.)" : '')
+                .(! empty($addOnsResult['items']) ? ' (Add-ons: '.collect($addOnsResult['items'])->pluck('name')->implode(', ').')' : '')
                 .($pricing['needs_quote'] ? '. Price to be quoted by the shop.' : ''),
             'reference_images' => $item->images()->where('is_primary', true)->value('image_url') ? [$item->images()->where('is_primary', true)->value('image_url')] : [],
             'custom_order_data' => [
                 'team_name' => $validated['organization_name'] ?? $item->name,
                 'team_roster' => $roster,
+                'people_count' => count($roster),
+                'size_surcharges_total' => $totalSizeExtras,
+                'selected_add_ons' => $addOnsResult['items'],
+                'pricing_snapshot' => [
+                    'mode' => $item->pricing_mode ?? 'same',
+                    'base_unit_price' => $baseUnit,
+                    'quantity' => $totalQty,
+                    'base_total' => round($baseUnit * $totalQty, 2),
+                    'size_surcharges_total' => $totalSizeExtras,
+                    'add_ons_total' => $totalAddOns,
+                    'total' => $totalAmount,
+                    'captured_at' => now()->toIso8601String(),
+                ],
             ],
         ]);
 
@@ -359,6 +394,7 @@ class JobOrderController extends Controller
         $validated = $request->validate([
             'catalog_item_id' => 'required|integer',
             'size' => 'nullable|string|max:50',
+            'selected_add_ons' => 'nullable|array|max:30',
         ]);
 
         $item = CatalogItem::where('id', $validated['catalog_item_id'])
@@ -383,7 +419,38 @@ class JobOrderController extends Controller
 
         // Same rule as a bulk order: the service's price plus the design's extra charge, or 0 until quoted.
         $pricing = DesignPricing::resolve($item, $service);
-        $totalAmount = $pricing['amount'] ?? 0;
+        $baseUnit = $pricing['amount'] ?? 0;
+        $sizeExtra = DesignPricing::parseSizeExtra($validated['size'] ?? null);
+        $addOnsResult = DesignPricing::resolveAddOns($item, $service, $request->input('selected_add_ons'));
+
+        $totalAmount = $pricing['needs_quote']
+            ? 0
+            : round($baseUnit + $sizeExtra + $addOnsResult['total'], 2);
+
+        $additionalCharges = [];
+        if ($sizeExtra > 0 && ! empty($validated['size'])) {
+            $additionalCharges[] = [
+                'label' => "Size adjustment ({$validated['size']})",
+                'amount' => $sizeExtra,
+            ];
+        }
+        foreach ($addOnsResult['items'] as $addon) {
+            $levelLabel = $addon['level'] === 'design' ? 'Design add-on' : 'Service add-on';
+            $additionalCharges[] = [
+                'label' => "{$levelLabel}: {$addon['name']}",
+                'amount' => $addon['price'],
+            ];
+        }
+
+        $initialQuotation = [
+            'base_price' => $baseUnit,
+            'quantity_adjustment' => 0,
+            'additional_charges' => $additionalCharges,
+            'customer_provided_deduction' => [],
+            'notes' => null,
+            'total' => $totalAmount,
+        ];
+
         $mainBranch = $store->branches()->where('is_main', true)->first();
         $primaryImage = $item->images()->where('is_primary', true)->value('image_url');
 
@@ -403,10 +470,24 @@ class JobOrderController extends Controller
             'payment_status' => 'unpaid',
             'status' => 'pending',
             'uses_confirmation_flow' => true,
+            'quotation' => $initialQuotation,
             'notes' => 'Made to Order: '.$item->name.(! empty($validated['size']) ? ' (Reference size: '.$validated['size'].')' : '')
+                .(! empty($addOnsResult['items']) ? ' (Add-ons: '.collect($addOnsResult['items'])->pluck('name')->implode(', ').')' : '')
                 .($pricing['needs_quote'] ? '. Price to be quoted by the shop.' : ''),
             'reference_images' => $primaryImage ? [$primaryImage] : [],
-            'custom_order_data' => ! empty($validated['size']) ? ['reference_size' => $validated['size']] : null,
+            'custom_order_data' => array_filter([
+                'reference_size' => $validated['size'] ?? null,
+                'size_extra' => $sizeExtra > 0 ? $sizeExtra : null,
+                'selected_add_ons' => $addOnsResult['items'] ?: null,
+                'pricing_snapshot' => [
+                    'mode' => $item->pricing_mode ?? 'same',
+                    'base_unit_price' => $baseUnit,
+                    'size_extra' => $sizeExtra,
+                    'add_ons_total' => $addOnsResult['total'],
+                    'total' => $totalAmount,
+                    'captured_at' => now()->toIso8601String(),
+                ],
+            ]),
         ]);
 
         $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
@@ -599,9 +680,23 @@ class JobOrderController extends Controller
         ]);
     }
 
+    /**
+     * The style notes written at the consultation (what the shop noted at the visit, and the shop's fitting note). The
+     * customer's own note goes to the order's notes, their answers to the service's questions and the fabric to the fabric
+     * choice, so none of those is repeated here.
+     */
+    private function consultationNotesFrom(Appointment $a): ?string
+    {
+        $lines = array_filter([trim((string) $a->visit_notes), trim((string) $a->fitting_notes) !== '' ? "Shop's fitting note: ".trim($a->fitting_notes) : '']);
+
+        return $lines ? implode("\n", $lines) : null;
+    }
+
     public function store(StoreJobOrderRequest $request, Store $store): JsonResponse
     {
         $validated = $request->validated();
+        // The extra services are made after the main order (see below); they are not columns of it.
+        unset($validated['extra_services']);
         // Set explicitly rather than relying on the DB column default — an
         // Eloquent model just-created from an array without this key never
         // gets it back until the row is re-fetched, so the create response
@@ -622,6 +717,10 @@ class JobOrderController extends Controller
             // order against this service's minimum.
             $roster = $validated['custom_order_data']['team_roster'] ?? null;
             $bulkQty = is_array($roster) ? count($roster) : 0;
+            // From now on a group order counts its people (handover, tracker); the marker keeps older orders as they were.
+            if ($bulkQty > 0) {
+                $validated['custom_order_data']['people_count'] = $bulkQty;
+            }
             if ($bulkQty === 0) {
                 $bulkQty = (int) ($validated['custom_order_data']['total_quantity'] ?? 0);
             }
@@ -636,15 +735,25 @@ class JobOrderController extends Controller
                 $validated['quantity'] = 1;
             }
 
+            // The service's minimum is the shop's usual one: the owner or a branch manager can go below it
+            // (agreed with the customer) after seeing the warning; plain staff ask them.
             if (
                 $service->hasType(Service::TYPE_BULK_SUBLIMATION)
                 && $service->min_order_qty > 1
                 && $bulkQty < $service->min_order_qty
             ) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "This service requires a minimum of {$service->min_order_qty} pieces.",
-                ], 422);
+                $canContinue = $request->user()->hasRole('store_owner') || $request->user()->hasRole('branch_manager');
+                if (! ($canContinue && $request->boolean('confirm_below_minimum'))) {
+                    return response()->json([
+                        'success' => false,
+                        'code' => 'below_minimum',
+                        'minimum' => (int) $service->min_order_qty,
+                        'quantity' => $bulkQty,
+                        'can_continue' => $canContinue,
+                        'message' => "Below the usual minimum: {$bulkQty} of {$service->min_order_qty}. ".($canContinue ? 'You can continue if you agreed on it.' : 'Ask the owner or a branch manager.'),
+                    ], 422);
+                }
+                $validated['custom_order_data']['below_minimum'] = ['minimum' => (int) $service->min_order_qty, 'quantity' => $bulkQty];
             }
 
             if (
@@ -658,23 +767,26 @@ class JobOrderController extends Controller
             }
         }
 
-        // Plain staff may only open a job order from an appointment of their own
-        // shop and branch (the thesis flow: staff create job orders from scheduled
-        // fittings). They never collect money or discount, so the order starts unpaid.
+        // Plain staff open a job order either for a customer standing at the counter (a walk-in,
+        // no appointment needed) or from an appointment of their own shop and branch. They never
+        // collect money or discount, so the order starts unpaid.
         $creator = $request->user();
         if (! $creator->hasRole('store_owner') && ! $creator->hasRole('branch_manager')) {
             $fromAppointment = $request->filled('appointment_id') ? Appointment::find($request->appointment_id) : null;
             $staffBranch = $creator->staffProfile?->store_branch_id;
-            if (
-                ! $fromAppointment
-                || $fromAppointment->store_id !== $store->id
-                || ! in_array($fromAppointment->status, ['confirmed', 'in_progress', 'completed'], true)
-                || $fromAppointment->job_order_id
-                || ($staffBranch && $fromAppointment->store_branch_id && (int) $staffBranch !== (int) $fromAppointment->store_branch_id)
-            ) {
+            $isWalkIn = ! $request->filled('appointment_id') && ($validated['intake_channel'] ?? 'walk_in') === 'walk_in';
+            if ($isWalkIn && $staffBranch) {
+                $validated['store_branch_id'] = $staffBranch;
+            }
+            $appointmentOk = $fromAppointment
+                && $fromAppointment->store_id === $store->id
+                && in_array($fromAppointment->status, ['confirmed', 'in_progress', 'completed'], true)
+                && ! $fromAppointment->job_order_id
+                && ! ($staffBranch && $fromAppointment->store_branch_id && (int) $staffBranch !== (int) $fromAppointment->store_branch_id);
+            if (! $isWalkIn && ! $appointmentOk) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Staff can create a job order from an approved appointment in their own branch, one per appointment.',
+                    'message' => 'Staff can create a job order for a walk-in, or from an approved appointment in their own branch (one per appointment).',
                 ], 403);
             }
             $validated['balance'] = $validated['total_amount'];
@@ -764,18 +876,45 @@ class JobOrderController extends Controller
         if ($request->filled('appointment_id')) {
             $candidate = Appointment::find($request->appointment_id);
             if ($candidate && $candidate->store_id === $store->id) {
+                if (! in_array($candidate->status, ['confirmed', 'in_progress', 'completed'], true)) {
+                    return response()->json(['success' => false, 'message' => 'Approve the appointment first. A job order can only come from an approved visit.'], 422);
+                }
+                if ((int) $candidate->customer_id !== (int) $validated['customer_id']) {
+                    return response()->json(['success' => false, 'message' => 'That appointment belongs to a different customer.'], 422);
+                }
+                if ($candidate->job_order_id) {
+                    return response()->json(['success' => false, 'message' => 'A job order was already made from this appointment.'], 422);
+                }
+            }
+            if ($candidate && $candidate->store_id === $store->id) {
                 $appointment = $candidate;
-                if (empty($validated['reference_images']) && ! empty($appointment->reference_images)) {
+                // Fill only what the form did not send at all (an older screen). A field the form sent, even empty, is the
+                // person's choice: removing a photo, a design or a note must stay removed.
+                $absent = fn (string $key) => ! $request->has($key);
+                if ($absent('reference_images') && ! empty($appointment->reference_images)) {
                     $validated['reference_images'] = $appointment->reference_images;
                 }
-                if (empty($validated['reference_link']) && ! empty($appointment->reference_link)) {
+                if ($absent('reference_link') && ! empty($appointment->reference_link)) {
                     $validated['reference_link'] = $appointment->reference_link;
                 }
-                if (empty($validated['garment_category']) && ! empty($appointment->garment_category)) {
+                if ($absent('garment_category') && ! empty($appointment->garment_category)) {
                     $validated['garment_category'] = $appointment->garment_category;
                 }
-                if (empty($validated['catalog_item_id']) && ! empty($appointment->catalog_item_id)) {
+                if ($absent('catalog_item_id') && ! empty($appointment->catalog_item_id)) {
                     $validated['catalog_item_id'] = $appointment->catalog_item_id;
+                }
+                // What was said in the consultation travels onto the order, so the people who make it have it too.
+                if ($absent('design_source') && ! empty($appointment->design_source)) {
+                    $validated['design_source'] = $appointment->design_source;
+                }
+                if ($absent('design_link') && ! empty($appointment->design_link)) {
+                    $validated['design_link'] = $appointment->design_link;
+                }
+                if ($absent('consultation_notes')) {
+                    $validated['consultation_notes'] = $this->consultationNotesFrom($appointment);
+                }
+                if ($absent('store_branch_id') && ! empty($appointment->store_branch_id)) {
+                    $validated['store_branch_id'] = $appointment->store_branch_id;
                 }
             }
         }
@@ -844,6 +983,11 @@ class JobOrderController extends Controller
             ]);
         }
 
+        // More services asked for at the same time: each is its own linked order.
+        $extras = $request->validated()['extra_services'] ?? [];
+        $extraOrders = $extras ? \App\Support\OrderBatches::attachExtraServices($store, $jobOrder, $extras) : [];
+        $jobOrder->setAttribute('extra_orders', collect($extraOrders)->map(fn ($o) => ['id' => $o->id, 'order_number' => $o->order_number])->values());
+
         $jobOrder->load(['customer:id,name', 'service', 'assignedStaff:id,name', 'staffStages', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images']);
 
         // Notify store owner of the new job order
@@ -894,6 +1038,11 @@ class JobOrderController extends Controller
             $jobOrder->measurement->is_stale = $currentVersion && $currentVersion->id !== $jobOrder->measurement->id;
             $jobOrder->measurement->current_version_id = $currentVersion?->id;
         }
+
+        // The group this order belongs to (batches), with amounts only for people allowed to see money.
+        $seesMoney = $request->user()->hasRole('store_owner') || $request->user()->hasRole('branch_manager');
+        $jobOrder->setAttribute('batch', \App\Support\OrderBatches::summary($jobOrder, $seesMoney));
+        $jobOrder->setAttribute('can_split', $seesMoney && \App\Support\OrderBatches::canSplit($jobOrder));
 
         return response()->json([
             'success' => true,
@@ -997,7 +1146,7 @@ class JobOrderController extends Controller
                 ! $flow
                 && in_array($newStatus, ['ready_for_pickup', 'completed'], true)
                 && $jobOrder->fitting_requirement === 'required'
-                && ! $jobOrder->appointments()->where('appointment_type', 'fitting')->where('status', 'completed')->exists()
+                && ! $jobOrder->fittings()->where('appointment_type', 'fitting')->where('status', 'completed')->exists()
             ) {
                 return response()->json([
                     'success' => false,
@@ -1037,7 +1186,7 @@ class JobOrderController extends Controller
             // is unaffected here; it's still handled after save, where the
             // auto-fitting appointment actually gets created.
             if ($newStatus === $fittingTrigger && $oldStatus !== $fittingTrigger && $store->fitting_limit_policy === 'block' && (! $flow || OrderReadiness::fittingNeeded($jobOrder))) {
-                $priorFittingCount = $jobOrder->appointments()->where('appointment_type', 'fitting')->count();
+                $priorFittingCount = $jobOrder->fittings()->where('appointment_type', 'fitting')->count();
                 if ($store->fitting_limit && $priorFittingCount >= $store->fitting_limit) {
                     return response()->json([
                         'success' => false,
@@ -1070,6 +1219,11 @@ class JobOrderController extends Controller
                 'success' => false,
                 'message' => 'This job has already started production — its measurement snapshot is locked and can no longer be switched to a different version.',
             ], 422);
+        }
+
+        if (array_key_exists('custom_order_data', $validated)) {
+            $existingData = $jobOrder->custom_order_data ?? [];
+            $validated['custom_order_data'] = array_merge($existingData, $validated['custom_order_data'] ?? []);
         }
 
         $jobOrder->update($validated);
@@ -1159,7 +1313,7 @@ class JobOrderController extends Controller
         // Confirmed live: cancelling JO-1005 left appointment #35 sitting at
         // 'pending' with no connection back to anything now dead.
         if ($jobOrder->status === 'cancelled' && $oldStatus !== 'cancelled') {
-            $jobOrder->appointments()
+            $jobOrder->fittings()
                 ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
                 ->get()
                 ->each(function (Appointment $appointment) use ($request) {
@@ -1235,62 +1389,7 @@ class JobOrderController extends Controller
             DB::transaction(function () use ($store, $jobOrder) {
                 JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
 
-                $hasOpenFitting = $jobOrder->appointments()
-                    ->where('appointment_type', 'fitting')
-                    ->whereIn('status', ['pending', 'confirmed', 'in_progress'])
-                    ->exists();
-
-                if (! $hasOpenFitting) {
-                    // Fitting session limit — the store's fitting_limit is how many
-                    // fitting appointments a job gets before fitting_limit_policy
-                    // kicks in: 'fee' (default, handled below) or 'block' (the
-                    // pre-save gate above already rejected the transition, so this
-                    // code only ever runs here under the 'fee' policy — not a
-                    // rental concept; every prior fitting counts toward it,
-                    // completed or not, since a no-show/cancelled session still
-                    // used the store's time). A job cycling ready_for_fitting →
-                    // final_adjustments → ready_for_fitting again is exactly the
-                    // real scenario this exists for: a second fitting round after
-                    // adjustments.
-                    $priorFittingCount = $jobOrder->appointments()->where('appointment_type', 'fitting')->count();
-                    $overFittingLimit = $store->fitting_limit && $priorFittingCount >= $store->fitting_limit;
-
-                    // "Tomorrow at 10am" is just a rough placeholder the owner
-                    // is expected to reschedule with the customer anyway — but
-                    // landing it on a day the store announced as closed (see
-                    // Store::closureTitleOn, also enforced for real bookings in
-                    // AppointmentController) would still look like a real bug
-                    // to whoever opens this appointment first. Walk forward to
-                    // the next open day instead, capped so a long closure
-                    // can't spin this into an unbounded loop.
-                    $placeholderDate = now()->addDay()->setTime(10, 0);
-                    for ($i = 0; $i < 30 && $store->closureTitleOn($placeholderDate, $jobOrder->store_branch_id); $i++) {
-                        $placeholderDate = $placeholderDate->copy()->addDay();
-                    }
-
-                    $jobOrder->appointments()->create([
-                        'store_id' => $store->id,
-                        'store_branch_id' => $jobOrder->store_branch_id,
-                        'customer_id' => $jobOrder->customer_id,
-                        'appointment_type' => 'fitting',
-                        // Made by the system for this production order: not a walk-in, and a pending one never blocks an online customer's time.
-                        'kind' => 'production',
-                        'intake_channel' => 'online',
-                        'scheduled_at' => $placeholderDate,
-                        'duration_minutes' => Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
-                        'status' => 'pending',
-                        'notes' => "Auto-generated when Job Order {$jobOrder->order_number} became Ready for Fitting — please confirm the actual date/time with the customer."
-                            .($overFittingLimit ? " This is fitting #{$priorFittingCount}+1, past the store's {$store->fitting_limit}-session limit — a ₱{$store->fitting_fee} fitting fee has been added to the balance." : ''),
-                    ]);
-
-                    if ($overFittingLimit && $store->fitting_fee > 0) {
-                        $jobOrder->increment('total_amount', $store->fitting_fee);
-                        $jobOrder->increment('balance', $store->fitting_fee);
-                        if ($jobOrder->payment_status === 'paid') {
-                            $jobOrder->update(['payment_status' => 'partial']);
-                        }
-                    }
-                }
+                $jobOrder->createFittingPlaceholder($store);
             });
         }
 
@@ -1554,6 +1653,10 @@ class JobOrderController extends Controller
                     'balance' => $newBalance,
                     'discount_amount' => $newDiscountTotal,
                     'payment_status' => $newBalance <= 0 ? 'paid' : $locked->payment_status,
+                    // The reason is shown on the receipt too ("bulk 20 pcs"); the audit log below keeps every one.
+                    'custom_order_data' => ! empty($validated['reason'])
+                        ? array_merge((array) $locked->custom_order_data, ['discount_reason' => $validated['reason']])
+                        : $locked->custom_order_data,
                 ]);
 
                 $store = $locked->store;
@@ -2023,6 +2126,10 @@ class JobOrderController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
+        // The consultation it was made from goes back to "ready for a job order"; the fittings it made are cancelled.
+        Appointment::where('job_order_id', $jobOrder->id)->where('kind', '!=', 'production')->update(['job_order_id' => null, 'outcome' => null]);
+        $jobOrder->fittings()->whereIn('status', ['pending', 'confirmed', 'in_progress'])->get()->each(fn (Appointment $a) => $a->update(['status' => 'cancelled']));
+
         $jobOrder->delete();
 
         return response()->json([
@@ -2044,6 +2151,11 @@ class JobOrderController extends Controller
         }
 
         $jobOrder->restore();
+
+        // The consultation it was made from points at it again (if nothing else took that consultation meanwhile).
+        if ($jobOrder->appointment_id) {
+            Appointment::whereKey($jobOrder->appointment_id)->whereNull('job_order_id')->update(['job_order_id' => $jobOrder->id, 'outcome' => 'converted_to_job']);
+        }
 
         $store->auditLogs()->create([
             'user_id' => $request->user()->id,

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api\V1;
 
+use App\Models\Appointment;
 use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
@@ -93,5 +94,38 @@ class CustomerTest extends TestCase
 
         $customerRow = collect($response->json('data'))->firstWhere('id', $customerId);
         $this->assertEquals('Repeat suki, always pays in full upfront.', $customerRow['store_notes']);
+    }
+
+    public function test_pending_appointment_requester_is_not_in_store_customer_list_until_confirmed()
+    {
+        $onlineCustomer = User::factory()->create();
+        $onlineCustomer->roles()->attach(Role::create(['name' => 'customer', 'description' => 'Customer']));
+
+        // Step 1: Customer submits online appointment request (status = pending)
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
+            'customer_id' => $onlineCustomer->id,
+            'appointment_type' => 'consultation',
+            'intake_channel' => 'online',
+            'scheduled_at' => now()->addDay(),
+            'duration_minutes' => 30,
+            'status' => 'pending',
+        ]);
+
+        // Verify that the pending requester is NOT in the store's customer list
+        $resBefore = $this->actingAs($this->user)->getJson("/api/v1/stores/{$this->store->id}/customers");
+        $resBefore->assertStatus(200);
+        $this->assertNull(collect($resBefore->json('data'))->firstWhere('id', $onlineCustomer->id));
+
+        // Step 2: Store Owner confirms/approves the appointment
+        $confirmRes = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}", [
+            'status' => 'confirmed',
+        ]);
+        $confirmRes->assertStatus(200);
+
+        // Verify that the customer is now officially in the store's customer list
+        $resAfter = $this->actingAs($this->user)->getJson("/api/v1/stores/{$this->store->id}/customers");
+        $resAfter->assertStatus(200);
+        $this->assertNotNull(collect($resAfter->json('data'))->firstWhere('id', $onlineCustomer->id));
     }
 }

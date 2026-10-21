@@ -25,6 +25,7 @@ class UpdateStaffRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:191'],
             'email' => ['sometimes', 'required', 'string', 'email', 'max:191', 'unique:users,email,'.($userId ?? 'NULL')],
             'phone' => ['nullable', 'string', 'max:20'],
+            'gender' => ['nullable', 'in:male,female'],
             'role' => ['sometimes', 'required', Rule::in(StaffProfile::ROLES)],
             'additional_roles' => ['nullable', 'array'],
             'additional_roles.*' => [Rule::in(StaffProfile::ROLES)],

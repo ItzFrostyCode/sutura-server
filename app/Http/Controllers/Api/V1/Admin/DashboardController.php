@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * System Admin overview + subscription report (sutura2's dashboard and
@@ -50,6 +51,83 @@ class DashboardController extends Controller
                     ->oldest()
                     ->take(5)
                     ->get(['id', 'name', 'slug', 'owner_id', 'city', 'created_at']),
+            ],
+        ]);
+    }
+
+    public function systemHealth(): JsonResponse
+    {
+        // 1. Database Ping & Latency
+        $dbStart = microtime(true);
+        $dbStatus = 'ok';
+        $dbError = null;
+        try {
+            DB::select('SELECT 1');
+            $dbLatencyMs = round((microtime(true) - $dbStart) * 1000, 2);
+        } catch (\Throwable $e) {
+            $dbStatus = 'error';
+            $dbLatencyMs = null;
+            $dbError = $e->getMessage();
+        }
+
+        // 2. Storage Check
+        $storageStatus = 'ok';
+        $storageError = null;
+        try {
+            $testFile = 'health_check_' . time() . '.tmp';
+            Storage::disk('public')->put($testFile, 'ok');
+            Storage::disk('public')->delete($testFile);
+        } catch (\Throwable $e) {
+            $storageStatus = 'error';
+            $storageError = $e->getMessage();
+        }
+
+        // 3. Last Backup Check
+        $backupDir = storage_path('app/backups');
+        $lastBackup = null;
+        if (is_dir($backupDir)) {
+            $files = glob("{$backupDir}/backup-*");
+            if (!empty($files)) {
+                rsort($files);
+                $latestFile = $files[0];
+                $lastBackup = [
+                    'file' => basename($latestFile),
+                    'size' => filesize($latestFile),
+                    'timestamp' => Carbon::createFromTimestamp(filemtime($latestFile))->toIso8601String(),
+                ];
+            }
+        }
+
+        // 4. Failed Queue Jobs
+        $failedJobsCount = DB::table('failed_jobs')->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'database' => [
+                    'status' => $dbStatus,
+                    'latency_ms' => $dbLatencyMs,
+                    'driver' => config('database.default'),
+                    'error' => $dbError,
+                ],
+                'storage' => [
+                    'status' => $storageStatus,
+                    'driver' => config('filesystems.default'),
+                    'error' => $storageError,
+                ],
+                'backup' => [
+                    'last_backup' => $lastBackup,
+                    'scheduled' => true,
+                ],
+                'queue' => [
+                    'failed_jobs' => $failedJobsCount,
+                ],
+                'environment' => [
+                    'php_version' => PHP_VERSION,
+                    'laravel_version' => app()->version(),
+                    'app_env' => config('app.env'),
+                    'server_time' => now()->toIso8601String(),
+                ],
             ],
         ]);
     }

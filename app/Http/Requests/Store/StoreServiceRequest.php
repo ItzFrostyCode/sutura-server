@@ -22,7 +22,12 @@ class StoreServiceRequest extends FormRequest
 
     public function rules(): array
     {
-        $group = (string) ($this->input('service_category') ?? $this->route('service')?->service_category ?? '');
+        $serviceParam = $this->route('service');
+        $serviceModel = $serviceParam instanceof Service ? $serviceParam : (is_numeric($serviceParam) ? Service::find($serviceParam) : null);
+        $group = (string) ($this->input('service_category') ?? $serviceModel?->service_category ?? '');
+        $allowedCaps = $group !== ''
+            ? CanonicalTaxonomy::capabilitiesOf($group)
+            : collect(CanonicalTaxonomy::SERVICE_GROUPS)->flatMap(fn ($g) => array_keys($g['capabilities'] ?? []))->unique()->values()->all();
 
         return [
             ...\App\Support\OrderRequirements::offeringRules(),
@@ -41,7 +46,7 @@ class StoreServiceRequest extends FormRequest
             // A garment from the list, or a name the shop typed under "Other garments" (checked by SUTURA, like a design's).
             'garment_types.*' => ['string', 'max:100'],
             'capabilities' => ['nullable', 'array'],
-            'capabilities.*' => ['string', Rule::in(CanonicalTaxonomy::capabilitiesOf($group))],
+            'capabilities.*' => ['string', Rule::in($allowedCaps)],
             'base_price' => ['nullable', 'numeric', 'min:0'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
             'sale_starts_at' => ['nullable', 'date'],
@@ -54,8 +59,9 @@ class StoreServiceRequest extends FormRequest
             'roster_fields.*.id' => ['required_with:roster_fields', 'string'],
             'roster_fields.*.label' => ['required_with:roster_fields', 'string', 'max:60'],
             'roster_fields.*.type' => ['required_with:roster_fields', 'in:text,number,select'],
+            'roster_fields.*.required' => ['nullable', 'boolean'],
             'roster_fields.*.options' => ['nullable', 'array'],
-            'pricing_tiers' => ['required', 'array', 'min:1'],
+            'pricing_tiers' => ['nullable', 'array'],
             'pricing_tiers.*.label' => ['required', 'string', 'max:100'],
             'pricing_tiers.*.amount' => ['nullable', 'numeric', 'min:0'],
             'is_active' => ['sometimes', 'boolean'],

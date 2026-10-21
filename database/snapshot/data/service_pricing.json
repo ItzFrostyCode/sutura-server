@@ -1,0 +1,250 @@
+[
+    {
+        "id": 1,
+        "service_id": 1,
+        "label": "Mesh Fabric Jersey Set",
+        "amount": "1000.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 2,
+        "service_id": 1,
+        "label": "Honeycomb Fabric Jersey Set",
+        "amount": "1200.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 3,
+        "service_id": 1,
+        "label": "Full Sublimation Premium Set",
+        "amount": "1500.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 4,
+        "service_id": 2,
+        "label": "Classic Wool Suit",
+        "amount": "3500.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 5,
+        "service_id": 2,
+        "label": "Premium Wool Suit with Silk Lining",
+        "amount": "5500.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 6,
+        "service_id": 2,
+        "label": "Tuxedo, Full Canvas Construction",
+        "amount": "8000.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 7,
+        "service_id": 3,
+        "label": "Plain Cotton Barong",
+        "amount": "1500.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 8,
+        "service_id": 3,
+        "label": "Jusi Fabric Barong",
+        "amount": "2800.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 9,
+        "service_id": 3,
+        "label": "Premium Piña Barong",
+        "amount": "4500.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 10,
+        "service_id": 4,
+        "label": "Simple A-Line Gown",
+        "amount": "8000.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 11,
+        "service_id": 4,
+        "label": "Ball Gown with Beadwork",
+        "amount": "15000.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 12,
+        "service_id": 4,
+        "label": "Mermaid Gown with Train",
+        "amount": "25000.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 13,
+        "service_id": 5,
+        "label": "Elementary Uniform Set",
+        "amount": "450.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 14,
+        "service_id": 5,
+        "label": "High School Uniform Set",
+        "amount": "650.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 15,
+        "service_id": 5,
+        "label": "Complete Set with PE Uniform",
+        "amount": "950.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 16,
+        "service_id": 6,
+        "label": "Hem Pants / Skirt",
+        "amount": "150.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 17,
+        "service_id": 6,
+        "label": "Take In / Let Out Waist",
+        "amount": "200.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 18,
+        "service_id": 6,
+        "label": "Zipper Replacement",
+        "amount": "250.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 19,
+        "service_id": 6,
+        "label": "Sleeve Shortening",
+        "amount": "200.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 20,
+        "service_id": 7,
+        "label": "Basic Jersey Set (Top + Shorts)",
+        "amount": "850.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 21,
+        "service_id": 7,
+        "label": "Full Sublimation Premium Set",
+        "amount": "1200.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 22,
+        "service_id": 8,
+        "label": "Small Logo Embroidery (up to 2x2 in)",
+        "amount": "150.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 23,
+        "service_id": 8,
+        "label": "Team Name / Text Embroidery",
+        "amount": "200.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 24,
+        "service_id": 8,
+        "label": "Large Design / Patch Embroidery",
+        "amount": "350.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 25,
+        "service_id": 8,
+        "label": "Custom Logo Digitizing (one-time setup)",
+        "amount": "500.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 26,
+        "service_id": 9,
+        "label": "Buwan ng Wika Attire (Kids)",
+        "amount": "900.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 27,
+        "service_id": 9,
+        "label": "Folk Dance Costume Set",
+        "amount": "1800.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 28,
+        "service_id": 9,
+        "label": "Stage / Character Costume",
+        "amount": "2500.00",
+        "created_at": "2026-10-17 10:17:08",
+        "updated_at": "2026-10-17 10:17:08"
+    },
+    {
+        "id": 96,
+        "service_id": 14,
+        "label": "Polo Shirt (Plain Cotton/Honeycomb)",
+        "amount": "250.00",
+        "created_at": "2026-10-20 10:39:56",
+        "updated_at": "2026-10-20 10:39:56"
+    },
+    {
+        "id": 97,
+        "service_id": 14,
+        "label": "Full Sublimation Sportswear / Jersey",
+        "amount": "380.00",
+        "created_at": "2026-10-20 10:39:56",
+        "updated_at": "2026-10-20 10:39:56"
+    },
+    {
+        "id": 98,
+        "service_id": 14,
+        "label": "Dri-Fit Set (Shirt + Shorts)",
+        "amount": "399.00",
+        "created_at": "2026-10-20 10:39:56",
+        "updated_at": "2026-10-20 10:39:56"
+    }
+]

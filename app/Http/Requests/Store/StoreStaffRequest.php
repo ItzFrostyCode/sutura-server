@@ -30,6 +30,7 @@ class StoreStaffRequest extends FormRequest
             'email' => ['required', 'string', 'email', 'max:191'],
             'password' => ['required', 'string', 'min:8'],
             'phone' => ['nullable', 'string', 'max:20'],
+            'gender' => ['nullable', 'in:male,female'],
             'role' => ['required', Rule::in(StaffProfile::ROLES)],
             // Ranked secondary roles — index 0 is rank 2, index 1 is rank 3, etc.
             // Lets one versatile staff member cover multiple roles without a

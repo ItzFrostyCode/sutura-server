@@ -1,0 +1,44 @@
+[
+    {
+        "id": 1,
+        "store_id": 1,
+        "store_branch_id": null,
+        "kind": "gcash",
+        "name": "GCash",
+        "account_name": "Thread & Needle Tailoring",
+        "account_number": "0917 123 4567",
+        "qr_path": null,
+        "instructions": "Send the exact amount, then upload the screenshot here.",
+        "is_active": 1,
+        "created_at": "2026-10-17 10:17:09",
+        "updated_at": "2026-10-17 10:17:09"
+    },
+    {
+        "id": 2,
+        "store_id": 1,
+        "store_branch_id": null,
+        "kind": "maya",
+        "name": "Maya",
+        "account_name": "Thread & Needle Tailoring",
+        "account_number": "0918 765 4321",
+        "qr_path": null,
+        "instructions": null,
+        "is_active": 1,
+        "created_at": "2026-10-17 10:17:09",
+        "updated_at": "2026-10-17 10:17:09"
+    },
+    {
+        "id": 3,
+        "store_id": 1,
+        "store_branch_id": 1,
+        "kind": "bank_transfer",
+        "name": "BPI Savings",
+        "account_name": "Maria Cruz",
+        "account_number": "1234 5678 90",
+        "qr_path": null,
+        "instructions": "Main branch account. Use your order number as the reference.",
+        "is_active": 1,
+        "created_at": "2026-10-17 10:17:09",
+        "updated_at": "2026-10-17 10:17:09"
+    }
+]

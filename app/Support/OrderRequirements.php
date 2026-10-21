@@ -38,6 +38,7 @@ class OrderRequirements
     {
         return [
             'default_measurement_requirement' => ['sometimes', Rule::in(self::MEASUREMENT)],
+            'default_measurement_unit' => ['sometimes', Rule::in(['in', 'cm'])],
             'default_fitting_requirement' => ['sometimes', Rule::in(self::FITTING)],
             'default_payment_policy' => ['sometimes', Rule::in(self::PAYMENT)],
             'default_payment_percent' => ['sometimes', 'integer', 'min:1', 'max:100'],

@@ -71,27 +71,31 @@ class UpdateAppointmentRequest extends FormRequest
             // Staff assignment can change before confirmation
             'assigned_staff_id' => [
                 'sometimes', 'nullable', 'integer',
-                Rule::exists('staff_profiles', 'user_id')->where('store_id', $store?->id),
                 function ($attribute, $value, $fail) use ($store) {
-                    $appointment = $this->route('appointment');
-                    $targetBranchId = $this->input('store_branch_id') ?: $appointment?->store_branch_id;
-                    if (! $value || ! $targetBranchId) {
+                    if (! $value) {
                         return;
                     }
-                    $staffBranchId = StaffProfile::where('user_id', $value)
+                    $isOwner = (int) $store?->owner_id === (int) $value;
+                    if ($isOwner) {
+                        return;
+                    }
+                    $profile = StaffProfile::where('user_id', $value)
                         ->where('store_id', $store?->id)
-                        ->value('store_branch_id');
-                    if ($staffBranchId && (int) $staffBranchId !== (int) $targetBranchId) {
-                        $fail('This staff member belongs to a different branch than this appointment.');
+                        ->first();
+                    if (! $profile) {
+                        $fail('That handler is not part of this store.');
+                        return;
+                    }
+                    $appointment = $this->route('appointment');
+                    $targetBranchId = $this->input('store_branch_id') ?: $appointment?->store_branch_id;
+                    if ($targetBranchId && $profile->store_branch_id && (int) $profile->store_branch_id !== (int) $targetBranchId) {
+                        $fail('This handler belongs to a different branch than this appointment.');
                     }
                 },
             ],
 
-            // What the shop shares with the customer after accepting (Messenger-style
-            // hand-off, kept on the appointment): one link and up to 6 photos.
-            'shared_link' => ['sometimes', 'nullable', 'url', 'max:500'],
-            'shared_images' => ['sometimes', 'nullable', 'array', 'max:6'],
-            'shared_images.*' => ['string', 'max:1000'],
+            // What the shop shares with the customer after accepting:
+            // a note, multiple reference links, and up to 6 photos.
 
             // Notes always updatable
             'notes' => ['nullable', 'string', 'max:2000'],
@@ -103,6 +107,15 @@ class UpdateAppointmentRequest extends FormRequest
             'priority' => ['nullable', 'string', 'in:normal,urgent,rush'],
             'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
             'fitting_notes' => ['nullable', 'string', 'max:2000'],
+            // Written during the consultation; carried onto the production order.
+            'visit_notes' => ['nullable', 'string', 'max:4000'],
+            'design_source' => ['nullable', Rule::in(Appointment::DESIGN_SOURCES)],
+            'design_link' => ['nullable', 'string', 'max:1000', new \App\Rules\SafeLink],
+            'people_count' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'pieces_count' => ['nullable', 'integer', 'min:1', 'max:5000'],
+            // Photos the shop adds during the visit (the customer's own from the booking stay in the same list).
+            'reference_images' => ['nullable', 'array', 'max:10'],
+            'reference_images.*' => ['string', 'max:1000'],
         ];
     }
 

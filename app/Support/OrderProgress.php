@@ -117,11 +117,17 @@ final class OrderProgress
                 ? ['Your fitting is in progress.', null, null]
                 : ['The shop is making your garment.', 'Fitting and adjustments are part of it.', null],
             'ready_for_pickup' => self::ready($job, $flow, $balance),
-            'balance_handover' => [
-                'You are paying the balance and taking your garment.',
-                $balance > 0.005 ? 'Balance to pay: '.self::money($balance).'.' : null,
-                null,
-            ],
+            'balance_handover' => $balance > 0.005 && $job->released_with_balance_at
+                ? [
+                    'You have your garments.',
+                    'The balance of '.self::money($balance).' is still to be paid at the shop'.($job->balance_due_by ? ' by '.$job->balance_due_by->format('M j').'.' : '.'),
+                    null,
+                ]
+                : [
+                    'You are paying the balance and taking your garment.',
+                    $balance > 0.005 ? 'Balance to pay: '.self::money($balance).'.' : null,
+                    null,
+                ],
             'completed' => ['Your order is complete.', 'Thank you!', null],
             default => ['The shop is making your garment.', null, null],
         };

@@ -1,0 +1,19 @@
+[
+    {
+        "id": 1,
+        "store_id": 1,
+        "user_id": 3,
+        "subject": "Cannot attach more than 6 photos to a measurement",
+        "message": "The paper measurement sheet has 8 pages. Can the limit be raised, or should I combine them into fewer photos?",
+        "attachments": null,
+        "type": "general",
+        "priority": "low",
+        "status": "open",
+        "assigned_to": null,
+        "resolved_at": null,
+        "created_at": "2026-10-17 10:17:09",
+        "updated_at": "2026-10-17 10:17:09",
+        "deleted_at": null,
+        "catalog_item_id": null
+    }
+]

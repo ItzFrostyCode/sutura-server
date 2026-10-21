@@ -17,17 +17,14 @@ class ServiceController extends Controller
 {
     public function index(Request $request, Store $store): JsonResponse
     {
-        $query = $store->services()->with('pricing')
-            ->withCount(['reviews', 'saves', 'jobOrders'])
+        $query = $store->services()->with([
+            'pricing',
+            'catalogItems' => fn ($q) => $q->with('images')
+                ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
+                ->withAvg('reviews', 'rating'),
+        ])
+            ->withCount(['reviews', 'saves', 'jobOrders', 'catalogItems'])
             ->withAvg('reviews', 'rating')
-            // Discount-aware, same formula as CatalogController::index()'s
-            // own total_revenue (discount_amount reduces balance, not
-            // total_amount, so it has to be netted out separately —
-            // otherwise a discounted job silently counts as full revenue).
-            // Only a service's own directly-linked job orders count here;
-            // a catalog item's orders are that item's own revenue even
-            // when the item links back to this service, so summing both
-            // would double-count the same money under two different names.
             ->withSum('jobOrders as job_revenue', 'total_amount')
             ->withSum('jobOrders as job_balance_sum', 'balance')
             ->withSum('jobOrders as job_discount_sum', 'discount_amount');
@@ -36,6 +33,13 @@ class ServiceController extends Controller
         $services->each(function ($service) {
             $service->reviews_avg_rating = $service->reviews_avg_rating !== null ? round((float) $service->reviews_avg_rating, 1) : null;
             $service->total_revenue = (float) $service->job_revenue - (float) $service->job_balance_sum - (float) $service->job_discount_sum;
+            $service->orders_count = (int) ($service->job_orders_count ?? 0);
+            $service->saves_count = (int) ($service->saves_count ?? 0);
+            $service->catalogItems->each(function ($item) {
+                $item->reviews_avg_rating = $item->reviews_avg_rating !== null ? round((float) $item->reviews_avg_rating, 1) : null;
+                $item->order_count = (int) (($item->catalog_orders_count ?? 0) + ($item->job_orders_count ?? 0));
+                $item->saves_count = (int) ($item->saves_count ?? 0);
+            });
         });
 
         return response()->json([
@@ -61,6 +65,7 @@ class ServiceController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->with([
+                'pricing:id,service_id,label,amount',
                 'store' => fn ($q) => $q->with([
                     'owner:id,name',
                     'branches' => fn ($bq) => $bq->live(),
@@ -133,7 +138,12 @@ class ServiceController extends Controller
         // for just this response.
         $items = $services->getCollection()->map(function (Service $service) {
             $arr = $service->toArray();
-            $arr['base_price'] = $service->base_price !== null ? (float) $service->base_price : null;
+            $minTier = $service->relationLoaded('pricing')
+                ? $service->pricing->where('amount', '>', 0)->min('amount')
+                : null;
+            $arr['base_price'] = $service->base_price !== null && (float) $service->base_price > 0
+                ? (float) $service->base_price
+                : ($minTier !== null ? (float) $minTier : null);
             $arr['sale_price'] = $service->sale_price !== null ? (float) $service->sale_price : null;
             // withAvg() returns reviews_avg_rating as whatever PDO hands back
             // for AVG() (a numeric string, not a float) — same rounding as
@@ -166,7 +176,7 @@ class ServiceController extends Controller
         // guessed flat amount) to build the request form.
         $services = $store->services()
             ->where('is_active', true)
-            ->withCount(['reviews', 'saves'])
+            ->withCount(['reviews', 'saves', 'jobOrders'])
             ->withAvg('reviews', 'rating')
             ->with([
                 'pricing:id,service_id,label,amount',
@@ -177,13 +187,21 @@ class ServiceController extends Controller
                 // sibling item-detail lookup already embeds catalog reviews.
                 'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest(),
             ])
-            ->get(['id', 'name', 'description', 'categories', 'service_types', 'service_category', 'garment_types', 'capabilities', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at', 'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows'])
+            ->get([
+                'id', 'store_id', 'name', 'description', 'categories', 'service_types', 'service_category',
+                'garment_types', 'capabilities', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
+                'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'roster_fields',
+                'min_order_qty', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
+                'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
+            ])
             ->each(function (Service $service) {
                 // withAvg() returns a numeric string, not a float — round it
                 // the same way ServiceController::publicShowroom does.
                 $service->reviews_avg_rating = $service->reviews_avg_rating !== null
                     ? round((float) $service->reviews_avg_rating, 1)
                     : null;
+                $service->orders_count = (int) ($service->job_orders_count ?? 0);
+                $service->saves_count = (int) ($service->saves_count ?? 0);
             });
 
         return response()->json([
@@ -192,10 +210,45 @@ class ServiceController extends Controller
         ]);
     }
 
+    /**
+     * Store service detail for dashboard owner/staff views.
+     */
+    public function show(Request $request, Store $store, Service $service): JsonResponse
+    {
+        if ($service->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $service->load([
+            'pricing',
+            'catalogItems' => fn ($q) => $q->with('images')
+                ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
+                ->withAvg('reviews', 'rating'),
+            'reviews' => fn ($q) => $q->with('user:id,name,profile_picture')->latest(),
+        ]);
+        $service->loadCount(['reviews', 'saves', 'jobOrders', 'catalogItems']);
+        $service->loadAvg('reviews', 'rating');
+        $service->reviews_avg_rating = $service->reviews_avg_rating !== null
+            ? round((float) $service->reviews_avg_rating, 1)
+            : null;
+        $service->orders_count = (int) ($service->job_orders_count ?? 0);
+        $service->saves_count = (int) ($service->saves_count ?? 0);
+        $service->catalogItems->each(function ($item) {
+            $item->reviews_avg_rating = $item->reviews_avg_rating !== null ? round((float) $item->reviews_avg_rating, 1) : null;
+            $item->order_count = (int) (($item->catalog_orders_count ?? 0) + ($item->job_orders_count ?? 0));
+            $item->saves_count = (int) ($item->saves_count ?? 0);
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $service,
+        ]);
+    }
+
     public function store(StoreServiceRequest $request, Store $store): JsonResponse
     {
         $validated = $request->validated();
-        $tiers = $validated['pricing_tiers'];
+        $tiers = $validated['pricing_tiers'] ?? [];
         unset($validated['pricing_tiers']);
 
         // tags stays a denormalized mirror of the tier labels so existing
@@ -217,9 +270,14 @@ class ServiceController extends Controller
         }
 
         $validated = $request->validated();
-        $tiers = $validated['pricing_tiers'];
-        unset($validated['pricing_tiers']);
-        $validated['tags'] = array_column($tiers, 'label');
+        $hasTiers = array_key_exists('pricing_tiers', $validated) && $validated['pricing_tiers'] !== null;
+        if ($hasTiers) {
+            $tiers = $validated['pricing_tiers'];
+            unset($validated['pricing_tiers']);
+            $validated['tags'] = array_column($tiers, 'label');
+        } else {
+            unset($validated['pricing_tiers']);
+        }
         $validated = $this->withTaxonomy($validated, $service, $store);
 
         $service->update($validated);
@@ -238,9 +296,11 @@ class ServiceController extends Controller
             $service->update(['sale_price' => null, 'sale_starts_at' => null, 'sale_ends_at' => null]);
         }
 
-        $this->syncPricingTiers($service, $tiers);
+        if ($hasTiers) {
+            $this->syncPricingTiers($service, $tiers);
+        }
 
-        return response()->json(['success' => true, 'data' => $service->fresh('pricing')]);
+        return response()->json(['success' => true, 'data' => $service->fresh(['pricing', 'reviews'])]);
     }
 
     /**
@@ -294,10 +354,13 @@ class ServiceController extends Controller
     {
         $service->pricing()->delete();
         foreach ($tiers as $tier) {
-            $service->pricing()->create([
-                'label' => $tier['label'],
-                'amount' => $tier['amount'] ?? 0,
-            ]);
+            $label = trim((string) ($tier['label'] ?? ''));
+            if ($label !== '') {
+                $service->pricing()->create([
+                    'label' => $label,
+                    'amount' => $tier['amount'] ?? 0,
+                ]);
+            }
         }
     }
 

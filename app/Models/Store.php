@@ -21,7 +21,7 @@ class Store extends Model
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
         'fitting_fee', 'fitting_limit', 'fitting_limit_policy', 'repair_requires_downpayment',
-        'sms_mode', 'sms_events', 'default_measurement_requirement', 'default_fitting_requirement', 'default_payment_policy', 'default_payment_percent',
+        'sms_mode', 'sms_events', 'default_measurement_requirement', 'default_measurement_unit', 'default_fitting_requirement', 'default_payment_policy', 'default_payment_percent',
         'specializations', 'is_featured', 'is_hidden',
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
         'gcash_qr_path', 'bank_qr_path',
@@ -162,7 +162,13 @@ class Store extends Model
         // makes sense in the context of the specific store that wrote it, and
         // suki_tag (which does live on User) already shows the pitfall of a
         // per-customer field that's meant to be store-specific but isn't.
-        return $this->belongsToMany(User::class, 'store_customers')->withPivot('notes')->withTimestamps();
+        return $this->belongsToMany(User::class, 'store_customers')->withPivot('notes', 'listed_at', 'is_trusted', 'trusted_by', 'trusted_at')->withTimestamps();
+    }
+
+    /** Whether the owner or a branch manager marked this customer as trusted at this shop. */
+    public function isTrustedCustomer(int $userId): bool
+    {
+        return $this->customers()->where('users.id', $userId)->wherePivot('is_trusted', true)->exists();
     }
 
     public function jobOrders(): HasMany

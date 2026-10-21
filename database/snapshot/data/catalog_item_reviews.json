@@ -1,0 +1,12 @@
+[
+    {
+        "id": 1,
+        "catalog_item_id": 54,
+        "user_id": 19,
+        "rating": 5,
+        "comment": null,
+        "reply": null,
+        "created_at": "2026-10-19 17:30:13",
+        "updated_at": "2026-10-19 17:30:13"
+    }
+]

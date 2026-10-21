@@ -152,6 +152,7 @@ class StoreApplicationController extends Controller
                 $application->update(['reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
 
                 if ($application->requested_plan_id) {
+                    $plan = SubscriptionPlan::find($application->requested_plan_id);
                     StoreSubscription::create([
                         'store_id' => $store->id,
                         'plan_id' => $application->requested_plan_id,
@@ -160,6 +161,9 @@ class StoreApplicationController extends Controller
                         'starts_at' => now(),
                         'ends_at' => $application->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
                     ]);
+                    if ($plan && in_array('Featured Store Visibility (Top Placement)', $plan->features ?? [], true)) {
+                        $store->update(['is_featured' => true]);
+                    }
                 }
             }
 

@@ -1,0 +1,497 @@
+[
+    {
+        "id": 1,
+        "catalog_item_id": 1,
+        "image_url": "/catalog/gown-off-shoulder-tulle-floral.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 2,
+        "catalog_item_id": 1,
+        "image_url": "/catalog/Luxury_Bridal_Gowns_Long_Tail.jpg",
+        "view_angle": "back",
+        "is_primary": 0,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 3,
+        "catalog_item_id": 1,
+        "image_url": "/catalog/wedding-gown-champagne-embroidery.jpg",
+        "view_angle": "Champagne",
+        "is_primary": 0,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 4,
+        "catalog_item_id": 1,
+        "image_url": "/catalog/wedding-gown-sequined-puff-sleeve.jpg",
+        "view_angle": "Ivory",
+        "is_primary": 0,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 5,
+        "catalog_item_id": 2,
+        "image_url": "/catalog/maid-of-honor-dress-chiffon.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 6,
+        "catalog_item_id": 3,
+        "image_url": "/catalog/Shop Long Tail Wedding Gown.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 7,
+        "catalog_item_id": 4,
+        "image_url": "/catalog/bridesmaid-dresses-maid-of-honor.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 8,
+        "catalog_item_id": 5,
+        "image_url": "/catalog/mother-of-bride-dress-chiffon-pink.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 9,
+        "catalog_item_id": 6,
+        "image_url": "/catalog/bridesmaid-dresses-bridal-crew.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 10,
+        "catalog_item_id": 7,
+        "image_url": "/catalog/mother-of-bride-dress-pink.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 11,
+        "catalog_item_id": 7,
+        "image_url": "/catalog/mother-of-bride-dress-green.webp",
+        "view_angle": "Emerald Green",
+        "is_primary": 0,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 12,
+        "catalog_item_id": 7,
+        "image_url": "/catalog/mother-of-bride-dress-red.webp",
+        "view_angle": "Crimson Red",
+        "is_primary": 0,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 13,
+        "catalog_item_id": 8,
+        "image_url": "/images/categories/dress.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 14,
+        "catalog_item_id": 9,
+        "image_url": "/images/categories/filipiniana.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 15,
+        "catalog_item_id": 10,
+        "image_url": "/images/categories/women_suit.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 16,
+        "catalog_item_id": 11,
+        "image_url": "/images/categories/blazer.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 17,
+        "catalog_item_id": 12,
+        "image_url": "/images/categories/women_pants.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 18,
+        "catalog_item_id": 13,
+        "image_url": "/catalog/Esports-Jersey-women.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 19,
+        "catalog_item_id": 14,
+        "image_url": "/catalog/Bespoke_Suits2.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 20,
+        "catalog_item_id": 15,
+        "image_url": "/catalog/Bespoke_Suits.png",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 21,
+        "catalog_item_id": 16,
+        "image_url": "/catalog/mens-custom-tuxedos-its-all-about-the-fit.jpeg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 22,
+        "catalog_item_id": 17,
+        "image_url": "/catalog/Custom_Tuxedos_men.jpeg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 23,
+        "catalog_item_id": 18,
+        "image_url": "/catalog/Custom Tuxedos for Memorable Events.jpeg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 24,
+        "catalog_item_id": 19,
+        "image_url": "/catalog/navy-blue-tuxedo-suit.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 25,
+        "catalog_item_id": 20,
+        "image_url": "/catalog/barong-tagalog-ivory-formal.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 26,
+        "catalog_item_id": 21,
+        "image_url": "/catalog/Traditional Barong Tagalog Polo Shirt for Men.jpeg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 27,
+        "catalog_item_id": 22,
+        "image_url": "/images/categories/shirt.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 28,
+        "catalog_item_id": 23,
+        "image_url": "/images/categories/pants.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 29,
+        "catalog_item_id": 24,
+        "image_url": "/images/categories/men_outerwear.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 30,
+        "catalog_item_id": 25,
+        "image_url": "/images/categories/scrubs.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 31,
+        "catalog_item_id": 26,
+        "image_url": "/catalog/Cycling_Jerseys_1.jpeg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 32,
+        "catalog_item_id": 27,
+        "image_url": "/catalog/Cycling_Jerseys_2.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 33,
+        "catalog_item_id": 28,
+        "image_url": "/catalog/Cycling_Jerseys_3.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 34,
+        "catalog_item_id": 29,
+        "image_url": "/catalog/Riders_Long_Sleeves.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 35,
+        "catalog_item_id": 30,
+        "image_url": "/catalog/Riders_Long_Sleeves.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 36,
+        "catalog_item_id": 31,
+        "image_url": "/catalog/Riders_Long_Sleeves_2.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 37,
+        "catalog_item_id": 32,
+        "image_url": "/catalog/rashguard_1.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 38,
+        "catalog_item_id": 33,
+        "image_url": "/catalog/rashguard_3.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 39,
+        "catalog_item_id": 34,
+        "image_url": "/catalog/Bulls-Basketball-Jersey.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 40,
+        "catalog_item_id": 35,
+        "image_url": "/catalog/Bears-Basketball-Jersey.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 41,
+        "catalog_item_id": 36,
+        "image_url": "/catalog/KobeBryant-Basketball-Jersey.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 42,
+        "catalog_item_id": 37,
+        "image_url": "/catalog/Lebron James-Lakers-Basketball-Jersey.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 43,
+        "catalog_item_id": 38,
+        "image_url": "/catalog/Arsenal-Jersey.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 44,
+        "catalog_item_id": 39,
+        "image_url": "/catalog/esport tshirt blue.jpeg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 45,
+        "catalog_item_id": 40,
+        "image_url": "/catalog/esport tshirt.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 46,
+        "catalog_item_id": 41,
+        "image_url": "/catalog/Volleyball Jersey_2.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 47,
+        "catalog_item_id": 42,
+        "image_url": "/catalog/volleyballroundneckSET.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 48,
+        "catalog_item_id": 43,
+        "image_url": "/catalog/VBALL_PRE-2001_800x800.webp",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 49,
+        "catalog_item_id": 44,
+        "image_url": "/catalog/school-uniforms.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 50,
+        "catalog_item_id": 45,
+        "image_url": "/images/categories/school_uniform.jpg",
+        "view_angle": "front",
+        "is_primary": 1,
+        "created_at": "2026-10-17 10:24:37",
+        "updated_at": "2026-10-17 11:07:08"
+    },
+    {
+        "id": 85,
+        "catalog_item_id": 55,
+        "image_url": "http://localhost:8000/storage/stores/4/catalog/Yo4TfAcYmpfZDZU5JOGiM2MfWy2nAIWJ49jKDUrY.jpg",
+        "view_angle": "Front",
+        "is_primary": 1,
+        "created_at": "2026-10-19 19:23:57",
+        "updated_at": "2026-10-19 19:23:57"
+    },
+    {
+        "id": 88,
+        "catalog_item_id": 54,
+        "image_url": "http://localhost:8000/storage/stores/4/catalog/7XCfZm3u8KA6fd3xMF5gW8NIBl9NyUaXMGep4JiP.jpg",
+        "view_angle": "Front",
+        "is_primary": 1,
+        "created_at": "2026-10-20 20:45:44",
+        "updated_at": "2026-10-20 20:45:44"
+    },
+    {
+        "id": 89,
+        "catalog_item_id": 54,
+        "image_url": "http://localhost:8000/storage/stores/4/catalog/SYPIgrKoVQ4YVwxVtPypY4mwox0sjAuhXXURbkwH.jpg",
+        "view_angle": "Right Side",
+        "is_primary": 0,
+        "created_at": "2026-10-20 20:45:44",
+        "updated_at": "2026-10-20 20:45:44"
+    },
+    {
+        "id": 90,
+        "catalog_item_id": 54,
+        "image_url": "http://localhost:8000/storage/stores/4/catalog/hMYI4Ic4KNJGQXB2IpCYCxNgq272GDtlQ0Zj7Ct0.jpg",
+        "view_angle": "Left Side",
+        "is_primary": 0,
+        "created_at": "2026-10-20 20:45:44",
+        "updated_at": "2026-10-20 20:45:44"
+    },
+    {
+        "id": 91,
+        "catalog_item_id": 54,
+        "image_url": "http://localhost:8000/storage/stores/4/catalog/InPMyMOUObkKnfe0s4u2SYSGha1w7hLGKgD7kfJy.jpg",
+        "view_angle": "Back",
+        "is_primary": 0,
+        "created_at": "2026-10-20 20:45:44",
+        "updated_at": "2026-10-20 20:45:44"
+    }
+]

@@ -52,12 +52,20 @@ For first-time setup, follow the instructions in [README.md](./README.md) in eac
 
 ## Demo Accounts
 
+### Sakuragi Embroidery Davao (Active Shop)
 | Role | Email | Password |
 |---|---|---|
-| Shop Owner | `maria.cruz@gmail.com` | `password` |
-| Staff | `juan.delacruz@sutura.com` | `password` |
+| Shop Account (Owner) | `sakuragiembroiderydavao@sutura.shop` | `Password!1` |
+| Staff Account | `itzjoshuawaymantest@gmail.com` | `ItzFrosty6932!` |
+
+### Seeded Demo Accounts
+| Role | Email | Password |
+|---|---|---|
+| Shop Owner (Seeded) | `maria.cruz@gmail.com` | `password` |
+| Staff (Seeded) | `juan.delacruz@sutura.com` | `password` |
 | Branch Manager | `miguel.manager@sutura.com` | `password` |
 | Admin | `admin@sutura.com` | `password` |
 | Customer | `juan.delacruz@gmail.com` | `password` |
 | Customer (no bookings yet — use this one to test booking) | `tess.tester@gmail.com` | `password` |
 | Customer | `jose.rizal@gmail.com` | `password` |
+

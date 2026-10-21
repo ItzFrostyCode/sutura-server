@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\OrderReadiness;
 use App\Notifications\StoreActivityNotification;
 use App\Support\OrderRequirements;
 use Illuminate\Support\Facades\Auth;
@@ -126,13 +127,15 @@ class JobOrder extends Model
     ];
 
     protected $fillable = [
-        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id',
+        'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'appointment_id', 'customer_id', 'service_id',
         'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'quantity', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
         'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
         'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source', 'garment_category',
+        'design_source', 'design_link', 'consultation_notes',
+        'parent_order_id', 'batch_no', 'paid_by_name', 'group_kind',
         'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
         'estimated_ready_at', 'customer_material_status',
         // Ordering flow -- server-derived only (no request rule accepts them); the *_at / *_by
@@ -176,6 +179,8 @@ class JobOrder extends Model
         'quotation_valid_until' => 'date:Y-m-d',
         'customer_decided_at' => 'datetime',
         'payment_terms_locked_at' => 'datetime',
+        'released_with_balance_at' => 'datetime',
+        'balance_due_by' => 'date',
         'production_authorized_at' => 'datetime',
     ];
 
@@ -199,9 +204,71 @@ class JobOrder extends Model
         return $this->belongsTo(CatalogItem::class, 'catalog_item_id');
     }
 
+    /** Every appointment linked to this order: the consultation it was made from (one link) and its fittings and pick-ups. */
     public function appointments(): HasMany
     {
         return $this->hasMany(Appointment::class);
+    }
+
+    /** Only the visits this order made itself (fittings and pick-ups), never the consultation it came from. */
+    public function fittings(): HasMany
+    {
+        return $this->hasMany(Appointment::class)->where('kind', 'production');
+    }
+
+    /** True while the order sits where the customer is invited to a fitting and still needs one. */
+    public function awaitsFitting(): bool
+    {
+        $flow = OrderReadiness::gated($this);
+        $trigger = $flow ? 'ready_for_pickup' : 'ready_for_fitting';
+
+        return $this->status === $trigger && (! $flow || OrderReadiness::fittingNeeded($this));
+    }
+
+    /**
+     * The placeholder fitting the customer is invited to (tomorrow 10:00, or the next open day, pending: the shop
+     * confirms the real time). One open fitting at a time. Past the shop's fitting limit a fee is added to the balance
+     * — unless this replaces a fitting that was cancelled or missed, which is not the customer's extra session.
+     */
+    public function createFittingPlaceholder(Store $store, bool $charge = true): ?Appointment
+    {
+        if ($this->fittings()->where('appointment_type', 'fitting')->whereIn('status', ['pending', 'confirmed', 'in_progress'])->exists()) {
+            return null;
+        }
+
+        $prior = $this->fittings()->where('appointment_type', 'fitting')->count();
+        $over = $charge && $store->fitting_limit && $prior >= $store->fitting_limit;
+
+        // A rough default the shop moves with the customer; never on a day the shop announced as closed (bounded walk forward).
+        $at = now()->addDay()->setTime(10, 0);
+        for ($i = 0; $i < 30 && $store->closureTitleOn($at, $this->store_branch_id); $i++) {
+            $at = $at->copy()->addDay();
+        }
+
+        $appointment = $this->appointments()->create([
+            'store_id' => $store->id,
+            'store_branch_id' => $this->store_branch_id,
+            'customer_id' => $this->customer_id,
+            'appointment_type' => 'fitting',
+            // Made by the system for this job order: not a walk-in, and a pending one never blocks an online customer's time.
+            'kind' => 'production',
+            'intake_channel' => 'online',
+            'scheduled_at' => $at,
+            'duration_minutes' => Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
+            'status' => 'pending',
+            'notes' => "Made by job order {$this->order_number} — please confirm the actual date and time with the customer."
+                .($over ? " This is fitting #{$prior}+1, past the shop's {$store->fitting_limit}-session limit — a ₱{$store->fitting_fee} fitting fee has been added to the balance." : ''),
+        ]);
+
+        if ($over && $store->fitting_fee > 0) {
+            $this->increment('total_amount', $store->fitting_fee);
+            $this->increment('balance', $store->fitting_fee);
+            if ($this->payment_status === 'paid') {
+                $this->update(['payment_status' => 'partial']);
+            }
+        }
+
+        return $appointment;
     }
 
     public function assignedStaff(): BelongsTo
@@ -323,6 +390,23 @@ class JobOrder extends Model
         return OrderRequirements::depositFraction($this->payment_policy ?? 'deposit', (int) ($this->payment_policy_percent ?? 50));
     }
 
+    /**
+     * How many garments have to be handed over: the people, for a group order made after the people count was
+     * recorded (its `quantity` is 1 because the team list holds the people); older orders keep counting `quantity`.
+     */
+    public function garmentCount(): int
+    {
+        $people = (int) ($this->custom_order_data['people_count'] ?? 0);
+
+        return $people > 0 ? $people : (int) $this->quantity;
+    }
+
+    /** The first order of a split group; the order itself when it was never split. */
+    public function batchRootId(): int
+    {
+        return (int) ($this->parent_order_id ?? $this->id);
+    }
+
     public function isRepairOnly(): bool
     {
         if ($this->garment_category === 'alteration_repair') {
@@ -339,6 +423,12 @@ class JobOrder extends Model
      * used to leave them behind as dead links that 404 the moment someone
      * clicks through. Cleaned up here instead, on both soft and force delete.
      */
+    /** True while the order is being split into batches: the new parts do not send a "new order" alert to the staff. */
+    public static bool $quietCreate = false;
+
+    /** Set while a trusted customer's order is being created: the rule it had before the downpayment was dropped. */
+    public ?array $trustWaiver = null;
+
     protected static function booted(): void
     {
         // Snapshot the requirements at creation (design -> linked service -> store;
@@ -353,17 +443,38 @@ class JobOrder extends Model
             if (! $item && $job->service_id) {
                 $chain[] = Service::find($job->service_id);
             }
+            $chosenPolicy = array_key_exists('payment_policy', $job->getAttributes());
             $resolved = OrderRequirements::resolve($store, $chain);
             foreach ($resolved as $field => $value) {
                 if (! array_key_exists($field, $job->getAttributes())) {
                     $job->{$field} = $value;
                 }
             }
+
+            // A customer the owner marked as trusted pays at pick-up: no downpayment, unless the caller picked a rule.
+            // The old rule goes in the audit log (below) so "require it again" on the order restores it.
+            if (! $chosenPolicy && $job->customer_id && $job->payment_policy !== 'none' && $store->isTrustedCustomer((int) $job->customer_id)) {
+                $job->trustWaiver = ['previous_policy' => $job->payment_policy, 'previous_percent' => $job->payment_policy_percent];
+                $job->payment_policy = 'none';
+            }
         });
 
         // Tell the branch's staff a new order has landed (their "new order assignment"):
         // everyone on the floor at that branch, never the person who made it.
         static::created(function (JobOrder $job) {
+            if (self::$quietCreate) {
+                return;
+            }
+            if ($job->trustWaiver) {
+                $job->store?->auditLogs()->create([
+                    'user_id' => Auth::id(),
+                    'action' => 'deposit_waived',
+                    'model_type' => self::class,
+                    'model_id' => $job->id,
+                    'payload' => ['reason' => 'Trusted customer: pays at pick-up'] + $job->trustWaiver,
+                ]);
+            }
+
             $staff = User::whereHas('staffProfile', function ($q) use ($job) {
                 $q->where('store_id', $job->store_id)->where('is_branch_manager', false)
                     ->when($job->store_branch_id, fn ($q2) => $q2->where('store_branch_id', $job->store_branch_id));

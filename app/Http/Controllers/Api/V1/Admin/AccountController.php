@@ -21,7 +21,7 @@ class AccountController extends Controller
     {
         $query = User::query()
             ->with('roles:id,name')
-            ->select(['id', 'name', 'email', 'phone', 'created_at', 'last_seen_at', 'suspended_at'])
+            ->select(['id', 'name', 'email', 'phone', 'gender', 'created_at', 'last_seen_at', 'suspended_at'])
             ->latest();
 
         if ($search = trim((string) $request->input('search'))) {

@@ -1,8 +1,8 @@
-# Group Task Assignments
+# Group Task Assignments (OBSOLETE — Superseded by `sutura-client/docs/STATUS.md`)
 
-Each section below is based on what's **actually already built** vs. **genuinely still missing** — checked directly against the real code, not assumed. Read the "Already Done" part first so nobody accidentally rebuilds something that exists.
+> **Notice:** The tasks described as "genuinely missing" in this historical document (Customer My Orders `/account/orders`, cross-shop search `/search`, and System Admin dashboard `/admin/*`) have all been fully built and verified in the codebase. Refer to [`sutura-client/docs/STATUS.md`](../sutura-client/docs/STATUS.md) for current status.
 
-**Scope reminder for everyone**: the Shop Owner dashboard (`/dashboard`) is already fully built (Jobs, Appointments, Catalog, Payments, Staff, Reports, Branches, Billing). None of the three tasks below should touch that area — they're each their own separate part of the system.
+---
 
 ---
 
