@@ -1,0 +1,37 @@
+[
+    {
+        "id": 1,
+        "name": "admin",
+        "description": "Platform superuser",
+        "created_at": "2026-10-17 10:17:06",
+        "updated_at": "2026-10-17 10:17:06"
+    },
+    {
+        "id": 2,
+        "name": "store_owner",
+        "description": "Tailoring store owner",
+        "created_at": "2026-10-17 10:17:06",
+        "updated_at": "2026-10-17 10:17:06"
+    },
+    {
+        "id": 3,
+        "name": "branch_manager",
+        "description": "Physical store manager",
+        "created_at": "2026-10-17 10:17:06",
+        "updated_at": "2026-10-17 10:17:06"
+    },
+    {
+        "id": 4,
+        "name": "staff",
+        "description": "Tailoring store staff member",
+        "created_at": "2026-10-17 10:17:06",
+        "updated_at": "2026-10-17 10:17:06"
+    },
+    {
+        "id": 5,
+        "name": "customer",
+        "description": "Customer",
+        "created_at": "2026-10-17 10:17:06",
+        "updated_at": "2026-10-17 10:17:06"
+    }
+]

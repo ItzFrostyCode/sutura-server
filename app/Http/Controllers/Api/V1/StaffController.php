@@ -94,7 +94,7 @@ class StaffController extends Controller
             return response()->json(['success' => true, 'data' => $data]);
         }
 
-        $staff = $store->staff()->with(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name'])->get();
+        $staff = $store->staff()->with(['user:id,name,email,phone,gender,last_seen_at,profile_picture', 'branch:id,name'])->get();
 
         // One grouped query for all staff instead of 2 queries per staff
         // member — previously scaled linearly with the store's headcount.
@@ -173,7 +173,7 @@ class StaffController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'staff' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name']),
+                'staff' => $staff->load(['user:id,name,email,phone,gender,last_seen_at,profile_picture', 'branch:id,name']),
                 // total_assigned/total_completed intentionally stay as raw
                 // stage-assignment counts — they correspond 1:1 with the
                 // per-stage `assignments` log rendered below. 'active' is
@@ -279,6 +279,7 @@ class StaffController extends Controller
                 'password' => Hash::make($request->password),
                 'password_set_at' => now(),
                 'phone' => $request->phone ?? $user->phone,
+                'gender' => $request->gender ?? $user->gender,
             ]);
         } else {
             $user = User::create([
@@ -287,6 +288,7 @@ class StaffController extends Controller
                 'password' => Hash::make($request->password),
                 'password_set_at' => now(),
                 'phone' => $request->phone,
+                'gender' => $request->gender,
             ]);
         }
 
@@ -308,7 +310,7 @@ class StaffController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name']),
+            'data' => $staff->load(['user:id,name,email,phone,gender,last_seen_at,profile_picture', 'branch:id,name']),
         ], 201);
     }
 
@@ -326,7 +328,7 @@ class StaffController extends Controller
         // Update the associated User
         $user = $staff->user;
         if ($user) {
-            $userData = $request->only(['name', 'email', 'phone']);
+            $userData = $request->only(['name', 'email', 'phone', 'gender']);
             if ($request->filled('password')) {
                 $userData['password'] = Hash::make($request->password);
             }
@@ -340,7 +342,7 @@ class StaffController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $staff->load(['user:id,name,email,phone,last_seen_at,profile_picture', 'branch:id,name']),
+            'data' => $staff->load(['user:id,name,email,phone,gender,last_seen_at,profile_picture', 'branch:id,name']),
         ]);
     }
 

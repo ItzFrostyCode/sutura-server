@@ -146,6 +146,7 @@ class StoreApplicationController extends Controller
                 'email' => ShopLogin::suggest($request->store_name),
                 'contact_email' => $request->email,
                 'phone' => $request->contact_number,
+                'gender' => $request->gender,
                 // Never communicated to anyone — the account is unusable
                 // until approval issues a real temporary password.
                 'password' => Hash::make(Str::random(64)),

@@ -94,6 +94,7 @@ final class OrderFlowPresenter
                 'is_rush' => (bool) $job->is_rush,
                 'rush_fee' => (float) $job->rush_fee,
                 'quantity' => $job->quantity,
+                'people_count' => $job->custom_order_data['people_count'] ?? null,
             ],
             'checklist' => $checklist,
             'pre_production' => OrderPreProduction::steps($job),
@@ -209,15 +210,20 @@ final class OrderFlowPresenter
                 'approved_at' => $c->approved_at, 'resolved_at' => $c->resolved_at,
             ])->values(),
             'handover' => [
-                'quantity' => (int) $job->quantity,
+                'quantity' => $job->garmentCount(),
+                // A group order counts its people; older orders count pieces.
+                'unit' => ! empty($job->custom_order_data['people_count']) ? 'people' : 'garments',
                 'handed_over' => $given,
-                'remaining' => max(0, (int) $job->quantity - $given),
+                'remaining' => max(0, $job->garmentCount() - $given),
                 'records' => $handovers->map(fn ($h) => [
                     'id' => $h->id, 'quantity' => $h->quantity, 'received_by' => $h->received_by,
                     'note' => $h->note, 'handed_over_at' => $h->handed_over_at, 'recorded_by' => $h->recordedBy?->name,
                 ])->values(),
             ],
             'balance_clear' => (float) $job->balance <= 0.005,
+            // Garments went out before the balance was paid (released by the owner or a branch manager).
+            'released_with_balance' => $job->released_with_balance_at !== null && (float) $job->balance > 0.005,
+            'balance_due_by' => $job->balance_due_by?->toDateString(),
             'balance' => $money ? (float) $job->balance : null,
         ];
     }

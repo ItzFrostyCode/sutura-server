@@ -392,4 +392,204 @@ class AppointmentTest extends TestCase
         $this->assertSame('converted_to_job', $a->outcome);
         $this->assertNotNull($a->job_order_id);
     }
+
+    public function test_store_owner_can_be_assigned_to_appointment()
+    {
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'appointment_type' => 'consultation',
+            'scheduled_at' => now()->addDay(),
+            'duration_minutes' => 30,
+            'status' => 'pending',
+        ]);
+
+        $res = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}/assign",
+            ['staff_id' => $this->user->id]
+        );
+
+        $res->assertStatus(200);
+        $this->assertSame($this->user->id, $appointment->fresh()->assigned_staff_id);
+    }
+
+    public function test_branch_staff_can_be_assigned_to_branch_appointment()
+    {
+        $staffUser = User::factory()->create();
+        StaffProfile::create([
+            'store_id' => $this->store->id,
+            'user_id' => $staffUser->id,
+            'store_branch_id' => $this->branch->id,
+            'role' => 'tailor',
+        ]);
+
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'appointment_type' => 'consultation',
+            'scheduled_at' => now()->addDay(),
+            'duration_minutes' => 30,
+            'status' => 'pending',
+        ]);
+
+        $res = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}/assign",
+            ['staff_id' => $staffUser->id]
+        );
+
+        $res->assertStatus(200);
+        $this->assertSame($staffUser->id, $appointment->fresh()->assigned_staff_id);
+    }
+
+    public function test_staff_from_another_branch_cannot_be_assigned_to_branch_appointment()
+    {
+        $otherBranch = StoreBranch::create([
+            'store_id' => $this->store->id,
+            'name' => 'Branch B',
+            'address' => 'B St',
+            'city' => 'Davao',
+            'status' => 'active',
+            'verification_status' => 'verified',
+        ]);
+
+        $otherStaffUser = User::factory()->create();
+        StaffProfile::create([
+            'store_id' => $this->store->id,
+            'user_id' => $otherStaffUser->id,
+            'store_branch_id' => $otherBranch->id,
+            'role' => 'tailor',
+        ]);
+
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'appointment_type' => 'consultation',
+            'scheduled_at' => now()->addDay(),
+            'duration_minutes' => 30,
+            'status' => 'pending',
+        ]);
+
+        // Attempt assignment by store owner to a staff pinned to a different branch
+        $res = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}/assign",
+            ['staff_id' => $otherStaffUser->id]
+        );
+
+        $res->assertStatus(422)
+            ->assertJson(['success' => false, 'message' => "Choose a handler from this appointment's branch."]);
+    }
+
+    public function test_appointment_can_be_unassigned()
+    {
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'appointment_type' => 'consultation',
+            'scheduled_at' => now()->addDay(),
+            'duration_minutes' => 30,
+            'status' => 'pending',
+            'assigned_staff_id' => $this->user->id,
+        ]);
+
+        $res = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}/assign",
+            ['staff_id' => null]
+        );
+
+        $res->assertStatus(200);
+        $this->assertNull($appointment->fresh()->assigned_staff_id);
+    }
+
+    public function test_shop_owner_can_share_notes_and_multiple_links_with_customer()
+    {
+        Notification::fake();
+
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'appointment_type' => 'consultation',
+            'scheduled_at' => now()->addDay(),
+            'duration_minutes' => 30,
+            'status' => 'confirmed',
+        ]);
+
+        $res = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            [
+                'shared_notes' => 'Discussed navy wool fabric and custom horn buttons.',
+                'shared_links' => ['https://drive.google.com/design-1', 'https://pinterest.com/pin/123'],
+                'shared_images' => ['stores/1/photo1.jpg'],
+            ]
+        );
+
+        $res->assertStatus(200);
+
+        $fresh = $appointment->fresh();
+        $this->assertSame('Discussed navy wool fabric and custom horn buttons.', $fresh->shared_notes);
+        $this->assertCount(2, $fresh->shared_links);
+        $this->assertSame('https://drive.google.com/design-1', $fresh->shared_link);
+        $this->assertCount(1, $fresh->shared_images);
+
+        Notification::assertSentTo(
+            $this->customer,
+            \App\Notifications\AppointmentStatusNotification::class,
+            function ($notification) {
+                return $notification->statusType === 'shared';
+            }
+        );
+    }
+
+    public function test_measurements_can_be_associated_with_appointment()
+    {
+        $appointment = Appointment::create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'appointment_type' => 'consultation',
+            'scheduled_at' => now()->addDay(),
+            'duration_minutes' => 30,
+            'status' => 'confirmed',
+        ]);
+
+        $res = $this->actingAs($this->user)->postJson(
+            "/api/v1/stores/{$this->store->id}/measurements",
+            [
+                'customer_id' => $this->customer->id,
+                'appointment_id' => $appointment->id,
+                'profile_name' => 'Groomsman 1',
+                'metrics' => ['Chest' => '38', 'Waist' => '32'],
+                'notes' => 'Athletic build',
+            ]
+        );
+
+        $res->assertStatus(201);
+        $measurementId = $res->json('data.id');
+
+        $measurement = \App\Models\Measurement::find($measurementId);
+        $this->assertSame($appointment->id, $measurement->appointment_id);
+        $this->assertSame('Groomsman 1', $measurement->profile_name);
+        $this->assertSame(1, $measurement->version);
+
+        // Verify update increments version and retains appointment_id
+        $updateRes = $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/measurements/{$measurementId}",
+            [
+                'metrics' => ['Chest' => '39', 'Waist' => '32'],
+            ]
+        );
+
+        $updateRes->assertStatus(200);
+        $nextVersion = \App\Models\Measurement::find($updateRes->json('data.id'));
+        $this->assertSame(2, $nextVersion->version);
+        $this->assertSame($appointment->id, $nextVersion->appointment_id);
+    }
 }

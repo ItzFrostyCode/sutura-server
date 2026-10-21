@@ -1,0 +1,119 @@
+[
+    {
+        "id": 1,
+        "user_id": 20,
+        "viewable_type": "App\\Models\\Store",
+        "viewable_id": 4,
+        "viewed_at": "2026-10-20 10:33:02",
+        "created_at": "2026-10-17 23:06:41",
+        "updated_at": "2026-10-20 10:33:02"
+    },
+    {
+        "id": 2,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\Store",
+        "viewable_id": 4,
+        "viewed_at": "2026-10-21 19:43:23",
+        "created_at": "2026-10-17 23:39:48",
+        "updated_at": "2026-10-21 19:43:23"
+    },
+    {
+        "id": 3,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\Store",
+        "viewable_id": 1,
+        "viewed_at": "2026-10-19 17:57:39",
+        "created_at": "2026-10-18 00:04:11",
+        "updated_at": "2026-10-19 17:57:39"
+    },
+    {
+        "id": 4,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\Service",
+        "viewable_id": 1,
+        "viewed_at": "2026-10-18 16:56:43",
+        "created_at": "2026-10-18 00:04:14",
+        "updated_at": "2026-10-18 16:56:43"
+    },
+    {
+        "id": 5,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\CatalogItem",
+        "viewable_id": 13,
+        "viewed_at": "2026-10-18 16:08:57",
+        "created_at": "2026-10-18 00:31:56",
+        "updated_at": "2026-10-18 16:08:57"
+    },
+    {
+        "id": 6,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\CatalogItem",
+        "viewable_id": 10,
+        "viewed_at": "2026-10-18 16:09:34",
+        "created_at": "2026-10-18 16:09:34",
+        "updated_at": "2026-10-18 16:09:34"
+    },
+    {
+        "id": 7,
+        "user_id": 20,
+        "viewable_type": "App\\Models\\Service",
+        "viewable_id": 14,
+        "viewed_at": "2026-10-20 10:32:40",
+        "created_at": "2026-10-18 16:50:37",
+        "updated_at": "2026-10-20 10:32:40"
+    },
+    {
+        "id": 8,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\CatalogItem",
+        "viewable_id": 54,
+        "viewed_at": "2026-10-19 17:54:57",
+        "created_at": "2026-10-18 22:50:30",
+        "updated_at": "2026-10-19 17:54:57"
+    },
+    {
+        "id": 9,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\Service",
+        "viewable_id": 14,
+        "viewed_at": "2026-10-19 16:33:18",
+        "created_at": "2026-10-18 22:54:56",
+        "updated_at": "2026-10-19 16:33:18"
+    },
+    {
+        "id": 10,
+        "user_id": 22,
+        "viewable_type": "App\\Models\\Store",
+        "viewable_id": 4,
+        "viewed_at": "2026-10-19 13:00:55",
+        "created_at": "2026-10-19 12:41:36",
+        "updated_at": "2026-10-19 13:00:55"
+    },
+    {
+        "id": 11,
+        "user_id": 22,
+        "viewable_type": "App\\Models\\Store",
+        "viewable_id": 1,
+        "viewed_at": "2026-10-19 12:43:51",
+        "created_at": "2026-10-19 12:43:51",
+        "updated_at": "2026-10-19 12:43:51"
+    },
+    {
+        "id": 12,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\Service",
+        "viewable_id": 15,
+        "viewed_at": "2026-10-19 19:24:11",
+        "created_at": "2026-10-19 19:24:11",
+        "updated_at": "2026-10-19 19:24:11"
+    },
+    {
+        "id": 13,
+        "user_id": 19,
+        "viewable_type": "App\\Models\\CatalogItem",
+        "viewable_id": 55,
+        "viewed_at": "2026-10-20 01:15:33",
+        "created_at": "2026-10-19 19:24:31",
+        "updated_at": "2026-10-20 01:15:33"
+    }
+]

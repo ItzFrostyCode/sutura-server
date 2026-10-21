@@ -51,6 +51,24 @@ final class OrderReadiness
         return $required <= 0 || self::paidSoFar($job) + 0.005 >= $required;
     }
 
+    /** Something to verify exists: a saved measurement, a standard size, or a size for every person on a group order. */
+    public static function measurementsRecorded(JobOrder $job): bool
+    {
+        $data = (array) $job->custom_order_data;
+        $roster = $data['team_roster'] ?? null;
+        if (is_array($roster) && count($roster) > 0) {
+            foreach ($roster as $row) {
+                if (trim((string) ($row['size'] ?? '')) === '') {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        return $job->measurement_id !== null || trim((string) ($data['standard_size'] ?? '')) !== '';
+    }
+
     public static function measurementsNeeded(JobOrder $job): bool
     {
         return ($job->measurement_requirement ?? 'shop') !== 'none';
@@ -267,9 +285,13 @@ final class OrderReadiness
                 if ($open > 0) {
                     return $err($openMsg);
                 }
+                // Garments may leave with a balance due (released by the owner or a manager), but the order only closes once it is paid.
+                if ((float) $job->balance > 0.005) {
+                    return $err('The balance of ₱'.number_format((float) $job->balance, 2).' is still to be paid. The order stays open until it is settled.');
+                }
                 $given = self::handedOver($job);
-                if ($given < (int) $job->quantity) {
-                    return $err("Record the handover of every garment first ({$given} of {$job->quantity} handed over).");
+                if ($given < $job->garmentCount()) {
+                    return $err("Record the handover of every garment first ({$given} of {$job->garmentCount()} handed over).");
                 }
 
                 return null;

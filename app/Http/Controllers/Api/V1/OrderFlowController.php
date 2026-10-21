@@ -68,6 +68,14 @@ class OrderFlowController extends Controller
         if ($denied = $this->orderAccessDenied($request, $store, $jobOrder) ?? $this->flowOnly($jobOrder)) {
             return $denied;
         }
+        // "Verified" has to mean something: measurements (or a standard size, or every person's size) are on the order.
+        if (OrderReadiness::measurementsNeeded($jobOrder) && ! OrderReadiness::measurementsRecorded($jobOrder)) {
+            $everyone = ! empty($jobOrder->custom_order_data['team_roster']);
+
+            return response()->json(['success' => false, 'message' => $everyone
+                ? 'Give every person a size or their measurements before you verify them.'
+                : 'Record the measurements first, or choose a standard size. They can be added under Details.'], 422);
+        }
         $jobOrder->forceFill(['measurements_verified_at' => now(), 'measurements_verified_by' => $request->user()->id])->save();
         $this->logOrderAction($request, $store, $jobOrder, 'order_measurements_verified');
 

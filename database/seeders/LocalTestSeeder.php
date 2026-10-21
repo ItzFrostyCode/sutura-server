@@ -63,6 +63,18 @@ class LocalTestSeeder extends Seeder
         ] as $email => $name) {
             User::where('email', $email)->update(['name' => $name]);
         }
+
+        foreach ([
+            'admin@sutura.com' => 'male',
+            'maria.cruz@gmail.com' => 'female',
+            'juan.delacruz@sutura.com' => 'male',
+            'miguel.manager@sutura.com' => 'male',
+            'ana.santos@sutura.com' => 'female',
+            'pedro.penduko@sutura.com' => 'male',
+            'pia.santos@gmail.com' => 'female',
+        ] as $email => $gender) {
+            User::where('email', $email)->whereNull('gender')->update(['gender' => $gender]);
+        }
     }
 
     public function run(): void
@@ -78,6 +90,7 @@ class LocalTestSeeder extends Seeder
             ['email' => 'admin@sutura.com'],
             [
                 'name' => 'System Admin',
+                'gender' => 'male',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ]
@@ -91,6 +104,7 @@ class LocalTestSeeder extends Seeder
             ['email' => 'maria.cruz@gmail.com'],
             [
                 'name' => 'Maria Cruz',
+                'gender' => 'female',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ]
@@ -170,6 +184,7 @@ class LocalTestSeeder extends Seeder
             ['email' => 'juan.delacruz@sutura.com'],
             [
                 'name' => 'Juan Dela Cruz',
+                'gender' => 'male',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ]
@@ -203,7 +218,7 @@ class LocalTestSeeder extends Seeder
         $branchManagerRole = Role::where('name', 'branch_manager')->first();
         $manager = User::firstOrCreate(
             ['email' => 'miguel.manager@sutura.com'],
-            ['name' => 'Miguel Manager', 'password' => Hash::make('password'), 'email_verified_at' => now()]
+            ['name' => 'Miguel Manager', 'gender' => 'male', 'password' => Hash::make('password'), 'email_verified_at' => now()]
         );
         if ($branchManagerRole && ! $manager->roles()->where('role_id', $branchManagerRole->id)->exists()) {
             $manager->roles()->attach($branchManagerRole->id);
@@ -226,7 +241,7 @@ class LocalTestSeeder extends Seeder
         // fix as FileUploadController's UPLOAD_DISK bug.
         $store->update([
             'logo_path' => Storage::url('logos/thread_needle_logo.jpg'),
-            'banner_path' => Storage::url('banners/thread_needle_banner.jpg'),
+            'banner_path' => Storage::url('banners/thread_needle_profile_banner.jpg'),
             'description' => "Davao City's premier provider of full sublimation jerseys, corporate uniforms, and custom tailoring.",
             // Re-applied on every run (firstOrCreate above only sets it on a
             // brand-new store) so an existing DB picks up the canonical
@@ -490,8 +505,8 @@ class LocalTestSeeder extends Seeder
 
         // 8. Seed 2 Additional Tailoring Staff Members (making it 3 staff in total)
         $staffNames = [
-            ['email' => 'ana.santos@sutura.com', 'name' => 'Ana Santos', 'role' => 'senior_designer'],
-            ['email' => 'pedro.penduko@sutura.com', 'name' => 'Pedro Penduko', 'role' => 'cutter_sewer'],
+            ['email' => 'ana.santos@sutura.com', 'name' => 'Ana Santos', 'gender' => 'female', 'role' => 'senior_designer'],
+            ['email' => 'pedro.penduko@sutura.com', 'name' => 'Pedro Penduko', 'gender' => 'male', 'role' => 'cutter_sewer'],
         ];
 
         $staffUsers = [];
@@ -502,10 +517,14 @@ class LocalTestSeeder extends Seeder
                 ['email' => $sData['email']],
                 [
                     'name' => $sData['name'],
+                    'gender' => $sData['gender'],
                     'password' => Hash::make('password'),
                     'email_verified_at' => now(),
                 ]
             );
+            if (! $sUser->gender) {
+                $sUser->update(['gender' => $sData['gender']]);
+            }
             if (! $sUser->roles()->where('role_id', $staffRole->id)->exists()) {
                 $sUser->roles()->attach($staffRole->id);
             }
@@ -531,10 +550,10 @@ class LocalTestSeeder extends Seeder
         $customerRole = Role::where('name', 'customer')->first();
         $customers = [];
         $customerNames = [
-            ['email' => 'juan.delacruz@gmail.com', 'name' => 'Juan dela Cruz'],
-            ['email' => 'jose.rizal@gmail.com', 'name' => 'Jose Rizal'],
-            ['email' => 'andres.b@gmail.com', 'name' => 'Andres Bonifacio'],
-            ['email' => 'maria.clara@gmail.com', 'name' => 'Maria Clara'],
+            ['email' => 'juan.delacruz@gmail.com', 'name' => 'Juan dela Cruz', 'gender' => 'male'],
+            ['email' => 'jose.rizal@gmail.com', 'name' => 'Jose Rizal', 'gender' => 'male'],
+            ['email' => 'andres.b@gmail.com', 'name' => 'Andres Bonifacio', 'gender' => 'male'],
+            ['email' => 'maria.clara@gmail.com', 'name' => 'Maria Clara', 'gender' => 'female'],
         ];
 
         foreach ($customerNames as $cData) {
@@ -542,10 +561,14 @@ class LocalTestSeeder extends Seeder
                 ['email' => $cData['email']],
                 [
                     'name' => $cData['name'],
+                    'gender' => $cData['gender'],
                     'password' => Hash::make('password'),
                     'email_verified_at' => now(),
                 ]
             );
+            if (! $cUser->gender) {
+                $cUser->update(['gender' => $cData['gender']]);
+            }
             if (! $cUser->roles()->where('role_id', $customerRole->id)->exists()) {
                 $cUser->roles()->attach($customerRole->id);
             }
@@ -558,11 +581,14 @@ class LocalTestSeeder extends Seeder
         // 9a. Booking testers — customers with NO appointments. Every customer above already holds
         // an active appointment at this store, and a customer may only have one, so these are the
         // logins for trying "Book an Appointment" from the store, a design, a service or a package.
-        foreach ([['tess.tester@gmail.com', 'Tess Tester'], ['tomas.tester@gmail.com', 'Tomas Tester']] as [$tEmail, $tName]) {
+        foreach ([['tess.tester@gmail.com', 'Tess Tester', 'female'], ['tomas.tester@gmail.com', 'Tomas Tester', 'male']] as [$tEmail, $tName, $tGender]) {
             $tester = User::firstOrCreate(
                 ['email' => $tEmail],
-                ['name' => $tName, 'password' => Hash::make('password'), 'email_verified_at' => now()]
+                ['name' => $tName, 'gender' => $tGender, 'password' => Hash::make('password'), 'email_verified_at' => now()]
             );
+            if (! $tester->gender) {
+                $tester->update(['gender' => $tGender]);
+            }
             if (! $tester->roles()->where('role_id', $customerRole->id)->exists()) {
                 $tester->roles()->attach($customerRole->id);
             }
@@ -573,16 +599,19 @@ class LocalTestSeeder extends Seeder
         // receipt-verification demo scenarios below — these existed only as ad
         // hoc records before, not in this seeder, so a fresh reseed lost them.
         $onlineCustomerNames = [
-            ['email' => 'liza.fernandez@example.com', 'name' => 'Liza Fernandez'],
-            ['email' => 'mark.villanueva@example.com', 'name' => 'Mark Villanueva'],
-            ['email' => 'cristina.ramos@example.com', 'name' => 'Cristina Ramos'],
+            ['email' => 'liza.fernandez@example.com', 'name' => 'Liza Fernandez', 'gender' => 'female'],
+            ['email' => 'mark.villanueva@example.com', 'name' => 'Mark Villanueva', 'gender' => 'male'],
+            ['email' => 'cristina.ramos@example.com', 'name' => 'Cristina Ramos', 'gender' => 'female'],
         ];
         $onlineCustomers = [];
         foreach ($onlineCustomerNames as $cData) {
             $cUser = User::firstOrCreate(
                 ['email' => $cData['email']],
-                ['name' => $cData['name'], 'password' => Hash::make('password'), 'email_verified_at' => now()]
+                ['name' => $cData['name'], 'gender' => $cData['gender'], 'password' => Hash::make('password'), 'email_verified_at' => now()]
             );
+            if (! $cUser->gender) {
+                $cUser->update(['gender' => $cData['gender']]);
+            }
             if (! $cUser->roles()->where('role_id', $customerRole->id)->exists()) {
                 $cUser->roles()->attach($customerRole->id);
             }

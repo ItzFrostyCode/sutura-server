@@ -19,7 +19,7 @@ class CatalogItem extends Model
         'store_id', 'service_id', 'name', 'price', 'estimated_days', 'estimated_days_max',
         // How the design is priced against its service (App\Support\DesignPricing).
         'pricing_mode', 'extra_charge',
-        'material', 'color', 'fabric_image_url', 'sizes', 'description',
+        'material', 'color', 'fabric_image_url', 'sizes', 'add_ons', 'description',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
         'measurement_guide',
         'features', 'care_instructions', 'garment_type', 'listing_type', 'external_gallery_url',
@@ -37,6 +37,7 @@ class CatalogItem extends Model
         'size_chart_rows' => 'array',
         'features' => 'array',
         'sizes' => 'array',
+        'add_ons' => 'array',
         'is_active' => 'boolean',
     ];
 

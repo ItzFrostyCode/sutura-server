@@ -29,7 +29,7 @@ class AdminAuthController extends Controller
             || ! $user->hasRole('admin') || $user->suspended_at !== null) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid credentials.',
+                'message' => 'Incorrect email or password.',
             ], 401);
         }
 

@@ -5,6 +5,9 @@ namespace Tests\Feature\Api\V1;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 use Tests\TestCase;
 
 class StoreAuthTest extends TestCase
@@ -14,7 +17,8 @@ class StoreAuthTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Role::create(['name' => 'store_owner', 'description' => 'Store Owner']);
+        Role::firstOrCreate(['name' => 'customer', 'description' => 'Customer']);
+        Role::firstOrCreate(['name' => 'store_owner', 'description' => 'Store Owner']);
     }
 
     public function test_user_can_register()
@@ -22,9 +26,9 @@ class StoreAuthTest extends TestCase
         $response = $this->postJson('/api/v1/auth/register', [
             'name' => 'John Doe',
             'email' => 'john@example.com',
-            'password' => 'password',
-            'password_confirmation' => 'password',
-            'role' => 'store_owner',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+            'role' => 'customer',
         ]);
 
         $response->assertStatus(201)
@@ -35,20 +39,23 @@ class StoreAuthTest extends TestCase
         ]);
     }
 
-    public function test_user_can_login()
+    public function test_user_can_login_with_valid_credentials()
     {
-        $role = Role::first();
+        $role = Role::where('name', 'customer')->first();
         $user = User::factory()->create([
-            'password' => bcrypt('password'),
+            'email' => 'customer@example.com',
+            'password' => Hash::make('Password123!'),
         ]);
         $user->roles()->attach($role);
 
         $response = $this->postJson('/api/v1/auth/login', [
-            'email' => $user->email,
-            'password' => 'password',
+            'email' => 'customer@example.com',
+            'password' => 'Password123!',
+            'portal' => 'customer',
         ]);
 
         $response->assertStatus(200)
+            ->assertJsonPath('success', true)
             ->assertJsonStructure([
                 'success',
                 'data' => [
@@ -58,10 +65,152 @@ class StoreAuthTest extends TestCase
             ]);
     }
 
+    public function test_login_fails_with_incorrect_password()
+    {
+        $role = Role::where('name', 'customer')->first();
+        $user = User::factory()->create([
+            'email' => 'customer@example.com',
+            'password' => Hash::make('Password123!'),
+        ]);
+        $user->roles()->attach($role);
+
+        $response = $this->postJson('/api/v1/auth/login', [
+            'email' => 'customer@example.com',
+            'password' => 'WrongPassword123!',
+            'portal' => 'customer',
+        ]);
+
+        $response->assertStatus(401)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Incorrect email or password.');
+    }
+
+    public function test_login_fails_with_unregistered_email()
+    {
+        $response = $this->postJson('/api/v1/auth/login', [
+            'email' => 'unregistered@example.com',
+            'password' => 'Password123!',
+            'portal' => 'customer',
+        ]);
+
+        $response->assertStatus(401)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Incorrect email or password.');
+    }
+
+    public function test_forgot_password_for_registered_account()
+    {
+        $role = Role::where('name', 'customer')->first();
+        $user = User::factory()->create([
+            'email' => 'registered@example.com',
+            'password' => Hash::make('Password123!'),
+        ]);
+        $user->roles()->attach($role);
+
+        $response = $this->postJson('/api/v1/auth/forgot-password', [
+            'email' => 'registered@example.com',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'If an account exists for this email, you’ll receive password-reset instructions.');
+
+        $this->assertDatabaseHas('password_reset_tokens', [
+            'email' => 'registered@example.com',
+        ]);
+    }
+
+    public function test_forgot_password_for_unregistered_account_returns_generic_message_and_no_token()
+    {
+        $response = $this->postJson('/api/v1/auth/forgot-password', [
+            'email' => 'nonexistent@example.com',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'If an account exists for this email, you’ll receive password-reset instructions.');
+
+        // Token must never be generated for unregistered emails
+        $this->assertDatabaseMissing('password_reset_tokens', [
+            'email' => 'nonexistent@example.com',
+        ]);
+    }
+
+    public function test_reset_password_with_valid_token()
+    {
+        $role = Role::where('name', 'customer')->first();
+        $user = User::factory()->create([
+            'email' => 'resetme@example.com',
+            'password' => Hash::make('OldPassword123!'),
+        ]);
+        $user->roles()->attach($role);
+
+        $token = Password::createToken($user);
+
+        $response = $this->postJson('/api/v1/auth/reset-password', [
+            'token' => $token,
+            'email' => 'resetme@example.com',
+            'password' => 'NewPassword123!',
+            'password_confirmation' => 'NewPassword123!',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Password reset successfully. Please log in with your new password.');
+
+        $user->refresh();
+        $this->assertTrue(Hash::check('NewPassword123!', $user->password));
+
+        // Token cannot be reused (deleted after use)
+        $this->assertDatabaseMissing('password_reset_tokens', [
+            'email' => 'resetme@example.com',
+        ]);
+    }
+
+    public function test_reset_password_fails_with_invalid_token()
+    {
+        $role = Role::where('name', 'customer')->first();
+        $user = User::factory()->create([
+            'email' => 'resetme@example.com',
+            'password' => Hash::make('OldPassword123!'),
+        ]);
+        $user->roles()->attach($role);
+
+        $response = $this->postJson('/api/v1/auth/reset-password', [
+            'token' => 'invalid-token-value',
+            'email' => 'resetme@example.com',
+            'password' => 'NewPassword123!',
+            'password_confirmation' => 'NewPassword123!',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'This reset link is invalid or has expired. Please request a new one.');
+    }
+
+    public function test_suspended_account_cannot_login()
+    {
+        $role = Role::where('name', 'customer')->first();
+        $user = User::factory()->create([
+            'email' => 'suspended@example.com',
+            'password' => Hash::make('Password123!'),
+            'suspended_at' => now(),
+        ]);
+        $user->roles()->attach($role);
+
+        $response = $this->postJson('/api/v1/auth/login', [
+            'email' => 'suspended@example.com',
+            'password' => 'Password123!',
+            'portal' => 'customer',
+        ]);
+
+        $response->assertStatus(403)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'This account has been suspended. Please contact SUTURA support.');
+    }
+
     public function test_walkin_shadow_account_is_claimed_when_customer_registers_by_phone()
     {
-        Role::firstOrCreate(['name' => 'customer', 'description' => 'Customer']);
-
         // A walk-in customer was created at counter with synthetic email and phone
         $shadow = User::create([
             'name' => 'Walk-in Maria',
@@ -76,8 +225,8 @@ class StoreAuthTest extends TestCase
             'name' => 'Maria Santos',
             'email' => 'maria.santos@gmail.com',
             'phone' => '09171234567',
-            'password' => 'password123',
-            'password_confirmation' => 'password123',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
             'role' => 'customer',
         ]);
 

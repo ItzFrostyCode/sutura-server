@@ -58,7 +58,9 @@ class SmsTemplates
         $key = 'appointment:'.$a->id;
 
         return match ($status) {
-            'confirmed' => ['event' => 'appointment_confirmed', 'body' => "{$shop}: your {$kind} on {$when} is CONFIRMED. See you!", 'dedupe' => "{$key}:confirmed:{$when}"],
+            'confirmed' => ['event' => 'appointment_confirmed', 'body' => "{$shop}: your {$kind} on {$when} is APPROVED. See you!", 'dedupe' => "{$key}:confirmed:{$when}"],
+            // The shop booked it for the customer (a visit for later, a follow-up): same switch as an approval.
+            'booked' => ['event' => 'appointment_confirmed', 'body' => "{$shop}: we booked your {$kind} on {$when}. See you!", 'dedupe' => "{$key}:booked:{$when}"],
             'rejected' => ['event' => 'appointment_rejected', 'body' => "{$shop}: sorry, we can't take your {$kind} on {$when}. Please pick another time in SUTURA.", 'dedupe' => "{$key}:rejected"],
             'rescheduled' => ['event' => 'appointment_rescheduled', 'body' => "{$shop}: your {$kind} is moved to {$when}. Open SUTURA to confirm or pick another time.", 'dedupe' => "{$key}:rescheduled:{$when}"],
             'cancelled' => ['event' => 'appointment_cancelled', 'body' => "{$shop}: your {$kind} on {$when} was cancelled. Book a new time anytime in SUTURA.", 'dedupe' => "{$key}:cancelled"],

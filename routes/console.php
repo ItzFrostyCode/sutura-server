@@ -31,6 +31,12 @@ Schedule::command('app:remind-expiring-subscriptions')->daily();
 // through the ~24h-ahead window once; reminder_sent_at prevents duplicates.
 Schedule::command('app:remind-upcoming-appointments')->hourly();
 
+// A request nobody answered holds its slot only until its time passes; then it is cancelled and the customer is told.
+Schedule::command('app:expire-unanswered-appointments')->hourly();
+
+// A visit nobody closed a day after it should have ended is closed for the shop, so the list never fills with stale "Approved" rows.
+Schedule::command('app:close-stale-visits')->hourly();
+
 // Same "passive KPI into a proactive alert" pattern as notify-overdue-jobs,
 // for garments sitting unclaimed on the rack 14+ days (see
 // AnalyticsController's unclaimed_pickups list / job_orders.ready_for_pickup_at).

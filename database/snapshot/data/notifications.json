@@ -1,0 +1,122 @@
+[
+    {
+        "id": "1d5a8e3d-a4bb-4145-8f37-3a6fc64c83e8",
+        "type": "App\\Notifications\\StoreActivityNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 4,
+        "data": "{\"type\":\"appointment_confirmed\",\"title\":\"Appointment Updated\",\"message\":\"Appointment for Tmp Cross Customer is now confirmed.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":41}",
+        "read_at": null,
+        "created_at": "2026-10-21 22:17:31",
+        "updated_at": "2026-10-21 22:17:31"
+    },
+    {
+        "id": "3862faf3-bc91-4a0e-8df0-827d2a62b7e8",
+        "type": "App\\Notifications\\StoreActivityNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_follow_up_created\",\"title\":\"Follow-Up Appointment Scheduled\",\"message\":\"A follow-up measurement was scheduled for Tmp Cross Customer.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":43}",
+        "read_at": null,
+        "created_at": "2026-10-21 22:17:31",
+        "updated_at": "2026-10-21 22:17:31"
+    },
+    {
+        "id": "5a5361c9-3dbf-4c08-bc93-183eea1bd388",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Pia Santos booked an appointment for Oct 21, 2026 12:23 PM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":31,\"customer_name\":\"Pia Santos\",\"scheduled_at\":\"2026-10-21T04:23:10.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 12:23:10",
+        "updated_at": "2026-10-21 12:23:10"
+    },
+    {
+        "id": "6d2be143-03be-4218-997f-a188aa0e9f0e",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 4,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Tmp Cross Customer booked an appointment for Dec 14, 2026 10:00 AM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":41,\"customer_name\":\"Tmp Cross Customer\",\"scheduled_at\":\"2026-12-14T02:00:00.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 22:17:30",
+        "updated_at": "2026-10-21 22:17:30"
+    },
+    {
+        "id": "6dad0cd9-3bf6-4669-8ee0-b7cc38acd1fc",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Tmp Walkin Cross booked an appointment for Oct 21, 2026 10:17 PM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":45,\"customer_name\":\"Tmp Walkin Cross\",\"scheduled_at\":\"2026-10-21T14:17:31.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 22:17:31",
+        "updated_at": "2026-10-21 22:17:31"
+    },
+    {
+        "id": "745079cb-36d1-47ef-9961-fe0d211bdd77",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 20,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Walk-in customer booked an appointment for Oct 21, 2026 05:40 PM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":35,\"customer_name\":\"Walk-in customer\",\"scheduled_at\":\"2026-10-21T09:40:02.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 17:40:02",
+        "updated_at": "2026-10-21 17:40:02"
+    },
+    {
+        "id": "76c1a97e-9c41-43c2-b870-2e316d1d9af2",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Pia Santos booked an appointment for Oct 21, 2026 12:23 PM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":32,\"customer_name\":\"Pia Santos\",\"scheduled_at\":\"2026-10-21T04:23:10.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 12:23:10",
+        "updated_at": "2026-10-21 12:23:10"
+    },
+    {
+        "id": "798b963d-d0c9-4f07-a9e7-68ff16f380ff",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Walk-in customer booked an appointment for Oct 21, 2026 04:18 PM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":34,\"customer_name\":\"Walk-in customer\",\"scheduled_at\":\"2026-10-21T08:18:16.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 16:18:16",
+        "updated_at": "2026-10-21 16:18:16"
+    },
+    {
+        "id": "7c35034d-fc3c-45f6-846e-2b0e53f5dda1",
+        "type": "App\\Notifications\\StoreActivityNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_follow_up_created\",\"title\":\"Follow-Up Appointment Scheduled\",\"message\":\"A follow-up measurement was scheduled for Tmp Cross Customer.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":42}",
+        "read_at": null,
+        "created_at": "2026-10-21 22:17:31",
+        "updated_at": "2026-10-21 22:17:31"
+    },
+    {
+        "id": "a34bb08e-da65-4585-8fe7-3569045d25e8",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Tmp Cross Customer booked an appointment for Dec 14, 2026 01:00 PM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":44,\"customer_name\":\"Tmp Cross Customer\",\"scheduled_at\":\"2026-12-14T05:00:00.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 22:17:31",
+        "updated_at": "2026-10-21 22:17:31"
+    },
+    {
+        "id": "a9bf5aaf-f04d-479d-97c5-2887b1560671",
+        "type": "App\\Notifications\\AppointmentBookedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 2,
+        "data": "{\"type\":\"appointment_booked\",\"title\":\"New Appointment Booked\",\"message\":\"Tmp Cross Customer booked an appointment for Dec 14, 2026 10:00 AM.\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":41,\"customer_name\":\"Tmp Cross Customer\",\"scheduled_at\":\"2026-12-14T02:00:00.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 22:17:30",
+        "updated_at": "2026-10-21 22:17:30"
+    },
+    {
+        "id": "bbb2d124-ce1a-4bb5-bd51-965f06519e91",
+        "type": "App\\Notifications\\AppointmentStatusNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 39,
+        "data": "{\"type\":\"appointment_confirmed\",\"title\":\"Appointment Confirmed\",\"message\":\"Your consultation appointment with Sakuragi Embroidery Davao for Dec 10, 2026 10:30 AM has been confirmed by the store.\",\"action_url\":\"\\/account\\/appointments\\/40\",\"appointment_id\":40,\"scheduled_at\":\"2026-12-10T02:30:00.000000Z\",\"store\":{\"id\":4,\"name\":\"Sakuragi Embroidery Davao\",\"slug\":\"sakuragi-embroidery-davao-6ad38e2fde240\",\"logo_path\":\"http:\\/\\/localhost:8000\\/storage\\/stores\\/4\\/catalog\\/Bqn1IfH0HMJQ3BIVIFH6wjUPFVHHEq6vctL9JsQ9.png\"},\"actor\":{\"id\":20,\"name\":\"Joshua Arabejo\",\"profile_picture\":null}}",
+        "read_at": null,
+        "created_at": "2026-10-21 19:54:18",
+        "updated_at": "2026-10-21 19:54:18"
+    }
+]

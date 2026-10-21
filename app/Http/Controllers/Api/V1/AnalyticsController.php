@@ -358,26 +358,19 @@ class AnalyticsController extends Controller
         $upcomingAppointments = (int) ($appointmentsOverview->upcoming_count ?? 0);
 
         $totalStaff = $store->staff()->count();
-        // The store_customers pivot is only populated by the CRM's own "Add
-        // Customer" form — a customer who came in via a job order, walk-in
-        // creation, or public appointment booking never gets attached to it,
-        // so counting the pivot alone showed 0 for stores whose customers all
-        // arrived through those other paths. Database UNION performs distinct
-        // count inside the engine in 1 query without transferring ID arrays over network.
+        // The same people the Customers list shows: everyone with an order here, plus anyone the shop added on the
+        // Customers page (store_customers.listed_at). A booking or a consultation alone does not make a customer.
+        // The union counts distinct ids inside the database.
         $totalCustomers = DB::table(function ($q) use ($store) {
             $q->select('user_id as customer_id')
                 ->from('store_customers')
                 ->where('store_id', $store->id)
+                ->whereNotNull('listed_at')
                 ->union(
                     DB::table('job_orders')
                         ->select('customer_id')
                         ->where('store_id', $store->id)
-                        ->whereNotNull('customer_id')
-                )
-                ->union(
-                    DB::table('appointments')
-                        ->select('customer_id')
-                        ->where('store_id', $store->id)
+                        ->whereNull('deleted_at')
                         ->whereNotNull('customer_id')
                 );
         }, 'all_cust')->count();

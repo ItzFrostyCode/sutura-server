@@ -200,8 +200,11 @@ class StaffAndPaymentsDemoSeeder extends Seeder
 
         $pia = User::firstOrCreate(
             ['email' => 'pia.santos@gmail.com'],
-            ['name' => 'Pia Santos', 'password' => Hash::make('password'), 'email_verified_at' => now(), 'phone' => '09000000008']
+            ['name' => 'Pia Santos', 'gender' => 'female', 'password' => Hash::make('password'), 'email_verified_at' => now(), 'phone' => '09000000008']
         );
+        if (! $pia->gender) {
+            $pia->update(['gender' => 'female']);
+        }
         if ($role = Role::where('name', 'customer')->first()) {
             $pia->roles()->syncWithoutDetaching([$role->id]);
         }

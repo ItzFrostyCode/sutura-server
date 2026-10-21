@@ -1,0 +1,29 @@
+[
+    {
+        "id": 1,
+        "user_id": 20,
+        "store_id": 4,
+        "first_name": "Joshua",
+        "middle_name": null,
+        "last_name": "Arabejo",
+        "suffix": null,
+        "birthday": "2004-03-13",
+        "contact_number": "09777044683",
+        "requested_plan_id": 3,
+        "billing_cycle": "monthly",
+        "quoted_price": "1999.00",
+        "payment_method": "gcash",
+        "payment_receipt_path": "store-applications/receipts/rSvTmNIQbjeIl9Z312fbtJVC9HMbdsTYRnuVHaBH.png",
+        "landmark_image_path": "store-applications/landmarks/aRCtSN5DZywbbpaZ7dhupJuNgV4Wh9xTaPzBI1YG.jpg",
+        "dti_registration_path": "store-applications/dti/naqDldLz4raOs266I31evXsjWmQgMxvc2OJk9tpu.pdf",
+        "tin_id_path": "store-applications/tin/c32ciCZ9qgcNMLztTjjLzOldo73D1RwFRRSOMZbe.pdf",
+        "brgy_clearance_path": "store-applications/barangay/ROm2tI9v5YYvNeMzhTLP783wOQ7bM6Da03q8Np3x.pdf",
+        "government_id_path": "store-applications/government-id/ylABjac5ZWPWo9nANl2EVKP3WGI6vQXiBMqkpdAA.pdf",
+        "government_id_type": "Driver's License",
+        "business_permit_paths": "[\"store-applications/permits/jb4bzh6xGeYRWdpUaefPk4XkZux0ZAopSvubeowl.pdf\"]",
+        "reviewed_by": 1,
+        "reviewed_at": "2026-10-17 23:03:46",
+        "created_at": "2026-10-17 23:03:11",
+        "updated_at": "2026-10-17 23:03:46"
+    }
+]

@@ -23,11 +23,21 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Get customers from pivot AND job orders
+        // The Customers list: someone becomes the shop's customer when an order is made for them, or when the shop adds
+        // them on the Customers page. A booking or a consultation alone does not put anyone on it.
+        // ?all=1 is for the pickers (schedule a visit, start a consultation, new order): they also need the people who
+        // have only booked or visited so far, so the shop can choose them.
         $jobCustomerIds = $store->jobOrders()->pluck('customer_id')->toArray();
-        $pivotCustomerIds = $store->customers()->pluck('users.id')->toArray();
+        if ($request->boolean('all')) {
+            $others = array_merge(
+                $store->customers()->pluck('users.id')->toArray(),
+                $store->appointments()->whereIn('status', ['confirmed', 'in_progress', 'completed'])->pluck('customer_id')->toArray(),
+            );
+        } else {
+            $others = $store->customers()->wherePivotNotNull('listed_at')->pluck('users.id')->toArray();
+        }
 
-        $customerIds = collect(array_merge($jobCustomerIds, $pivotCustomerIds))->unique();
+        $customerIds = collect(array_merge($jobCustomerIds, $others))->filter()->unique();
         // "Customer no. 3" means the shop's third customer; the user id is shared with every shop, owner and staff account.
         $shopNumbers = $customerIds->sort()->values()->flip()->map(fn ($i) => $i + 1);
 
@@ -46,6 +56,7 @@ class CustomerController extends Controller
         // row — fetched once here (keyed by user id) rather than per-customer,
         // same N+1-avoidance reasoning as the jobOrders/appointments eager loads.
         $notesByCustomerId = $store->customers()->pluck('store_customers.notes', 'users.id');
+        $trustedIds = $store->customers()->wherePivot('is_trusted', true)->pluck('users.id')->flip();
 
         $customers = User::whereIn('id', $customerIds)
             ->with([
@@ -61,12 +72,13 @@ class CustomerController extends Controller
                 },
             ])
             ->get()
-            ->map(function ($user) use ($notesByCustomerId, $shopNumbers) {
+            ->map(function ($user) use ($notesByCustomerId, $shopNumbers, $trustedIds) {
                 $user->total_spend = $user->jobOrders->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
                 $user->last_appointment = $user->appointments->first();
                 $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
                 $user->completed_jobs = $user->jobOrders->where('status', 'completed')->count();
                 $user->store_notes = $notesByCustomerId[$user->id] ?? null;
+                $user->is_trusted = $trustedIds->has($user->id);
                 $user->shop_number = $shopNumbers[$user->id] ?? null;
                 $user->is_walk_in = ! self::cameOnline($user->jobOrders, $user->appointments);
                 $user->intake_channel = $user->is_walk_in ? 'walk_in' : 'online';
@@ -113,6 +125,7 @@ class CustomerController extends Controller
 
         $customerData = $customer->toArray();
         $customerData['store_notes'] = $storeNotes;
+        $customerData['is_trusted'] = $store->isTrustedCustomer($customer->id);
         $customerData['shop_number'] = $this->shopNumberOf($store, $customer->id);
         $customerData['is_walk_in'] = ! self::cameOnline($jobs, $appointments);
         $customerData['intake_channel'] = $customerData['is_walk_in'] ? 'walk_in' : 'online';
@@ -144,7 +157,7 @@ class CustomerController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'nullable|email',
             'phone' => ['required', 'string', 'max:20', $this->mobileRule()],
-            'gender' => 'required|in:male,female',
+            'gender' => 'nullable|in:male,female',
             'suki_tag' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
         ]);
@@ -233,9 +246,13 @@ class CustomerController extends Controller
         // both "attach for the first time" and "already attached, just update
         // the pivot notes" in one call, without touching any other customer's
         // pivot row the way a plain sync() would.
-        $store->customers()->syncWithoutDetaching([
-            $user->id => ['notes' => $validated['notes'] ?? null],
-        ]);
+        // Added on the Customers page: they are on the list now. Added from a visit or an order form: they are someone the
+        // shop can pick, and join the list when an order is made for them.
+        $pivot = ['notes' => $validated['notes'] ?? null];
+        if ($request->boolean('add_to_list')) {
+            $pivot['listed_at'] = now();
+        }
+        $store->customers()->syncWithoutDetaching([$user->id => $pivot]);
 
         return response()->json([
             'success' => true,
@@ -315,6 +332,39 @@ class CustomerController extends Controller
         ]);
     }
 
+    /**
+     * Mark or unmark a customer as trusted by this shop (owner / branch manager only). New orders for a trusted
+     * customer start with no downpayment; the balance is still collected before the garments are handed over.
+     */
+    public function setTrusted(Request $request, Store $store, User $customer): JsonResponse
+    {
+        if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager')) {
+            return response()->json(['message' => 'Only the owner or a branch manager can mark a trusted customer.'], 403);
+        }
+        if (! $this->isCustomerOfStore($store, $customer)) {
+            return response()->json(['message' => self::MSG_NOT_FOUND], 404);
+        }
+
+        $trusted = (bool) $request->validate(['trusted' => 'required|boolean'])['trusted'];
+        $store->customers()->syncWithoutDetaching([
+            $customer->id => ['is_trusted' => $trusted, 'trusted_by' => $trusted ? $request->user()->id : null, 'trusted_at' => $trusted ? now() : null],
+        ]);
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id,
+            'action' => $trusted ? 'customer_marked_trusted' : 'customer_trust_removed',
+            'model_type' => User::class,
+            'model_id' => $customer->id,
+            'payload' => ['customer' => $customer->name],
+            'ip_address' => $request->ip(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => $trusted ? 'Marked as a trusted customer.' : 'No longer marked as trusted.',
+            'data' => ['is_trusted' => $trusted],
+        ]);
+    }
+
     public function destroy(Request $request, Store $store, User $customer): JsonResponse
     {
         if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager') && ! $request->user()->hasRole('staff')) {
@@ -357,12 +407,12 @@ class CustomerController extends Controller
         return $jobs->where('intake_channel', 'online')->isNotEmpty() || $appointments->where('intake_channel', 'online')->isNotEmpty();
     }
 
-    /** On this shop's book: added by the shop, or has an order or an appointment here. */
+    /** On this shop's book: added by the shop, or has an order or an approved/completed appointment here. */
     private function isCustomerOfStore(Store $store, User $customer): bool
     {
         return $store->customers()->where('user_id', $customer->id)->exists()
             || $store->jobOrders()->where('customer_id', $customer->id)->exists()
-            || $store->appointments()->where('customer_id', $customer->id)->exists();
+            || $store->appointments()->where('customer_id', $customer->id)->whereIn('status', ['confirmed', 'in_progress', 'completed'])->exists();
     }
 
     /** A Philippine mobile number (0917 123 4567, +63 917 123 4567 …), so "097" or a landline is turned away. */
@@ -370,7 +420,14 @@ class CustomerController extends Controller
     {
         return function (string $attribute, mixed $value, \Closure $fail) {
             if (PhoneNumber::normalize((string) $value) === null) {
-                $fail('Enter a valid mobile number, e.g. 0917 123 4567.');
+                $digits = preg_replace('/\D+/', '', (string) $value);
+                if (str_starts_with($digits, '09') && strlen($digits) > 11) {
+                    $fail("Mobile number has ".strlen($digits)." digits. Philippine mobile numbers must be exactly 11 digits (e.g. 0977 704 4683).");
+                } elseif (str_starts_with($digits, '09') && strlen($digits) < 11) {
+                    $fail("Mobile number has only ".strlen($digits)." digits. Philippine mobile numbers must be exactly 11 digits.");
+                } else {
+                    $fail("Enter an 11-digit Philippine mobile number starting with 09 (e.g. 0977 704 4683).");
+                }
             }
         };
     }
@@ -381,7 +438,7 @@ class CustomerController extends Controller
         $ids = collect()
             ->merge($store->customers()->pluck('users.id'))
             ->merge($store->jobOrders()->pluck('customer_id'))
-            ->merge($store->appointments()->pluck('customer_id'))
+            ->merge($store->appointments()->whereIn('status', ['confirmed', 'in_progress', 'completed'])->pluck('customer_id'))
             ->filter()->unique()->sort()->values();
         $position = $ids->search($customerId);
 

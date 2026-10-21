@@ -98,7 +98,7 @@ class AuthController extends Controller
         if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid credentials.',
+                'message' => 'Incorrect email or password.',
             ], 401);
         }
 
@@ -111,8 +111,18 @@ class AuthController extends Controller
         if ($roles->contains('admin')) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid credentials.',
+                'message' => 'Incorrect email or password.',
             ], 401);
+        }
+
+        // Account awaiting required email verification:
+        // Only checked after credentials have been verified.
+        if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail()) {
+            return response()->json([
+                'success' => false,
+                'code' => 'email_unverified',
+                'message' => 'Please verify your email address before signing in.',
+            ], 403);
         }
 
         if ($user->suspended_at !== null) {
@@ -140,6 +150,7 @@ class AuthController extends Controller
         }
 
         $store = $user->stores->first() ?? $staffProfile?->store;
+        $store?->loadMissing('owner:id,name,email');
 
         return response()->json([
             'success' => true,
@@ -174,15 +185,61 @@ class AuthController extends Controller
 
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
-        Password::sendResetLink($request->only('email'));
+        $user = User::where('email', $request->email)->first();
 
-        // Always return success, whether or not the email exists — this
-        // stops login-form scraping from being repurposed to enumerate
-        // registered store-owner emails.
-        return response()->json([
-            'success' => true,
-            'message' => 'If that email is registered, a password reset link has been sent.',
-        ]);
+        // If the email is not registered, do not generate a token or send an email.
+        // Return a consistent generic response to prevent account enumeration.
+        if (! $user) {
+            return response()->json([
+                'success' => true,
+                'message' => 'If an account exists for this email, you’ll receive password-reset instructions.',
+            ]);
+        }
+
+        if ($user->suspended_at !== null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This account has been suspended. Please contact SUTURA support.',
+            ], 403);
+        }
+
+        if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail()) {
+            return response()->json([
+                'success' => false,
+                'code' => 'email_unverified',
+                'message' => 'Please verify your email address before requesting a password reset.',
+            ], 403);
+        }
+
+        try {
+            $status = Password::sendResetLink($request->only('email'));
+
+            if ($status === Password::RESET_LINK_SENT) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'If an account exists for this email, you’ll receive password-reset instructions.',
+                ]);
+            }
+
+            if ($status === Password::RESET_THROTTLED) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please wait a moment before requesting another password reset link.',
+                ], 429);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to send password reset instructions. Please try again later.',
+            ], 500);
+        } catch (\Throwable $e) {
+            Log::error("Password reset mail delivery failed for {$request->email}: {$e->getMessage()}");
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Email delivery failed. Please check your internet connection or mail service configuration and try again.',
+            ], 503);
+        }
     }
 
     public function resetPassword(ResetPasswordRequest $request): JsonResponse
@@ -196,6 +253,10 @@ class AuthController extends Controller
                     'password' => Hash::make($password),
                     'must_change_password' => false,
                 ])->save();
+
+                // Invalidate all existing tokens/sessions on password reset
+                $user->tokens()->delete();
+
                 ActivityRecorder::forUser(request(), $user, 'password_reset', 'Reset their password with an email link');
             }
         );
@@ -236,6 +297,7 @@ class AuthController extends Controller
         }
 
         $store = $user->stores->first() ?? $staffProfile?->store;
+        $store?->loadMissing('owner:id,name,email');
 
         return response()->json([
             'success' => true,

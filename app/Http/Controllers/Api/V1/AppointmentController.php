@@ -7,18 +7,24 @@ use App\Http\Requests\Store\StoreAppointmentRequest;
 use App\Http\Requests\Store\StoreFollowUpAppointmentRequest;
 use App\Http\Requests\Store\UpdateAppointmentRequest;
 use App\Models\Appointment;
+use App\Models\CatalogItem;
 use App\Models\JobOrder;
+use App\Models\Measurement;
 use App\Models\Service;
 use App\Models\Store;
 use App\Models\StaffProfile;
+use App\Models\User;
 use App\Notifications\AppointmentAssignedNotification;
 use App\Notifications\AppointmentBookedNotification;
 use App\Notifications\AppointmentPaymentStatusNotification;
 use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\StoreActivityNotification;
+use App\Support\WalkInCustomer;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class AppointmentController extends Controller
@@ -81,29 +87,54 @@ class AppointmentController extends Controller
         if (! $staffId || (int) $staffId === (int) $request->user()->id) {
             return;
         }
-        \App\Models\User::find($staffId)?->notify(new StoreActivityNotification(
-            $type, $title, $message, '/dashboard/appointments', ['appointment_id' => $appointment->id]
-        ));
+        $staff = User::find($staffId);
+        if ($staff) {
+            $staff->notify(new StoreActivityNotification(
+                $type, $title, $message, '/dashboard/appointments', ['appointment_id' => $appointment->id]
+            ));
+            Cache::driver('file')->forget("user_notifications_{$staff->id}");
+        }
     }
 
-    private function notifyOwnerOfActivity(Request $request, Store $store, array $payload): void
+    private function notifyOwnerOfActivity(Request $request, Store $store, array $payload, ?Appointment $appointment = null): void
     {
-        if ($request->user()->hasRole('store_owner')) {
-            return;
+        $actor = $request->user();
+
+        // Notify store owner (skip only if the owner themselves performed this action in the dashboard)
+        if (! $store->owner_id || (int) $actor->id !== (int) $store->owner_id) {
+            $owner = $store->owner;
+            if ($owner) {
+                $owner->notify(new StoreActivityNotification(
+                    $payload['type'],
+                    $payload['title'],
+                    $payload['message'],
+                    $payload['url'],
+                    $payload['extra'] ?? []
+                ));
+                Cache::driver('file')->forget("user_notifications_{$owner->id}");
+            }
         }
 
-        $owner = $store->owner;
-        if (! $owner) {
-            return;
-        }
+        // Also notify branch manager(s) of this branch if an appointment context is present
+        $branchId = $appointment?->store_branch_id;
+        if ($branchId) {
+            $branchManagers = User::whereHas('staffProfile', function ($q) use ($store, $branchId) {
+                $q->where('store_id', $store->id)
+                    ->where('store_branch_id', $branchId)
+                    ->where('is_branch_manager', true);
+            })->where('id', '!=', $actor->id)->get();
 
-        $owner->notify(new StoreActivityNotification(
-            $payload['type'],
-            $payload['title'],
-            $payload['message'],
-            $payload['url'],
-            $payload['extra'] ?? []
-        ));
+            foreach ($branchManagers as $manager) {
+                $manager->notify(new StoreActivityNotification(
+                    $payload['type'],
+                    $payload['title'],
+                    $payload['message'],
+                    $payload['url'],
+                    $payload['extra'] ?? []
+                ));
+                Cache::driver('file')->forget("user_notifications_{$manager->id}");
+            }
+        }
     }
 
     /**
@@ -113,12 +144,31 @@ class AppointmentController extends Controller
      * and safe field subset (no internal notes, no staff assignment). No
      * role gate: filters by the caller's own id as customer_id.
      */
+    /** The order made from (or for) this appointment, for its own customer: number, status and the code that tracks it. */
+    private function jobSummary(Appointment $appointment): ?array
+    {
+        $job = $appointment->jobOrder;
+        if (! $job || (int) $job->customer_id !== (int) $appointment->customer_id) {
+            return null;
+        }
+
+        return ['id' => $job->id, 'order_number' => $job->order_number, 'status' => $job->status, 'tracking_code' => $job->tracking_code];
+    }
+
     public function myAppointments(Request $request): JsonResponse
     {
         // ?upcoming=1: still-active bookings from today on, soonest first (Ask SUTURA's "My next appointment").
         $upcoming = $request->boolean('upcoming');
         $appointments = Appointment::where('customer_id', $request->user()->id)
-            ->with(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category', 'catalogItem:id,name,garment_type'])
+            ->with([
+                'store:id,name,slug,logo_path',
+                'branch:id,name,address,city',
+                'service:id,name,service_category',
+                'catalogItem:id,name,garment_type',
+                'items.service:id,name,base_price,service_category',
+                'items.catalogItem:id,name,garment_type',
+                'jobOrder:id,customer_id,order_number,status,tracking_code',
+            ])
             ->when($upcoming, fn ($q) => $q->whereIn('status', ['pending', 'confirmed', 'in_progress'])
                 ->where('scheduled_at', '>=', now()->startOfDay())
                 ->orderBy('scheduled_at'))
@@ -139,13 +189,19 @@ class AppointmentController extends Controller
             'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category']) : null,
             // The catalog design this was booked from, with the size/color picked on its page.
             'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'garment_type']),
+            'items' => $appointment->items,
             'selected_size' => $appointment->selected_size,
             'selected_color' => $appointment->selected_color,
+            'reference_images' => $appointment->reference_images ?? [],
+            'reference_link' => $appointment->reference_link,
             'payment_status' => $appointment->payment_status,
             'cancellation_reason' => $appointment->cancellation_reason,
             'rejection_reason' => $appointment->rejection_reason_code ? (Appointment::REJECTION_REASONS[$appointment->rejection_reason_code] ?? 'Other') : null,
             'rejection_note' => $appointment->rejection_note,
             'rebooking_blocked' => (bool) $appointment->rebooking_blocked,
+            'job_order' => $this->jobSummary($appointment),
+            'material_source' => $appointment->material_source,
+            'previous_scheduled_at' => $appointment->previous_scheduled_at,
             // A walk-in took this request's slot: the customer must pick a new time.
             'needs_new_time' => $appointment->status === 'pending' && $appointment->outcome === 'rescheduled',
             'store' => $appointment->store ? [
@@ -184,10 +240,16 @@ class AppointmentController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
         }
 
-        if (! $appointment->canTransitionTo('cancelled')) {
+        if (! in_array($appointment->status, ['pending', 'confirmed'], true)) {
             return response()->json([
                 'success' => false,
-                'message' => "A {$appointment->status} appointment cannot be cancelled.",
+                'message' => $appointment->status === 'in_progress' ? 'Your visit has already started. Ask the shop.' : "A {$appointment->status} appointment cannot be cancelled.",
+            ], 422);
+        }
+        if ($appointment->kind === 'production') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This fitting belongs to your order. Pick another time that suits you, or ask the shop.',
             ], 422);
         }
 
@@ -195,14 +257,24 @@ class AppointmentController extends Controller
 
         $store = $appointment->store;
         if ($store) {
-            $this->notifyAssignedStaff($request, $appointment, 'appointment_cancelled', 'Appointment Cancelled', "{$request->user()->name} cancelled their appointment.");
+            $customerName = $request->user()->name;
+            $scheduledFormatted = $appointment->scheduled_at
+                ? Carbon::parse($appointment->scheduled_at)->format('M d, Y h:i A')
+                : 'the scheduled time';
+
+            $this->notifyAssignedStaff($request, $appointment, 'appointment_cancelled', 'Appointment Cancelled', "{$customerName} cancelled their appointment.");
             $this->notifyOwnerOfActivity($request, $store, [
                 'type' => 'appointment_cancelled',
                 'title' => 'Appointment Cancelled',
-                'message' => "{$request->user()->name} cancelled their own appointment.",
+                'message' => "{$customerName} cancelled their appointment scheduled for {$scheduledFormatted}.",
                 'url' => '/dashboard/appointments',
-                'extra' => ['appointment_id' => $appointment->id],
-            ]);
+                'extra' => [
+                    'appointment_id' => $appointment->id,
+                    'customer_name' => $customerName,
+                    'scheduled_at' => $appointment->scheduled_at,
+                    'store_name' => $store->name,
+                ],
+            ], $appointment);
         }
 
         return response()->json([
@@ -226,10 +298,11 @@ class AppointmentController extends Controller
             return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
         }
 
-        if ($appointment->status !== 'pending') {
+        $wasApproved = $appointment->status === 'confirmed';
+        if (! in_array($appointment->status, ['pending', 'confirmed'], true) || ($wasApproved && $appointment->checked_in_at)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Only a request that is still waiting for the store can be moved. Ask the store, or cancel and book again.',
+                'message' => 'This visit has already started or is over, so its time cannot be moved. Ask the shop.',
             ], 422);
         }
 
@@ -251,29 +324,23 @@ class AppointmentController extends Controller
         }
 
         if ($store->max_appointments_per_day) {
-            $sameDay = $store->appointments()
-                ->whereNotIn('status', ['cancelled'])
-                ->where('id', '!=', $appointment->id)
-                ->whereDate('scheduled_at', $scheduledAt->toDateString())
-                ->count();
-            if ($sameDay >= $store->max_appointments_per_day) {
+            if (Appointment::capacityUsedOn($store, $scheduledAt, $appointment->id) >= $store->max_appointments_per_day) {
                 return response()->json(['success' => false, 'message' => 'This date is fully booked. Please choose another date.'], 409);
             }
         }
 
-        if (Appointment::hasCustomerScheduleConflict($request->user()->id, $scheduledAt, $duration, $appointment->id)) {
+        if (Appointment::hasCustomerScheduleConflict($request->user()->id, $scheduledAt, $duration, $appointment->id, $store->id, $appointment->store_branch_id)) {
             return response()->json([
                 'success' => false,
-                'message' => 'That time is too close to another appointment you already have. Leave at least '.Appointment::CUSTOMER_TRAVEL_BUFFER_MINUTES.' minutes between appointments.',
+                'message' => 'That time is too close to another appointment you already have. Please choose a different time.',
             ], 409);
         }
 
-        $old = $appointment->scheduled_at?->format('M j, Y g:i A');
-        $tag = "[Moved by customer from {$old}]";
-
+        // An approved visit moved by the customer waits for the shop to approve the new time; the old time is released meanwhile.
         $appointment->update([
+            'previous_scheduled_at' => $appointment->scheduled_at,
             'scheduled_at' => $scheduledAt,
-            'notes' => $appointment->notes ? $tag."\n".$appointment->notes : $tag,
+            'status' => 'pending',
             'outcome' => null, // clears the "needs a new time" flag
         ]);
         if ($appointment->reminder_sent_at) {
@@ -283,11 +350,16 @@ class AppointmentController extends Controller
         $this->notifyAssignedStaff($request, $appointment, 'appointment_rescheduled', 'Appointment Time Changed', "{$request->user()->name} moved their appointment to ".$scheduledAt->format('M j, Y g:i A').'.');
         $this->notifyOwnerOfActivity($request, $store, [
             'type' => 'appointment_rescheduled',
-            'title' => 'Customer Picked a New Time',
-            'message' => "{$request->user()->name} moved their request to ".$scheduledAt->format('M j, Y g:i A').'.',
+            'title' => $wasApproved ? 'Customer Asked to Move Their Appointment' : 'Customer Picked a New Time',
+            'message' => "{$request->user()->name} ".($wasApproved ? 'asked to move their appointment to ' : 'moved their request to ').$scheduledAt->format('M j, Y g:i A').($wasApproved ? '. Approve the new time.' : '.'),
             'url' => '/dashboard/appointments',
-            'extra' => ['appointment_id' => $appointment->id],
-        ]);
+            'extra' => [
+                'appointment_id' => $appointment->id,
+                'customer_name' => $request->user()->name,
+                'scheduled_at' => $scheduledAt->toISOString(),
+                'store_name' => $store->name,
+            ],
+        ], $appointment);
 
         return response()->json(['success' => true, 'message' => 'Your request was moved to the new time.', 'data' => $appointment]);
     }
@@ -305,11 +377,20 @@ class AppointmentController extends Controller
             return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
         }
 
-        $appointment->load(['store:id,name,slug,logo_path', 'branch:id,name,address,city', 'service:id,name,service_category', 'catalogItem:id,name,garment_type']);
+        $appointment->load([
+            'store:id,name,slug,logo_path',
+            'branch:id,name,address,city',
+            'service:id,name,service_category',
+            'catalogItem:id,name,garment_type',
+            'items.service:id,name,service_category,base_price',
+            'items.catalogItem:id,name,garment_type',
+            'jobOrder:id,customer_id,order_number,status,tracking_code',
+        ]);
 
         return response()->json([
             'success' => true,
             'data' => [
+                'job_order' => $this->jobSummary($appointment),
                 'id' => $appointment->id,
                 'appointment_type' => $appointment->appointment_type,
                 'kind' => $appointment->kind,
@@ -323,17 +404,24 @@ class AppointmentController extends Controller
                 'service' => $appointment->service ? $appointment->service->only(['id', 'name', 'service_category']) : null,
                 // The catalog design this was booked from, with the size/color picked on its page.
                 'catalog_item' => $appointment->catalogItem?->only(['id', 'name', 'garment_type']),
+                'items' => $appointment->items,
                 'selected_size' => $appointment->selected_size,
                 'selected_color' => $appointment->selected_color,
                 // New bookings take no payment; an old booking that did still shows it.
+                'material_source' => $appointment->material_source,
+                'material_note' => $appointment->material_note,
                 'has_payment' => (bool) ($appointment->payment_method || $appointment->payment_receipt_path),
                 'payment_status' => $appointment->payment_status,
                 'payment_method' => $appointment->payment_method,
                 'notes' => $appointment->notes,
                 'reference_link' => $appointment->reference_link,
+                'reference_images' => $appointment->reference_images ?? [],
                 'shared_link' => $appointment->shared_link,
+                'shared_links' => $appointment->shared_links ?? ($appointment->shared_link ? [$appointment->shared_link] : []),
+                'shared_notes' => $appointment->shared_notes,
                 'shared_images' => $appointment->shared_images ?? [],
                 'needs_new_time' => $appointment->status === 'pending' && $appointment->outcome === 'rescheduled',
+                'previous_scheduled_at' => $appointment->previous_scheduled_at,
                 'store_branch_id' => $appointment->store_branch_id,
                 'store_id' => $appointment->store_id,
                 'cancellation_reason' => $appointment->cancellation_reason,
@@ -366,7 +454,9 @@ class AppointmentController extends Controller
             'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type',
             'branch:id,name',
             'assignedStaff:id,name',
-            'jobOrder:id,order_number',
+            'jobOrder:id,order_number,status',
+            'items.service:id,name,base_price,service_category',
+            'items.catalogItem:id,name,garment_type',
         ]);
 
         $branchId = null;
@@ -401,6 +491,15 @@ class AppointmentController extends Controller
         if ($request->filled('date')) {
             $query->whereDate('scheduled_at', $request->date);
         }
+        // Visits that happened and still need a job order (the Jobs page list), straight from the database.
+        if ($request->boolean('awaiting_job')) {
+            $query->awaitingJob();
+        }
+        // The list stays small as history grows: the last 30 days plus anything still open, unless older ones are asked for.
+        if (! $request->boolean('include_past') && ! $request->filled('date') && ! $request->boolean('awaiting_job')) {
+            $query->where(fn ($q) => $q->where('scheduled_at', '>=', now()->subDays(30)->startOfDay())
+                ->orWhereIn('status', ['pending', 'confirmed', 'in_progress']));
+        }
 
         return response()->json([
             'success' => true,
@@ -414,7 +513,7 @@ class AppointmentController extends Controller
      * closure check and walk-in-priority conflict check. Extracted so the
      * two creation paths can never quietly drift apart on this safety logic.
      */
-    private function assertSlotAvailable(Store $store, Carbon $scheduledAt, ?int $branchId, int $durationMinutes): ?JsonResponse
+    private function assertSlotAvailable(Store $store, Carbon $scheduledAt, ?int $branchId, int $durationMinutes, bool $includePending = false): ?JsonResponse
     {
         if ($closureTitle = $this->fallsOnAnnouncedClosure($store, $scheduledAt, $branchId)) {
             return response()->json([
@@ -427,10 +526,12 @@ class AppointmentController extends Controller
         // A confirmed booking is never displaced by a walk-in. Waiting online requests are handled
         // by walkInClash(), where the owner chooses.: Walk-ins are checked against confirmed/in_progress appointments only.
         // A physical walk-in customer is the source of truth ("kung sino ang makauna").
-        if (Appointment::hasSchedulingConflict($store, $branchId, $scheduledAt, $durationMinutes, null, false)) {
+        if (Appointment::hasSchedulingConflict($store, $branchId, $scheduledAt, $durationMinutes, null, $includePending)) {
             return response()->json([
                 'success' => false,
-                'message' => 'This time slot is already booked by another confirmed appointment. Please choose a different time.',
+                'message' => $includePending
+                    ? 'This time is already booked, or a customer has asked for it and is waiting for your answer. Approve or decline that request, or choose a different time.'
+                    : 'This time slot is already booked by another confirmed appointment. Please choose a different time.',
                 'code' => 'slot_taken',
             ], 409);
         }
@@ -482,10 +583,16 @@ class AppointmentController extends Controller
      *
      * @return array{0: ?JsonResponse, 1: \Illuminate\Support\Collection} the refusal (if any) and the requests to move
      */
-    private function walkInClash(Request $request, Store $store, Carbon $scheduledAt, ?int $branchId, int $duration, ?string $onConflict): array
+    private function walkInClash(Request $request, Store $store, Carbon $scheduledAt, ?int $branchId, int $duration, ?string $onConflict, bool $arrivesNow = false): array
     {
-        if ($denied = $this->assertSlotAvailable($store, $scheduledAt, $branchId, $duration)) {
+        // A visit the shop books for LATER (a visit, a follow-up) must not overlap anything: not a confirmed visit and not a
+        // request a customer made online and is waiting on, which is the same rule the customer's own booking follows. Only a
+        // customer who is standing at the counter right now (Start consultation) takes priority over a waiting request.
+        if ($denied = $this->assertSlotAvailable($store, $scheduledAt, $branchId, $duration, ! $arrivesNow)) {
             return [$denied, collect()];
+        }
+        if (! $arrivesNow) {
+            return [null, collect()];
         }
 
         $pending = Appointment::getOverlappingPendingAppointments($store, $branchId, $scheduledAt, $duration);
@@ -520,13 +627,97 @@ class AppointmentController extends Controller
         ], 409), $pending];
     }
 
+    /**
+     * A consultation started with no name belongs to a placeholder walk-in customer. When it turns out to be someone
+     * the shop already knows, move the visit to that customer (and drop the empty placeholder).
+     */
+    public function attachCustomer(Request $request, Store $store, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Appointment not found.'], 404);
+        }
+        if ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
+        }
+        $validated = $request->validate(['customer_id' => ['required', 'integer', 'exists:users,id']]);
+        $real = User::findOrFail($validated['customer_id']);
+
+        if ($appointment->job_order_id) {
+            return response()->json(['success' => false, 'message' => 'A job order was already made from this visit.'], 422);
+        }
+        if (! $appointment->customer || ! WalkInCustomer::isPlaceholder($appointment->customer)) {
+            return response()->json(['success' => false, 'message' => 'This visit already has a customer.'], 422);
+        }
+        if ($real->hasRole('store_owner') || $real->hasRole('staff') || $real->hasRole('branch_manager') || $real->hasRole('admin')) {
+            return response()->json(['success' => false, 'message' => 'A staff or owner account cannot be the customer.'], 422);
+        }
+
+        DB::transaction(function () use ($store, $appointment, $real, $request) {
+            $previous = $appointment->customer_id;
+            WalkInCustomer::replace($store, $appointment, $real);
+            $store->auditLogs()->create([
+                'user_id' => $request->user()->id,
+                'action' => 'appointment_customer_changed',
+                'model_type' => Appointment::class,
+                'model_id' => $appointment->id,
+                'payload' => ['from_customer_id' => $previous, 'to_customer_id' => $real->id],
+                'ip_address' => $request->ip(),
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'The visit now belongs to '.$real->name.'.',
+            'data' => $appointment->fresh(['customer:id,name,email,phone', 'service:id,name', 'jobOrder:id,order_number']),
+        ]);
+    }
+
+    /**
+     * Start a consultation for a customer who is here now (owner, branch manager or staff). It starts at once, with the
+     * customer optional. Booking a visit for later stays with the owner and branch managers (store()).
+     */
+    public function startConsultation(StoreAppointmentRequest $request, Store $store): JsonResponse
+    {
+        $request->attributes->set('consultation_now', true);
+
+        return $this->store($request, $store);
+    }
+
     // ─── Store (Owner/Manager creates appointment on behalf of customer) ───────
 
     public function store(StoreAppointmentRequest $request, Store $store): JsonResponse
     {
         $data = $request->validated();
         $onConflict = $data['on_conflict'] ?? null;
-        unset($data['on_conflict']);
+        $walkInName = $data['walk_in_name'] ?? null;
+        $walkInPhone = $data['walk_in_phone'] ?? null;
+        unset($data['on_conflict'], $data['walk_in_name'], $data['walk_in_phone']);
+
+        // Any visit made at the shop: get to know the person first. Choose a customer, or give a name and a mobile number.
+        // (There is no nameless walk-in any more.)
+        if (empty($data['customer_id'])) {
+            $missing = array_filter([
+                'walk_in_name' => trim((string) $walkInName) === '' ? ['Enter the customer\'s name.'] : null,
+                'walk_in_phone' => trim((string) $walkInPhone) === '' ? ['Enter their mobile number.'] : null,
+            ]);
+            if ($missing) {
+                return response()->json(['success' => false, 'message' => 'Who is the customer? Enter their name and mobile number, or choose a customer.', 'errors' => $missing], 422);
+            }
+        }
+
+        // "Start consultation": the customer is here now, so it always starts now. Plain staff do not pick who handles it.
+        if ($request->attributes->get('consultation_now')) {
+            $data['scheduled_at'] = now()->format('Y-m-d H:i:s');
+            if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager')) {
+                unset($data['assigned_staff_id']);
+            }
+        }
+
+        // A walk-in account (name + number given above) can be made only for a visit that starts now; a visit for later needs an existing customer.
+        $startsNow = Carbon::parse($data['scheduled_at'])->lte(now()->addMinutes(5));
+        if (empty($data['customer_id']) && ! $startsNow) {
+            return response()->json(['success' => false, 'message' => 'Choose the customer for a visit that is not happening now.', 'errors' => ['customer_id' => ['Choose the customer.']]], 422);
+        }
 
         // Auto-assign branch when store has only one
         if ($store->branches()->count() === 1) {
@@ -547,7 +738,7 @@ class AppointmentController extends Controller
             $data['service_id'] = null;
         }
         $data['appointment_type'] = Appointment::purposeFor($data['kind'], $data['appointment_type'] ?? null, $serviceCategory);
-        if ($data['appointment_type'] !== 'other') {
+        if (! in_array($data['appointment_type'], ['other', 'alteration'], true)) {
             $data['purpose_label'] = null;
         }
 
@@ -561,13 +752,69 @@ class AppointmentController extends Controller
         $scheduledAt = Carbon::parse($data['scheduled_at']);
 
         // Closed day, a confirmed booking (never displaced), or a waiting online request (the owner chooses).
-        [$denied, $overlappingPending] = $this->walkInClash($request, $store, $scheduledAt, $data['store_branch_id'] ?? null, $data['duration_minutes'], $onConflict);
+        [$denied, $overlappingPending] = $this->walkInClash($request, $store, $scheduledAt, $data['store_branch_id'] ?? null, $data['duration_minutes'], $onConflict, (bool) $request->attributes->get('consultation_now'));
         if ($denied) {
             return $denied;
         }
 
-        $appointment = $store->appointments()->create($data);
-        $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+        $itemsData = $data['items'] ?? null;
+        unset($data['items']);
+
+        // A customer at the counter right now: the visit starts at once, so Done and Create Job Order are the next taps.
+        if ($scheduledAt->lte(now()->addMinutes(5))) {
+            $data['status'] = 'in_progress';
+            $data['checked_in_at'] = now();
+            $data['arrival_status'] = 'on_time';
+            $data['actual_service_start_at'] = now();
+        }
+
+        // The appointment and its item are saved together or not at all.
+        $appointment = DB::transaction(function () use ($store, $data, $itemsData, $walkInName, $walkInPhone) {
+            if (empty($data['customer_id'])) {
+                $data['customer_id'] = WalkInCustomer::make($store, $walkInName, $walkInPhone)->id;
+            }
+            $appointment = $store->appointments()->create($data);
+            if ($appointment->customer_id && ! $store->customers()->where('user_id', $appointment->customer_id)->exists()) {
+                $store->customers()->attach($appointment->customer_id);
+            }
+
+            if (! empty($itemsData) && is_array($itemsData)) {
+                foreach ($itemsData as $it) {
+                    // The name and "from" price come from the service when the form did not send them.
+                    $svc = ! empty($it['service_id']) ? Service::find($it['service_id']) : null;
+                    $design = ! empty($it['catalog_item_id']) ? CatalogItem::find($it['catalog_item_id']) : null;
+                    $it['item_name'] = $it['item_name'] ?? $design?->name ?? $svc?->name ?? 'Custom Service';
+                    $it['quantity'] = $it['quantity'] ?? 1;
+                    $it['unit_price'] = $svc?->base_price;
+                    $appointment->items()->create($it);
+                }
+            } elseif (! empty($appointment->catalog_item_id) || ! empty($appointment->service_id)) {
+                $catItem = $appointment->catalog_item_id ? CatalogItem::find($appointment->catalog_item_id) : null;
+                $svc = $appointment->service_id ? Service::find($appointment->service_id) : $catItem?->service;
+                $appointment->items()->create([
+                    'service_id' => $svc?->id,
+                    'catalog_item_id' => $catItem?->id,
+                    'item_name' => $catItem?->name ?? $svc?->name ?? 'Custom Service',
+                    'quantity' => 1,
+                    'unit_price' => $svc?->base_price,
+                    'selected_size' => $appointment->selected_size,
+                    'selected_color' => $appointment->selected_color,
+                ]);
+            }
+
+            return $appointment;
+        });
+
+        $appointment->load([
+            'customer:id,name,email,phone',
+            'service:id,name,base_price,service_category',
+            'catalogItem:id,name,garment_type',
+            'items.service:id,name,base_price,service_category',
+            'items.catalogItem:id,name,garment_type',
+            'branch:id,name',
+            'assignedStaff:id,name',
+            'jobOrder:id,order_number'
+        ]);
 
         // The owner chose to serve the walk-in: each waiting online request is told to pick another time.
         $preemptedCount = 0;
@@ -576,10 +823,15 @@ class AppointmentController extends Controller
             $preemptedCount++;
         }
 
-        // Notify store owner of new booking
+        // Notify store owner of new booking (not the owner who just booked it themselves)
         $storeOwner = $store->owner;
-        if ($storeOwner) {
+        if ($storeOwner && $storeOwner->id !== $request->user()->id) {
             $storeOwner->notify(new AppointmentBookedNotification($appointment));
+        }
+
+        // A visit booked for later is news to the customer; one that starts now (Start consultation) is not: they are here.
+        if (! $request->attributes->get('consultation_now')) {
+            $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'booked', null, $request->user()));
         }
 
         return response()->json([
@@ -604,6 +856,20 @@ class AppointmentController extends Controller
      * way. Reuses store()'s exact closure/conflict-check safety logic via
      * assertSlotAvailable() — never duplicated, never relaxed.
      */
+    /** The branch a follow-up for this customer / order would be booked at (the same rule createFollowUp applies). */
+    public function followUpBranchFor(Request $request, Store $store): JsonResponse
+    {
+        $v = $request->validate(['customer_id' => ['nullable', 'integer'], 'job_order_id' => ['nullable', 'integer']]);
+        $jobOrder = ! empty($v['job_order_id']) ? JobOrder::where('store_id', $store->id)->find($v['job_order_id']) : null;
+        $customerId = (int) ($v['customer_id'] ?? $jobOrder?->customer_id ?? 0);
+        if (! $customerId) {
+            return response()->json(['success' => true, 'data' => ['branch_id' => null]]);
+        }
+        $ownBranch = $request->user()->staffProfile->store_branch_id ?? null;
+
+        return response()->json(['success' => true, 'data' => ['branch_id' => $this->followUpBranch($store, $customerId, $jobOrder, $ownBranch ? (int) $ownBranch : null)]]);
+    }
+
     public function createFollowUp(StoreFollowUpAppointmentRequest $request, Store $store): JsonResponse
     {
         $data = $request->validated();
@@ -663,9 +929,10 @@ class AppointmentController extends Controller
         // happened in front of them) — this is the one creation path where
         // the customer genuinely needs telling. Reuses the same
         // AppointmentStatusNotification class update()/destroy() already use.
+        // The customer never asked for this one: it is "booked for you", not "your request was approved".
         $appointment->customer?->notify(new AppointmentStatusNotification(
             $appointment,
-            'confirmed',
+            'booked',
             null,
             $request->user()
         ));
@@ -761,13 +1028,8 @@ class AppointmentController extends Controller
                             'ip_address' => $request->ip(),
                         ]);
 
-                        // Visible reschedule note so UI/UX and owner always have concrete proof
-                        $rescheduleTag = '[Rescheduled from '.date('M j, Y g:i A', strtotime($oldAt)).']';
-                        if (empty($data['notes'])) {
-                            $data['notes'] = $rescheduleTag.($appointment->notes ? "\n".$appointment->notes : '');
-                        } elseif (! str_contains($data['notes'], $rescheduleTag)) {
-                            $data['notes'] = $rescheduleTag."\n".$data['notes'];
-                        }
+                        // The time it was moved from is kept as a field (shown as "moved from …"), not typed into the notes.
+                        $data['previous_scheduled_at'] = $appointment->scheduled_at;
                     }
                 }
             }
@@ -849,9 +1111,6 @@ class AppointmentController extends Controller
             }
 
             if (! $error) {
-                $sharedChanged = (array_key_exists('shared_link', $data) && ($data['shared_link'] ?? null) !== $appointment->shared_link)
-                    || (array_key_exists('shared_images', $data) && ($data['shared_images'] ?? []) !== ($appointment->shared_images ?? []));
-
                 // One way to record a no-show: status and outcome are written together, wherever it comes from.
                 if ($newStatus === 'no_show') {
                     $data['outcome'] = 'no_show';
@@ -875,6 +1134,11 @@ class AppointmentController extends Controller
                     foreach ($otherPending as $other) {
                         $other->preemptByWalkIn($appointment, $user);
                     }
+
+                    // A customer officially becomes part of this store's roster only when their appointment is approved/confirmed
+                    if ($appointment->customer_id && ! $store->customers()->where('user_id', $appointment->customer_id)->exists()) {
+                        $store->customers()->attach($appointment->customer_id);
+                    }
                 }
 
                 // reminder_sent_at (server-derived, not fillable — see
@@ -895,14 +1159,6 @@ class AppointmentController extends Controller
                 // ── Notifications ─────────────────────────────────────────────────────
                 $customer = $appointment->customer;
                 if ($customer) {
-                    if ($sharedChanged && ($appointment->shared_link || ! empty($appointment->shared_images))) {
-                        $customer->notify(new AppointmentStatusNotification(
-                            $appointment,
-                            'shared',
-                            ($appointment->store?->name ?? 'The store').' shared a link or photos for your appointment. Open it to see them.',
-                            $request->user()
-                        ));
-                    }
                     $statusChanged = $newStatus && $newStatus !== $oldStatus;
                     // Accepting a request tells the customer (in-app, email and text), even when the time moved too.
                     if ($isRescheduled && ! ($statusChanged && $newStatus === 'confirmed')) {
@@ -914,7 +1170,7 @@ class AppointmentController extends Controller
                             'message' => "Appointment for {$customer->name} was rescheduled.",
                             'url' => '/dashboard/appointments',
                             'extra' => ['appointment_id' => $appointment->id],
-                        ]);
+                        ], $appointment);
                     } elseif ($statusChanged) {
                         // The customer is at the counter when a visit starts, so no notice for that one.
                         if ($newStatus !== 'in_progress') {
@@ -926,7 +1182,7 @@ class AppointmentController extends Controller
                             'message' => "Appointment for {$customer->name} is now {$newStatus}.",
                             'url' => '/dashboard/appointments',
                             'extra' => ['appointment_id' => $appointment->id],
-                        ]);
+                        ], $appointment);
                     }
                 }
             }
@@ -1039,6 +1295,14 @@ class AppointmentController extends Controller
         $type = $appointment->appointment_type;
         $jobOrderId = $request->job_order_id ? (int) $request->job_order_id : ($appointment->job_order_id ? (int) $appointment->job_order_id : null);
 
+        // What a visit is closed with has to be this customer's own.
+        if ($request->job_order_id && ! JobOrder::where('id', $request->job_order_id)->where('customer_id', $appointment->customer_id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'That job order belongs to a different customer.'], 422);
+        }
+        if ($request->measurement_id && ! Measurement::where('id', $request->measurement_id)->where('customer_id', $appointment->customer_id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Those measurements belong to a different customer.'], 422);
+        }
+
         if ($outcome === 'no_show') {
             if (! in_array($appointment->status, ['confirmed', 'in_progress'], true)) {
                 return response()->json(['success' => false, 'message' => 'Only an accepted visit can be marked as not coming.'], 422);
@@ -1052,7 +1316,7 @@ class AppointmentController extends Controller
                 return response()->json(['success' => false, 'message' => $error], 422);
             }
             if ($outcome === 'converted_to_job' && ! $jobOrderId) {
-                return response()->json(['success' => false, 'message' => 'Create the Production Order first. It closes this visit for you.'], 422);
+                return response()->json(['success' => false, 'message' => 'Create the Job Order first. It closes this visit for you.'], 422);
             }
             $updateData = ['status' => 'completed', 'outcome' => $outcome];
             if ($jobOrderId && ! $appointment->job_order_id) {
@@ -1061,15 +1325,20 @@ class AppointmentController extends Controller
         }
 
         if ($request->filled('notes')) {
-            $updateData['notes'] = $appointment->notes
-                ? $appointment->notes."\n\n[Completion Note] ".$request->notes
-                : $request->notes;
+            $updateData['visit_notes'] = $request->notes;
         }
         if ($request->filled('fitting_notes')) {
             $updateData['fitting_notes'] = $request->fitting_notes;
         }
 
         $appointment->update($updateData);
+
+        if ($request->filled('measurement_id')) {
+            Measurement::where('id', $request->measurement_id)
+                ->where('store_id', $store->id)
+                ->whereNull('appointment_id')
+                ->update(['appointment_id' => $appointment->id]);
+        }
 
         // The fitting notes go onto the order as well, where the tailor doing the adjustments will see them.
         if ($request->filled('fitting_notes') && $jobOrderId) {
@@ -1093,7 +1362,7 @@ class AppointmentController extends Controller
                 'message' => $newStatus === 'no_show' ? "{$customer->name} did not come to their appointment." : "Appointment for {$customer->name} was marked completed.",
                 'url' => '/dashboard/appointments',
                 'extra' => ['appointment_id' => $appointment->id],
-            ]);
+            ], $appointment);
         }
 
         $store->auditLogs()->create([
@@ -1113,6 +1382,12 @@ class AppointmentController extends Controller
         // A decline always carries a reason — it only goes through the reject action.
         if ($newStatus === 'rejected') {
             return 'Use the Reject action — a reason is required.';
+        }
+
+        // A visit starts with Customer arrived (arrive) and ends with Done (complete): each records what the shop
+        // needs (arrival, result, job link). A plain status edit would skip all of it.
+        if (in_array($newStatus, ['in_progress', 'completed'], true)) {
+            return $newStatus === 'in_progress' ? 'Use Customer arrived to start a visit.' : 'Use Done to finish a visit.';
         }
 
         if ($isStaff) {
@@ -1186,7 +1461,7 @@ class AppointmentController extends Controller
                     'message' => "Appointment for {$customer->name} was cancelled.",
                     'url' => '/dashboard/appointments',
                     'extra' => ['appointment_id' => $appointment->id],
-                ]);
+                ], $appointment);
             }
         }
 
@@ -1201,6 +1476,47 @@ class AppointmentController extends Controller
         ]);
     }
 
+    // ─── Remove a walk-in visit that was started by mistake ───────────────────
+
+    /**
+     * A walk-in visit started by mistake: the customer never really sat down. It goes away completely, but only while
+     * nothing hangs on it (no job order, no measurements); a visit with work on it is finished or cancelled instead.
+     * A nameless placeholder customer made for it goes with it.
+     */
+    public function discard(Request $request, Store $store, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+        if ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
+        }
+
+        $reason = null;
+        if ($appointment->intake_channel !== 'walk_in' || $appointment->kind === 'production') {
+            $reason = 'Only a walk-in visit can be removed. Cancel or finish this one instead.';
+        } elseif (! in_array($appointment->status, ['confirmed', 'in_progress'], true)) {
+            $reason = 'This visit is already closed, so it stays in the history.';
+        } elseif ($appointment->job_order_id || $store->jobOrders()->where('appointment_id', $appointment->id)->exists()) {
+            $reason = 'A job order was made from this visit, so it cannot be removed.';
+        } elseif ($store->measurements()->where('appointment_id', $appointment->id)->exists()) {
+            $reason = 'Measurements were taken at this visit, so it cannot be removed.';
+        }
+        if ($reason) {
+            return response()->json(['success' => false, 'message' => $reason], 422);
+        }
+
+        $customer = $appointment->customer;
+        DB::transaction(function () use ($store, $appointment, $customer) {
+            $appointment->delete();
+            if ($customer) {
+                WalkInCustomer::dropIfUnused($store, $customer);
+            }
+        });
+
+        return response()->json(['success' => true, 'message' => 'Visit removed.']);
+    }
+
     // ─── Reject a pending request (owner/manager only) ────────────────────────
 
     public function reject(Request $request, Store $store, Appointment $appointment): JsonResponse
@@ -1211,8 +1527,11 @@ class AppointmentController extends Controller
         if ($denied = $this->branchAccessDenied($request, $appointment)) {
             return $denied;
         }
+        if ($appointment->status === 'rejected') {
+            return response()->json(['success' => false, 'message' => 'This appointment has already been declined.'], 422);
+        }
         if (! $appointment->canTransitionTo('rejected')) {
-            return response()->json(['success' => false, 'message' => 'Only a pending request can be rejected.'], 422);
+            return response()->json(['success' => false, 'message' => 'Only an appointment waiting for approval can be rejected.'], 422);
         }
 
         $validated = $request->validate([
@@ -1220,10 +1539,18 @@ class AppointmentController extends Controller
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
+        // The reason is already named; a note that only says it again ("Schedule unavailable." after the reason
+        // "Schedule unavailable") would show twice to the customer, so it is not kept.
+        $note = trim((string) ($validated['note'] ?? ''));
+        $reasonLabel = Appointment::REJECTION_REASONS[$validated['reason_code']];
+        if ($note === '' || strcasecmp(trim($note, " \t\n\r\0\x0B.!"), $reasonLabel) === 0) {
+            $note = null;
+        }
+
         $appointment->update([
             'status' => 'rejected',
             'rejection_reason_code' => $validated['reason_code'],
-            'rejection_note' => $validated['note'] ?? null,
+            'rejection_note' => $note,
         ]);
 
         $store->auditLogs()->create([
@@ -1231,12 +1558,16 @@ class AppointmentController extends Controller
             'action' => 'appointment_rejected',
             'model_type' => Appointment::class,
             'model_id' => $appointment->id,
-            'payload' => ['reason' => Appointment::REJECTION_REASONS[$validated['reason_code']], 'note' => $validated['note'] ?? null],
+            'payload' => ['reason' => $reasonLabel, 'note' => $note],
             'ip_address' => $request->ip(),
         ]);
 
         $appointment->load(['store:id,name,slug,logo_path', 'customer:id,name,email,phone']);
-        $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'rejected', null, $request->user()));
+        try {
+            $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'rejected', null, $request->user()));
+        } catch (\Throwable $e) {
+            \Log::warning('Failed sending appointment rejection notification: '.$e->getMessage());
+        }
 
         return response()->json(['success' => true, 'message' => 'Appointment rejected.', 'data' => $appointment]);
     }
@@ -1259,15 +1590,18 @@ class AppointmentController extends Controller
         $staffId = $validated['staff_id'] ?? null;
 
         if ($staffId !== null) {
-            $profile = StaffProfile::where('user_id', $staffId)->where('store_id', $store->id)->first();
-            if (! $profile) {
-                return response()->json(['success' => false, 'message' => 'That staff member is not part of this store.'], 422);
-            }
-            // A branch appointment is handled by someone from that branch (owner may still pick anyone from the store).
-            if ($appointment->store_branch_id && $profile->store_branch_id
-                && (int) $profile->store_branch_id !== (int) $appointment->store_branch_id
-                && ! $request->user()->hasRole('store_owner')) {
-                return response()->json(['success' => false, 'message' => 'Choose staff from this appointment\'s branch.'], 422);
+            $isOwner = (int) $store->owner_id === (int) $staffId;
+            if (! $isOwner) {
+                $profile = StaffProfile::where('user_id', $staffId)->where('store_id', $store->id)->first();
+                if (! $profile) {
+                    return response()->json(['success' => false, 'message' => 'That handler is not part of this store.'], 422);
+                }
+                // A branch appointment must be handled by someone assigned to that branch (exclude staff from other branches).
+                // Even the store owner cannot assign staff from another branch to this branch's appointment.
+                if ($appointment->store_branch_id && $profile->store_branch_id
+                    && (int) $profile->store_branch_id !== (int) $appointment->store_branch_id) {
+                    return response()->json(['success' => false, 'message' => 'Choose a handler from this appointment\'s branch.'], 422);
+                }
             }
         }
 
