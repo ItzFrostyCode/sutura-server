@@ -80,6 +80,16 @@
         "updated_at": "2026-10-21 22:17:31"
     },
     {
+        "id": "87707b14-b21f-423b-8437-551f806ad282",
+        "type": "App\\Notifications\\AppointmentAssignedNotification",
+        "notifiable_type": "App\\Models\\User",
+        "notifiable_id": 20,
+        "data": "{\"type\":\"appointment_assigned\",\"title\":\"New appointment assigned to you\",\"message\":\"Joshua A. Arabejo \\u2014 consultation \\u00b7 Tri-Color Corporate & School Uniform Polo \\u00b7 Oct 20, 2026 09:30 AM \\u00b7 Sakuragi Embroidery Davao \\u2014 Main\",\"action_url\":\"\\/dashboard\\/appointments\",\"appointment_id\":7,\"scheduled_at\":\"2026-10-20T01:30:00.000000Z\"}",
+        "read_at": null,
+        "created_at": "2026-10-21 19:34:43",
+        "updated_at": "2026-10-21 19:34:43"
+    },
+    {
         "id": "a34bb08e-da65-4585-8fe7-3569045d25e8",
         "type": "App\\Notifications\\AppointmentBookedNotification",
         "notifiable_type": "App\\Models\\User",
