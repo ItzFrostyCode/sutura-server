@@ -108,7 +108,7 @@ class StoreAppointmentRequest extends FormRequest
                 'nullable', 'integer',
                 Rule::exists('job_orders', 'id')->where('store_id', $store?->id),
             ],
-            'outcome' => ['nullable', 'string', 'in:completed,rescheduled,no_show,converted_to_job,cancelled'],
+            'outcome' => ['nullable', 'string', 'in:completed,rescheduled,no_show,converted_to_job,cancelled,no_order'],
             'priority' => ['nullable', 'string', 'in:normal,urgent,rush'],
             'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
         ];

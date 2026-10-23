@@ -5,8 +5,9 @@ namespace App\Support;
 use App\Models\JobOrder;
 
 /**
- * The seven saved steps before production, worked out from what is already recorded on the order. There is
- * nothing extra to save: leaving and coming back lands on the first step that is not finished.
+ * The six steps of a request (status pending), worked out from what is already recorded on the order. There is
+ * nothing extra to save: leaving and coming back lands on the first step that is not finished. The tailor and
+ * materials checks belong to the Confirmed column, not here.
  */
 final class OrderPreProduction
 {
@@ -35,15 +36,14 @@ final class OrderPreProduction
         $steps = [
             ['key' => 'request', 'label' => 'Request accepted', 'done' => $job->shop_accepted_at !== null,
                 'note' => $job->shop_accepted_at ? null : 'The shop has not accepted this request yet.'],
-            ['key' => 'details', 'label' => 'Measurements and details', 'done' => $detailsDone,
+            ['key' => 'details', 'label' => 'Details & sizes', 'done' => $detailsDone,
                 'note' => $detailsDone ? null : 'Approve the design details'.($needMeasure ? ' and verify the measurements.' : '.')],
             ['key' => 'quotation', 'label' => 'Price sent', 'done' => $job->quotation_status === 'final' && $job->quotation_sent_at !== null,
                 'note' => $job->quotation_status === 'estimate' ? 'Only an estimate so far.' : null],
             ['key' => 'decision', 'label' => 'Customer answer', 'done' => $job->customer_approved_at !== null, 'note' => $decisionNote],
-            ['key' => 'payment', 'label' => 'Payment terms and deposit',
+            ['key' => 'payment', 'label' => 'Deposit',
                 'done' => $job->payment_terms_locked_at !== null && OrderReadiness::depositMet($job), 'note' => $paymentNote],
-            ['key' => 'staff', 'label' => 'Tailor assigned', 'done' => $job->assignees()->exists(), 'note' => null],
-            ['key' => 'start', 'label' => 'Production authorized', 'done' => $job->production_authorized_at !== null, 'note' => null],
+            ['key' => 'confirmed', 'label' => 'Order confirmed', 'done' => $job->confirmed_at !== null, 'note' => null],
         ];
 
         $current = collect($steps)->first(fn (array $s) => ! $s['done']);

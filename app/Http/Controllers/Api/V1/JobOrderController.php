@@ -15,9 +15,11 @@ use App\Models\ServicePricing;
 use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Support\DesignPricing;
+use App\Support\JobOrderPurger;
 use App\Support\OrderNumber;
 use App\Support\OrderReadiness;
 use App\Support\SafeNotify;
+use App\Support\StaffJobUpdateGuard;
 use App\Models\User;
 use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\CustomerPaymentRejectedNotification;
@@ -581,6 +583,9 @@ class JobOrderController extends Controller
             'branch:id,name',
             'catalogItem:id,name,garment_type,price,fabric_image_url',
             'catalogItem.images',
+            // The Being made card names the tailor (lead first).
+            'assignees:id,job_order_id,user_id,role',
+            'assignees.user:id,name',
         ]);
 
         $branchId = null;
@@ -622,8 +627,10 @@ class JobOrderController extends Controller
             });
         }
 
+        // The Archived page: archived orders newest-archived first, each flagged with whether it has any
+        // payment or refund record (those can never be deleted for good, only restored).
         if ($request->boolean('trashed')) {
-            $query->onlyTrashed();
+            $query->onlyTrashed()->withExists(['payments as has_payment_rows', 'refunds as has_refund_rows'])->reorder('deleted_at', 'desc');
         }
 
         // The Jobs list page's own search box used to run entirely
@@ -671,9 +678,24 @@ class JobOrderController extends Controller
         // review" banner (pending status).
         $pendingCount = (clone $query)->where('status', 'pending')->count();
 
+        // assignees_count: the Confirmed column's "Tailor" check, without loading every assignee.
+        $query->withCount('assignees');
+        // The Ready card's "0 of 20 handed over".
+        $query->withSum('handovers as handed_over_count', 'quantity');
+        // The Done card's "Handed over Oct 22".
+        $query->withMax('handovers as last_handover_at', 'handed_over_at');
+        $page = $request->boolean('trashed') ? $query->paginate($request->input('per_page', 15)) : $query->latest()->paginate($request->input('per_page', 15));
+        if ($request->boolean('trashed')) {
+            $page->getCollection()->each(function (JobOrder $j) {
+                $j->setAttribute('has_payments', (bool) ($j->has_payment_rows || $j->has_refund_rows));
+                $j->offsetUnset('has_payment_rows');
+                $j->offsetUnset('has_refund_rows');
+            });
+        }
+
         return response()->json([
             'success' => true,
-            'data' => $query->latest()->paginate($request->input('per_page', 15)),
+            'data' => $page,
             'walk_in_count' => $walkInCount,
             'online_count' => $onlineCount,
             'pending_count' => $pendingCount,
@@ -767,31 +789,7 @@ class JobOrderController extends Controller
             }
         }
 
-        // Plain staff open a job order either for a customer standing at the counter (a walk-in,
-        // no appointment needed) or from an appointment of their own shop and branch. They never
-        // collect money or discount, so the order starts unpaid.
-        $creator = $request->user();
-        if (! $creator->hasRole('store_owner') && ! $creator->hasRole('branch_manager')) {
-            $fromAppointment = $request->filled('appointment_id') ? Appointment::find($request->appointment_id) : null;
-            $staffBranch = $creator->staffProfile?->store_branch_id;
-            $isWalkIn = ! $request->filled('appointment_id') && ($validated['intake_channel'] ?? 'walk_in') === 'walk_in';
-            if ($isWalkIn && $staffBranch) {
-                $validated['store_branch_id'] = $staffBranch;
-            }
-            $appointmentOk = $fromAppointment
-                && $fromAppointment->store_id === $store->id
-                && in_array($fromAppointment->status, ['confirmed', 'in_progress', 'completed'], true)
-                && ! $fromAppointment->job_order_id
-                && ! ($staffBranch && $fromAppointment->store_branch_id && (int) $staffBranch !== (int) $fromAppointment->store_branch_id);
-            if (! $isWalkIn && ! $appointmentOk) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Staff can create a job order for a walk-in, or from an approved appointment in their own branch (one per appointment).',
-                ], 403);
-            }
-            $validated['balance'] = $validated['total_amount'];
-            unset($validated['discount_amount'], $validated['payment_method']);
-        }
+        // Only the owner and branch managers reach this method (route group); staff never create orders.
 
         $validated['order_number'] = $this->generateOrderNumber($store);
         $validated['tracking_code'] = $this->generateTrackingCode($store, $validated['order_number']);
@@ -949,6 +947,16 @@ class JobOrderController extends Controller
             }
         }
 
+        // A branch manager works inside their own branch: the order, and the visit it comes from, must be that branch's.
+        $pinned = $request->user()->hasRole('store_owner') ? null : $request->user()->staffProfile?->store_branch_id;
+        if ($pinned) {
+            $outside = fn ($branch) => $branch && (int) $branch !== (int) $pinned;
+            if ($outside($validated['store_branch_id'] ?? null) || $outside($appointment?->store_branch_id)) {
+                return response()->json(['success' => false, 'message' => 'You can only create orders for your own branch.'], 403);
+            }
+            $validated['store_branch_id'] = (int) $pinned;
+        }
+
         $jobOrder = $store->jobOrders()->create($validated);
 
         // Link back to the appointment now that the job exists
@@ -1012,7 +1020,17 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name']);
+        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url,service_id,price,pricing_mode,extra_charge', 'catalogItem.images', 'branch:id,name']);
+        // The order this one follows up, and the follow-ups made from it (a free fix is flagged for the label).
+        $jobOrder->load(['followUpOf:id,order_number', 'followUps:id,order_number,status,follow_up_of_id,custom_order_data']);
+        $jobOrder->followUps->each(function (JobOrder $f) {
+            $f->setAttribute('free_fix', (bool) ($f->custom_order_data['free_fix'] ?? false));
+            $f->makeHidden('custom_order_data');
+        });
+        // The design's own starting price (its service's price, an extra charge, or a quote) -- the quotation starts from it.
+        if ($jobOrder->catalogItem) {
+            DesignPricing::attach([$jobOrder->catalogItem]);
+        }
 
         // Repeat-customer context surfaced right on the job so the owner can
         // decide on a manual discount ("this is their 5th order") without
@@ -1060,9 +1078,33 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        $oldStatus = $jobOrder->status;
         $validated = $request->validated();
+        // Plain staff only work on production: notes, the completion photo and production-stage moves. The raw request is
+        // checked, not just the validated fields, so a price or payment value sent along is refused instead of silently dropped.
+        if (StaffJobUpdateGuard::appliesTo($request->user()) && StaffJobUpdateGuard::changesMoreThanProduction($jobOrder, $request->all())) {
+            return response()->json(['success' => false, 'message' => StaffJobUpdateGuard::MESSAGE], 403);
+        }
+        // Inside production the order moves only through Next / Back / Hold / Resume (OrderProductionController).
+        if (($validated['status'] ?? null) && $validated['status'] !== $jobOrder->status
+            && ($stop = OrderReadiness::productionJumpError($jobOrder, $jobOrder->status, $validated['status']))) {
+            return response()->json(['success' => false, 'message' => $stop], 422);
+        }
+
+        return $this->applyUpdate($request, $store, $jobOrder, $validated);
+    }
+
+    /**
+     * The update itself, once access and the request are checked: gates, deposit rule, stamps, staff attribution,
+     * hold clock and customer / owner notifications. OrderProductionController calls it too, so Next / Back / Hold /
+     * Resume have exactly the side effects of a status change.
+     */
+    public function applyUpdate(Request $request, Store $store, JobOrder $jobOrder, array $validated): JsonResponse
+    {
+        $oldStatus = $jobOrder->status;
         $newStatus = $validated['status'] ?? null;
+        if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
+            return response()->json(['success' => false, 'message' => 'Use Cancel this order.'], 422);
+        }
         // Ordering-flow orders (not repairs) follow the workflow sequence: ... -> Quality Check -> Ready for
         // Final Fitting / Collection -> Customer Fitting -> Adjustment -> Balance & Handover -> Completed.
         // The customer is invited to the fitting/collection when the order becomes Ready for Final Fitting /
@@ -1219,6 +1261,12 @@ class JobOrderController extends Controller
                 'success' => false,
                 'message' => 'This job has already started production — its measurement snapshot is locked and can no longer be switched to a different version.',
             ], 422);
+        }
+
+        // Pieces can be corrected while the order is still a request (the quotation window does this);
+        // after it is confirmed the price, deposit and handover all rest on that number.
+        if (array_key_exists('quantity', $validated) && (int) $validated['quantity'] !== (int) $jobOrder->quantity && $oldStatus !== 'pending') {
+            return response()->json(['success' => false, 'message' => 'Pieces can only change before the order is confirmed.'], 422);
         }
 
         if (array_key_exists('custom_order_data', $validated)) {
@@ -1684,6 +1732,73 @@ class JobOrderController extends Controller
     }
 
     /**
+     * Undoes the discount on an order: the discount goes back onto the balance (never onto total_amount),
+     * the payment status is worked out again, and the removal is logged with the old amount and reason.
+     */
+    public function removeDiscount(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->store_id !== $store->id) {
+            return response()->json(['message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        try {
+            DB::transaction(function () use ($jobOrder, $request) {
+                $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
+
+                if ($locked->status === 'completed') {
+                    throw new \RuntimeException('This order is completed — its payments can no longer change.');
+                }
+                if (in_array($locked->status, ['cancelled', 'rejected'], true)) {
+                    throw new \RuntimeException('This order is '.$locked->status.' — its payments can no longer change.');
+                }
+
+                $discount = round((float) ($locked->discount_amount ?? 0), 2);
+                if ($discount <= 0) {
+                    throw new \RuntimeException('This order has no discount.');
+                }
+
+                $newBalance = round((float) $locked->balance + $discount, 2);
+                $data = (array) $locked->custom_order_data;
+                $oldReason = $data['discount_reason'] ?? null;
+                unset($data['discount_reason']);
+
+                $locked->update([
+                    'balance' => $newBalance,
+                    'discount_amount' => 0,
+                    'payment_status' => $newBalance <= 0.005
+                        ? 'paid'
+                        : (((float) $locked->total_amount - $newBalance) > 0.005 ? 'partial' : 'unpaid'),
+                    'custom_order_data' => $data,
+                ]);
+
+                $locked->store->auditLogs()->create([
+                    'user_id' => $request->user()->id,
+                    'action' => 'discount_removed',
+                    'model_type' => JobOrder::class,
+                    'model_id' => $locked->id,
+                    'payload' => [
+                        'amount' => $discount,
+                        'reason' => $oldReason,
+                    ],
+                    'ip_address' => $request->ip(),
+                ]);
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Discount removed.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages']),
+        ]);
+    }
+
+    /**
      * "No downpayment for this order" — the owner or a branch manager drops the deposit for one
      * order, e.g. a customer the shop already knows. Only before production starts. The order's
      * old rule is kept in the audit log, so "require it again" puts back exactly what it had.
@@ -1792,7 +1907,7 @@ class JobOrderController extends Controller
         }
 
         $validated = $request->validate([
-            'payment_method' => 'sometimes|string|in:cash,gcash,paymaya',
+            'payment_method' => 'sometimes|string|in:'.implode(',', \App\Models\Payment::METHODS),
             'reference' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'receipt_path' => 'nullable|string|max:2048',
@@ -1975,6 +2090,10 @@ class JobOrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
         }
 
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
         $validated = $request->validate([
             'subject' => ['required', 'string', 'max:150'],
             'message' => ['required', 'string', 'max:5000'],
@@ -2101,22 +2220,30 @@ class JobOrderController extends Controller
             return $denied;
         }
 
+        // Only a closed-by-cancel order can be archived: an ongoing one is cancelled first (with the customer's
+        // agreement), and a completed one stays in Done.
+        if ($jobOrder->status === 'completed') {
+            return response()->json(['success' => false, 'message' => "A completed order stays in Done and can't be archived."], 422);
+        }
+        if (! in_array($jobOrder->status, ['cancelled', 'rejected'], true)) {
+            return response()->json(['success' => false, 'message' => "An ongoing order can't be archived. Cancel it first, with the customer's agreement."], 422);
+        }
+
         // Once money has changed hands, deleting the record would silently erase
         // the payment trail. Cancel it instead so the ledger stays intact.
         if ($jobOrder->payments()->exists()) {
             return response()->json([
                 'success' => false,
-                'message' => 'This job order has recorded payments and cannot be deleted. Cancel it instead to keep the payment history intact.',
+                'message' => 'This job order has recorded payments and cannot be archived. Cancel it instead to keep the payment history intact.',
             ], 400);
         }
 
-        // Logged before delete() — a soft delete, so the record itself
-        // survives, but the Audit Log page had no entry at all for who
-        // deleted a job order or when, the same accountability gap
+        // Archive = soft delete. Logged before delete(): the record survives, but the Audit Log
+        // needs who archived a job order and when, the same accountability gap
         // discount_applied/payment_rejected/etc. already closed elsewhere.
         $store->auditLogs()->create([
             'user_id' => $request->user()->id,
-            'action' => 'job_order_deleted',
+            'action' => 'job_order_archived',
             'model_type' => JobOrder::class,
             'model_id' => $jobOrder->id,
             'payload' => [
@@ -2134,7 +2261,7 @@ class JobOrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Job order deleted successfully',
+            'message' => 'Order archived.',
         ]);
     }
 
@@ -2143,7 +2270,7 @@ class JobOrderController extends Controller
         $jobOrder = JobOrder::onlyTrashed()->where('id', $jobOrderId)->first();
 
         if (! $jobOrder || $jobOrder->store_id !== $store->id) {
-            return response()->json(['success' => false, 'message' => 'Deleted job order not found.'], 404);
+            return response()->json(['success' => false, 'message' => 'Archived order not found.'], 404);
         }
 
         if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
@@ -2173,5 +2300,43 @@ class JobOrderController extends Controller
             'success' => true,
             'data' => $jobOrder->load(['customer:id,name,suki_tag', 'service', 'assignedStaff:id,name']),
         ]);
+    }
+
+    /** Delete an ARCHIVED order for good. Refused while it has payment or refund records. */
+    public function destroyPermanently(Request $request, Store $store, int $jobOrderId): JsonResponse
+    {
+        $jobOrder = JobOrder::onlyTrashed()->where('id', $jobOrderId)->first();
+
+        if (! $jobOrder || $jobOrder->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Archived order not found.'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        if (JobOrderPurger::hasPaymentRecords($jobOrder)) {
+            return response()->json(['success' => false, 'message' => 'This order has payment records, so it stays in the archive.'], 422);
+        }
+
+        DB::transaction(function () use ($request, $store, $jobOrder) {
+            // Written first: once the row is gone this is the only trace of it.
+            $store->auditLogs()->create([
+                'user_id' => $request->user()->id,
+                'action' => 'job_order_deleted_permanently',
+                'model_type' => JobOrder::class,
+                'model_id' => $jobOrder->id,
+                'payload' => [
+                    'order_number' => $jobOrder->order_number,
+                    'customer' => $jobOrder->customer?->name,
+                    'total' => $jobOrder->total_amount,
+                ],
+                'ip_address' => $request->ip(),
+            ]);
+
+            JobOrderPurger::purge($jobOrder);
+        });
+
+        return response()->json(['success' => true, 'message' => 'Order deleted permanently.']);
     }
 }

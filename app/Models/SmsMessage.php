@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SmsMessage extends Model
@@ -19,6 +20,23 @@ class SmsMessage extends Model
     public function store(): BelongsTo
     {
         return $this->belongsTo(Store::class);
+    }
+
+    /**
+     * Only the texts a branch-pinned account may see: those about this branch's visits and orders, plus the ones the
+     * shop wrote by hand from a customer's profile (those belong to no branch). A null branch means no limit.
+     */
+    public function scopeForBranch(Builder $query, ?int $branchId): Builder
+    {
+        if (! $branchId) {
+            return $query;
+        }
+
+        return $query->where(function ($w) use ($branchId) {
+            $w->where(fn ($a) => $a->where('related_type', 'appointment')->whereIn('related_id', Appointment::where('store_branch_id', $branchId)->select('id')))
+                ->orWhere(fn ($j) => $j->where('related_type', 'job_order')->whereIn('related_id', JobOrder::where('store_branch_id', $branchId)->select('id')))
+                ->orWhere('event', 'manual');
+        });
     }
 
     public function recipient(): BelongsTo

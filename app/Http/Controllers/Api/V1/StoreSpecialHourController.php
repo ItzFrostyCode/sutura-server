@@ -5,15 +5,32 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Store;
 use App\Models\StoreSpecialHour;
+use App\Support\BranchPin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class StoreSpecialHourController extends Controller
 {
+    /** A branch manager may only set or change schedules for their own branch; shop-wide ones (no branch) are the owner's. */
+    private function branchDenied(Request $request, ?int $branchId): ?JsonResponse
+    {
+        $pin = BranchPin::of($request->user());
+        if ($pin && (int) $branchId !== $pin) {
+            return response()->json(['success' => false, 'message' => 'You can only manage schedules for your own branch.'], 403);
+        }
+
+        return null;
+    }
+
     public function index(Store $store, Request $request): JsonResponse
     {
         $query = $store->specialHours()->with('branch:id,name')->orderBy('start_date', 'desc');
+
+        // A branch manager sees their own branch's schedules plus the shop-wide ones, never another branch's.
+        if ($pin = BranchPin::of($request->user())) {
+            $query->where(fn ($q) => $q->whereNull('store_branch_id')->orWhere('store_branch_id', $pin));
+        }
 
         // The management UI needs to see past entries too — otherwise an
         // owner has no way to reach (edit/delete) a lapsed entry once its
@@ -47,6 +64,10 @@ class StoreSpecialHourController extends Controller
             'announcement_image_url' => ['nullable', 'string', 'max:1000'],
         ]);
 
+        if ($denied = $this->branchDenied($request, $validated['store_branch_id'] ?? null)) {
+            return $denied;
+        }
+
         $specialHour = $store->specialHours()->create($validated);
 
         return response()->json([
@@ -73,6 +94,10 @@ class StoreSpecialHourController extends Controller
             'announcement_image_url' => ['nullable', 'string', 'max:1000'],
         ]);
 
+        if (($denied = $this->branchDenied($request, $specialHour->store_branch_id)) || ($denied = $this->branchDenied($request, $validated['store_branch_id'] ?? null))) {
+            return $denied;
+        }
+
         $specialHour->update($validated);
 
         return response()->json([
@@ -81,10 +106,13 @@ class StoreSpecialHourController extends Controller
         ]);
     }
 
-    public function destroy(Store $store, StoreSpecialHour $specialHour): JsonResponse
+    public function destroy(Request $request, Store $store, StoreSpecialHour $specialHour): JsonResponse
     {
         if ($specialHour->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+        if ($denied = $this->branchDenied($request, $specialHour->store_branch_id)) {
+            return $denied;
         }
 
         $specialHour->delete();

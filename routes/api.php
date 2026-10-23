@@ -217,11 +217,12 @@ Route::prefix('v1')->group(function () {
                 Route::post('/measurements', [MeasurementController::class, 'store']);
                 Route::put(MEASUREMENT_DETAIL_ROUTE, [MeasurementController::class, 'update']);
 
-                // Job Orders — staff can view and progress a job's stage/status,
-                // but cannot delete it or reassign who's working on it (that's a
-                // supervisory action reserved for the owner/branch manager below).
-                // Staff may open a job order only from an appointment (e.g. a fitting) — see JobOrderController::store.
-                Route::post('/jobs', [JobOrderController::class, 'store']);
+                // Job Orders — staff can view and progress a job's production, but they
+                // cannot create one (owner / branch manager group below) or change anything
+                // except production notes, the completion photo and production-stage moves:
+                // JobOrderController::update() answers 403 "Staff can only update production."
+                // (App\Support\StaffJobUpdateGuard). Deleting or planning who works on it is
+                // a supervisory action reserved for the owner/branch manager below.
                 Route::get('/jobs', [JobOrderController::class, 'index']);
                 Route::get(JOB_DETAIL_ROUTE, [JobOrderController::class, 'show']);
                 Route::put(JOB_DETAIL_ROUTE, [JobOrderController::class, 'update']);
@@ -234,18 +235,11 @@ Route::prefix('v1')->group(function () {
                 // "staff at the workbench" reasoning as progress photos above.
                 Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
 
-                // Ordering flow (Flow 2). Everyone on the shop floor can see the readiness checklist,
-                // sign off specs/measurements, keep the material list and record the customer's
-                // approval at the counter; prices, tailor planning, confirming and refunds are
-                // owner/branch-manager only (see the group below). Gates: App\Support\OrderReadiness.
+                // Ordering flow (Flow 2). Everyone on the shop floor can see the readiness checklist;
+                // every set-up step (specs, measurements, materials, prices, approval, tailor planning,
+                // confirming, refunds) is owner / branch-manager only (see the group below).
+                // Gates: App\Support\OrderReadiness.
                 Route::get('/jobs/{jobOrder}/readiness', [OrderFlowController::class, 'show']);
-                Route::post('/jobs/{jobOrder}/specs/approve', [OrderFlowController::class, 'approveSpecs']);
-                Route::post('/jobs/{jobOrder}/measurements/verify', [OrderFlowController::class, 'verifyMeasurements']);
-                Route::post('/jobs/{jobOrder}/quotation/approve', [OrderFlowController::class, 'approveInPerson']);
-                // Materials are a yes/no sign-off (ready / waiting) plus an assessment of the customer's own
-                // fabric -- never a stock, supplier or purchase record (thesis Limitations).
-                Route::post('/jobs/{jobOrder}/materials', [OrderFlowController::class, 'setMaterials']);
-                Route::post('/jobs/{jobOrder}/customer-items', [OrderFlowController::class, 'assessCustomerItems']);
 
                 // Flow 3: quality check, corrections (defect / fitting issue / customer change) and handover.
                 Route::post('/jobs/{jobOrder}/quality-check', [OrderDeliveryController::class, 'qualityCheck']);
@@ -254,12 +248,21 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/corrections/{correction}/resolve', [OrderDeliveryController::class, 'resolveCorrection']);
                 Route::post('/jobs/{jobOrder}/handovers', [OrderDeliveryController::class, 'recordHandover']);
 
+                // Being made: Next / Back one step / Put on hold / Resume. Instant, and the only way to move inside production
+                // (the generic PUT /jobs/{id} refuses those jumps -- see OrderReadiness::productionJumpError).
+                Route::post('/jobs/{jobOrder}/production/next', [\App\Http\Controllers\Api\V1\OrderProductionController::class, 'next']);
+                Route::post('/jobs/{jobOrder}/production/back', [\App\Http\Controllers\Api\V1\OrderProductionController::class, 'back']);
+                Route::post('/jobs/{jobOrder}/production/hold', [\App\Http\Controllers\Api\V1\OrderProductionController::class, 'hold']);
+                Route::post('/jobs/{jobOrder}/production/resume', [\App\Http\Controllers\Api\V1\OrderProductionController::class, 'resume']);
+
                 // Appointments — read + status transitions (role enforcement inside controller)
                 Route::get('/appointments', [AppointmentController::class, 'index']);
                 Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
                 // "Customer arrived": one tap records the arrival and starts the visit. "Done" closes it.
                 Route::post('/appointments/{appointment}/arrive', [AppointmentController::class, 'arrive']);
                 Route::post('/appointments/{appointment}/complete', [AppointmentController::class, 'complete']);
+                // "No order": the customer did not go ahead after the consultation. Works on a visit still open or already done, never one with an order.
+                Route::post('/appointments/{appointment}/no-order', [AppointmentController::class, 'markNoOrder']);
                 // "Start consultation": a customer is here now. Any shop user can start one; booking a visit for later is owner / manager only.
                 Route::post('/appointments/consultation', [AppointmentController::class, 'startConsultation']);
                 // A walk-in visit started by mistake can be removed while nothing hangs on it.
@@ -294,11 +297,10 @@ Route::prefix('v1')->group(function () {
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::put(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'update']);
                 Route::put('/customers/{customer}/trusted', [CustomerController::class, 'setTrusted']);
-                Route::delete(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'destroy']);
 
                 // Services (read-only) — every role that can create/edit an
                 // appointment or job order needs to populate a service picker;
-                // managing services (create/update/delete) stays owner-only below.
+                // managing services (create/update/delete) is owner-only below.
                 Route::get('/services', [ServiceController::class, 'index']);
                 Route::get('/services/{service}', [ServiceController::class, 'show']);
 
@@ -330,8 +332,19 @@ Route::prefix('v1')->group(function () {
                 Route::get('/receipts/export', [\App\Http\Controllers\Api\V1\ReceiptExportController::class, 'export']);
 
                 // Job Orders (Owner/Manager specific actions)
+                // Making an order (walk-in or from an appointment) is the owner's / branch manager's job, never plain staff's.
+                Route::post('/jobs', [JobOrderController::class, 'store']);
+                // Order set-up sign-offs: details approval, measurements, the customer's own fabric, materials, in-person approval.
+                Route::post('/jobs/{jobOrder}/specs/approve', [OrderFlowController::class, 'approveSpecs']);
+                Route::post('/jobs/{jobOrder}/measurements/verify', [OrderFlowController::class, 'verifyMeasurements']);
+                Route::post('/jobs/{jobOrder}/quotation/approve', [OrderFlowController::class, 'approveInPerson']);
+                // Materials are a yes/no sign-off (ready / waiting) plus an assessment of the customer's own
+                // fabric -- never a stock, supplier or purchase record (thesis Limitations).
+                Route::post('/jobs/{jobOrder}/materials', [OrderFlowController::class, 'setMaterials']);
+                Route::post('/jobs/{jobOrder}/customer-items', [OrderFlowController::class, 'assessCustomerItems']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
                 Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
+                Route::delete('/jobs/{jobOrder}/discount', [JobOrderController::class, 'removeDiscount']);
                 // "No downpayment for this order" (a customer the shop knows) — owner/manager only, audit-logged.
                 Route::post('/jobs/{jobOrder}/deposit-waiver', [JobOrderController::class, 'depositWaiver']);
                 // The service's rules are the order's starting values: the owner / manager can change them for one order, with a reason.
@@ -341,6 +354,10 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment']);
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
+                // The only way to cancel: reason + how the customer agreed. The generic status update refuses 'cancelled'.
+                Route::post('/jobs/{jobOrder}/cancel', [\App\Http\Controllers\Api\V1\OrderCancelController::class, 'cancel']);
+                // The shop's mistake on a completed order: a linked follow-up order that starts in Confirmed at P0.
+                Route::post('/jobs/{jobOrder}/free-fix', [\App\Http\Controllers\Api\V1\OrderFollowUpController::class, 'freeFix'])->middleware('throttle:sensitive-writes');
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
 
@@ -355,11 +372,15 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/refunds', [OrderRefundController::class, 'record'])->middleware('throttle:sensitive-writes');
                 Route::post('/jobs/{jobOrder}/refunds/{refund}/mark-refunded', [OrderRefundController::class, 'markRefunded'])->middleware('throttle:sensitive-writes');
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
+                Route::delete('/jobs/{jobOrderId}/permanent', [JobOrderController::class, 'destroyPermanently'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
 
                 // Catalog Orders — discount decisions are a supervisory action,
                 // same as verify-payment below, unlike the day-to-day
                 // create/update Staff already has above.
+                // Removing a customer from the Client Book is owner / branch manager only (R2).
+                Route::delete(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'destroy']);
+
                 Route::post('/catalog-orders/{order}/discount', [CatalogOrderController::class, 'applyDiscount']);
                 Route::put('/catalog-orders/{order}/verify-payment', [CatalogOrderController::class, 'verifyPayment']);
 
@@ -397,38 +418,9 @@ Route::prefix('v1')->group(function () {
                 Route::put(STAFF_DETAIL_ROUTE, [StaffController::class, 'update']);
                 Route::delete(STAFF_DETAIL_ROUTE, [StaffController::class, 'destroy']);
 
-                // Services + Catalog Management write actions — the dashboard
-                // sidebar has always shown "Services" and "Catalog Designs" to
-                // both store_owner and branch_manager (isStoreOwner ||
-                // isBranchManager gates in dashboard/layout.tsx), but these
-                // write routes were store_owner-only until now, so a branch
-                // manager clicking Add Service/Add Catalog Item got a 403 the
-                // nav never warned them about. Moved here to match what the
-                // nav already promises — these are store-wide resources (no
-                // store_branch_id column), not scoped to the manager's own
-                // branch the way Staff/Jobs/Appointments are above.
-                Route::post('/services', [ServiceController::class, 'store']);
-                Route::put('/services/{service}', [ServiceController::class, 'update']);
-                Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
-
                 // Ratings lists for the Services / Catalog Analytics tabs, which branch managers see too.
                 Route::get('/service-reviews', [ServiceReviewController::class, 'indexForStore']);
                 Route::get('/catalog-item-reviews', [CatalogInteractionController::class, 'indexForStore']);
-
-                // Read moved here from the store_owner-only group below —
-                // Catalog Designs is shown to isStoreOwner||isBranchManager
-                // in dashboard/layout.tsx, and a branch manager already has
-                // write access (store/update/destroy right here), but the
-                // list itself was left owner-only, so a branch manager's
-                // Catalog page 403'd just loading the item list they were
-                // otherwise fully permitted to manage.
-                // GET /catalog (list) and GET /catalog/{catalog} are served by the public routes at the
-                // bottom of this file: CatalogController itself shows owners/staff of THIS store the full
-                // data and everyone else active items only. A second GET here would be silently
-                // overridden by that one (same method + URI), so it is not repeated.
-                Route::post('/catalog', [CatalogController::class, 'store']);
-                Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
-                Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
 
                 // The shop page customers see ("My Store Profile") is run by the branch manager: its details,
                 // special hours and posts. The owner can still edit it too.
@@ -457,6 +449,17 @@ Route::prefix('v1')->group(function () {
 
             // Owner Only Access
             Route::middleware('role:store_owner')->group(function () {
+                // Services + catalog designs are shop-wide, so only the shop owner writes them. A branch manager
+                // (and staff) can read them: GET /services, /services/{service} in the shared group above, and
+                // GET /catalog + /catalog/{catalog} from the public routes at the bottom of this file
+                // (CatalogController shows owners / staff of THIS store the full data).
+                Route::post('/services', [ServiceController::class, 'store']);
+                Route::put('/services/{service}', [ServiceController::class, 'update']);
+                Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
+                Route::post('/catalog', [CatalogController::class, 'store']);
+                Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
+                Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);
+
                 // Audit Logs
                 Route::get('/audit-logs', [AuditLogController::class, 'index']);
 
@@ -494,6 +497,7 @@ Route::prefix('v1')->group(function () {
             // own docblock for why update()/resolveMapsLink() moved out to the
             // store_owner,branch_manager group below instead.
             Route::post('/stores/{store}/branches', [StoreBranchController::class, 'store']);
+            Route::post('/stores/{store}/branches/{branch}/manager', [StoreBranchController::class, 'assignManager']);
             Route::put('/stores/{store}/branches/{branch}/set-main', [StoreBranchController::class, 'setMain']);
             Route::delete('/stores/{store}/branches/{branch}', [StoreBranchController::class, 'destroy']);
 

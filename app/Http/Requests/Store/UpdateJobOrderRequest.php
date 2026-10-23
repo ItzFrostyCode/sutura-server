@@ -38,6 +38,8 @@ class UpdateJobOrderRequest extends FormRequest
             // user just recorded (or let anyone mark a job "paid" with no ledger entry).
             'status' => ['sometimes', Rule::in(JobOrder::STATUSES)],
             'cancellation_reason' => ['nullable', 'string', Rule::in(JobOrder::CANCELLATION_REASONS), 'required_if:status,cancelled'],
+            // How many pieces. Only changeable while the order is pending (JobOrderController::update refuses it later).
+            'quantity' => ['sometimes', 'integer', 'min:1', 'max:100000'],
             'due_date' => ['nullable', 'date'],
             // Time-of-day ETA, additive to due_date — see docs/REPAIR-WORKFLOW.md §6.
             'estimated_ready_at' => ['nullable', 'date'],

@@ -5,13 +5,9 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\StoreStaffRequest;
 use App\Http\Requests\Store\UpdateStaffRequest;
-use App\Models\Appointment;
-use App\Models\JobOrder;
-use App\Models\Role;
 use App\Models\StaffProfile;
 use App\Models\Store;
-use App\Models\SubscriptionPlan;
-use App\Models\User;
+use App\Support\ShopAccounts;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -20,25 +16,6 @@ use Illuminate\Support\Facades\Hash;
 
 class StaffController extends Controller
 {
-    /**
-     * A staff account is either a plain 'staff' or a 'branch_manager' at the
-     * platform-role level — never both — so checks elsewhere in the app that
-     * do `hasRole('staff') && !hasRole('branch_manager')` stay correct.
-     */
-    private function syncPlatformRole(User $user, bool $isBranchManager): void
-    {
-        $targetRole = Role::where('name', $isBranchManager ? 'branch_manager' : 'staff')->first();
-        $otherRole = Role::where('name', $isBranchManager ? 'staff' : 'branch_manager')->first();
-
-        if ($otherRole) {
-            $user->roles()->detach($otherRole->id);
-        }
-
-        if ($targetRole && ! $user->roles()->where('roles.id', $targetRole->id)->exists()) {
-            $user->roles()->attach($targetRole->id);
-        }
-    }
-
     /**
      * A branch manager can create/edit/deactivate staff — that's routine
      * headcount management, not something that should always have to route
@@ -65,6 +42,22 @@ class StaffController extends Controller
 
         $callerBranchId = $user->staffProfile?->store_branch_id ?? null;
         if (! $callerBranchId || (int) $callerBranchId !== $targetBranchId) {
+            return response()->json(['success' => false, 'message' => 'You can only manage staff within your own branch.'], 403);
+        }
+
+        return null;
+    }
+
+    /**
+     * A branch manager may not point a submitted branch at anyone else's branch (new staff, or moving a staff member).
+     * Only the owner chooses a branch, and this controller never applies a submitted branch or manager flag anyway.
+     */
+    private function ownBranchOnlyDenied(Request $request, int $ownBranchId): ?JsonResponse
+    {
+        if ($request->user()->hasRole('store_owner') || ! $request->filled('store_branch_id')) {
+            return null;
+        }
+        if ((int) $request->input('store_branch_id') !== $ownBranchId) {
             return response()->json(['success' => false, 'message' => 'You can only manage staff within your own branch.'], 403);
         }
 
@@ -192,121 +185,49 @@ class StaffController extends Controller
 
     public function store(StoreStaffRequest $request, Store $store): JsonResponse
     {
-        // A branch manager can hire/manage staff — day-to-day headcount is
-        // their call, not something that should have to route through the
-        // owner every time — but only within their own branch, and they can
-        // never mint another branch manager (that's a supervisory promotion,
-        // owner-only, same reasoning as StaffProfile::is_branch_manager
-        // being owner-gated everywhere else it's touched).
-        // Nobody picks a branch here: a branch manager adds staff to their own branch. The owner adds staff to the
-        // branch they run themselves: the main branch, as long as it has no branch manager of its own.
-        // Branch managers are created from Store Branches, never from this form.
+        // The platform role is always plain staff here — managers are made from Store Branches (Add Branch / Assign a
+        // manager), never through this form, and a submitted role / manager flag is never applied.
+        // The branch is decided here too: a branch manager adds staff to their own branch; the owner picks one of the
+        // shop's branches (required when the shop has 2+, automatic with 1).
         if ($request->user()->hasRole('store_owner')) {
-            $main = $store->branches()->where('is_main', true)->first() ?? $store->branches()->first();
-            $hasManager = $main && StaffProfile::where('store_id', $store->id)->where('store_branch_id', $main->id)->where('is_branch_manager', true)->exists();
-            if (! $main || $hasManager) {
+            $branches = $store->branches()->orderByDesc('is_main')->orderBy('id')->get();
+            if ($branches->isEmpty()) {
+                return response()->json(['success' => false, 'message' => 'Add a branch first, then add staff to it.'], 422);
+            }
+            if ($branches->count() > 1 && ! $request->filled('store_branch_id')) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Staff are added by each branch manager. Add a branch manager from Store Branches, or leave a branch without one to run it yourself.',
+                    'message' => 'Pick the branch this staff member works in.',
+                    'errors' => ['store_branch_id' => ['Pick the branch this staff member works in.']],
                 ], 422);
             }
-            $branchId = (int) $main->id;
+            $branch = $branches->count() === 1 ? $branches->first() : $branches->firstWhere('id', (int) $request->input('store_branch_id'));
         } else {
-            $branchId = (int) ($request->user()->staffProfile?->store_branch_id ?? 0);
+            $branch = $store->branches()->find((int) ($request->user()->staffProfile?->store_branch_id ?? 0));
         }
-        if ($denied = $this->staffManagerCrudDenied($request, $branchId, false)) {
+        if (! $branch) {
+            return response()->json(['success' => false, 'message' => 'You can only manage staff within your own branch.'], 403);
+        }
+
+        // A branch manager can only create plain staff in their own branch: a submitted manager flag or other branch is refused.
+        if ($denied = $this->staffManagerCrudDenied($request, (int) $branch->id, $request->boolean('is_branch_manager'))) {
+            return $denied;
+        }
+        if ($denied = $this->ownBranchOnlyDenied($request, (int) $branch->id)) {
             return $denied;
         }
 
-        // SubscriptionPlan::max_staff is configurable per plan (unlike the
-        // branch limit, which is a flat premium-only gate) but was never
-        // actually checked here — a store on the cheapest plan could hire an
-        // unlimited staff roster with no enforcement at all.
-        $subscription = $store->subscription()->whereIn('status', ['active', 'trial'])->first();
-        // A store with no active/trial subscription at all must fall back to
-        // the cheapest plan's cap, not skip the gate entirely — treating a
-        // missing subscription as "unlimited" let a store with literally no
-        // plan hire more staff than a paying Basic subscriber, the opposite
-        // of StoreBranchController's equivalent gate, which already fails
-        // closed the same way (no subscription => no premium perks).
-        $maxStaff = $subscription?->plan?->max_staff ?? SubscriptionPlan::where('slug', 'basic')->value('max_staff') ?? 1;
-        // -1 is this table's documented "unlimited" sentinel (see
-        // SubscriptionPlanSeeder) — not a real cap to compare against.
-        if ($maxStaff !== -1 && $store->staff()->count() >= $maxStaff) {
-            return response()->json([
-                'success' => false,
-                'message' => "Your plan allows up to {$maxStaff} staff member".($maxStaff === 1 ? '' : 's').'. Upgrade your plan to add more.',
-            ], 403);
+        // The plan's staff limit counts branch managers too.
+        if ($message = ShopAccounts::staffLimitMessage($store)) {
+            return response()->json(['success' => false, 'message' => $message], 403);
         }
 
-        $existing = User::where('email', $request->email)->first();
-
-        if ($existing && $existing->password_set_at !== null) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This email already belongs to a registered account.',
-                'errors' => ['email' => ['This email already belongs to a registered account.']],
-            ], 422);
+        // Any account with this email (customer, owner, staff, admin) blocks it: hiring never converts an account.
+        if (ShopAccounts::emailTaken($request->email)) {
+            return ShopAccounts::emailTakenResponse();
         }
 
-        // password_set_at alone doesn't catch every real identity — a
-        // walk-in customer created via CustomerController::store() never
-        // gets that field set at all, so this email could belong to a real,
-        // named customer (with real order/appointment history) even though
-        // the check above passed. Confirmed live: hiring "staff" with an
-        // existing customer's email silently overwrote their name and
-        // enrolled them as an employee. Block on any sign this identity is
-        // already a known customer, of this store or any other.
-        if ($existing) {
-            $isKnownCustomer = $existing->hasRole('customer')
-                || DB::table('store_customers')->where('user_id', $existing->id)->exists()
-                || JobOrder::where('customer_id', $existing->id)->exists()
-                || Appointment::where('customer_id', $existing->id)->exists();
-
-            if ($isKnownCustomer) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This email belongs to an existing customer and cannot be used for a staff account.',
-                    'errors' => ['email' => ['This email belongs to an existing customer and cannot be used for a staff account.']],
-                ], 422);
-            }
-        }
-
-        if ($existing) {
-            $user = $existing;
-            $user->update([
-                'name' => $request->name,
-                'password' => Hash::make($request->password),
-                'password_set_at' => now(),
-                'phone' => $request->phone ?? $user->phone,
-                'gender' => $request->gender ?? $user->gender,
-            ]);
-        } else {
-            $user = User::create([
-                'name' => $request->name,
-                'email' => $request->email,
-                'password' => Hash::make($request->password),
-                'password_set_at' => now(),
-                'phone' => $request->phone,
-                'gender' => $request->gender,
-            ]);
-        }
-
-        $isBranchManager = false;
-        $this->syncPlatformRole($user, false);
-
-        $staff = $store->staff()->create([
-            'user_id' => $user->id,
-            'role' => $request->role,
-            'additional_roles' => $request->additional_roles,
-            'specialization' => $request->specialization,
-            'hired_at' => $request->hired_at,
-            'store_branch_id' => $branchId,
-            'is_branch_manager' => $isBranchManager,
-            'bio' => $request->bio,
-        ]);
-
-        Cache::driver('file')->forget("store_staff_{$store->id}");
+        $staff = DB::transaction(fn () => ShopAccounts::create($store, $branch, $request->validated(), false));
 
         return response()->json([
             'success' => true,
@@ -321,7 +242,10 @@ class StaffController extends Controller
         }
 
         $targetBranchId = (int) $staff->store_branch_id;
-        if ($denied = $this->staffManagerCrudDenied($request, $targetBranchId, false, $staff)) {
+        if ($denied = $this->staffManagerCrudDenied($request, $targetBranchId, $request->boolean('is_branch_manager'), $staff)) {
+            return $denied;
+        }
+        if ($denied = $this->ownBranchOnlyDenied($request, $targetBranchId)) {
             return $denied;
         }
 

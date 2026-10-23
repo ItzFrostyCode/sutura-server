@@ -135,8 +135,8 @@ class JobOrder extends Model
         'is_rush', 'rush_fee', 'completion_photo_url',
         'reference_images', 'reference_link', 'material_source', 'garment_category',
         'design_source', 'design_link', 'consultation_notes',
-        'parent_order_id', 'batch_no', 'paid_by_name', 'group_kind',
-        'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason',
+        'parent_order_id', 'follow_up_of_id', 'batch_no', 'paid_by_name', 'group_kind',
+        'discount_amount', 'rejection_reason', 'cancellation_reason', 'hold_reason', 'status_before_hold',
         'estimated_ready_at', 'customer_material_status',
         // Ordering flow -- server-derived only (no request rule accepts them); the *_at / *_by
         // stamps are written with forceFill() by OrderReadiness / OrderFlowController.
@@ -356,6 +356,29 @@ class JobOrder extends Model
     }
 
     /**
+     * The task production starts with: Pattern making, Mass cutting for a bulk order, Repair for a repair. Never "design":
+     * the design is settled in the request. The ordering flow refuses any other first move out of Confirmed.
+     */
+    public function firstProductionTask(): string
+    {
+        if ($this->isRepairOnly()) {
+            return 'in_repair';
+        }
+
+        return $this->isBulkOrder() ? 'mass_cutting_printing' : 'pattern_making';
+    }
+
+    /** The first task in plain words, for messages. */
+    public function firstProductionTaskLabel(): string
+    {
+        return match ($this->firstProductionTask()) {
+            'in_repair' => 'Repair',
+            'mass_cutting_printing' => 'Mass cutting',
+            default => 'Pattern making',
+        };
+    }
+
+    /**
      * Repair Override signal, mirroring isBulkOrder() above — a job whose
      * garment_category is 'alteration_repair', or whose linked Service
      * carries the alteration_repair type, is a candidate for the short
@@ -399,6 +422,18 @@ class JobOrder extends Model
         $people = (int) ($this->custom_order_data['people_count'] ?? 0);
 
         return $people > 0 ? $people : (int) $this->quantity;
+    }
+
+    /** The completed order this one follows up (free fix, repeat or change after pick-up). */
+    public function followUpOf(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'follow_up_of_id');
+    }
+
+    /** Orders made as a follow-up to this one. */
+    public function followUps(): HasMany
+    {
+        return $this->hasMany(self::class, 'follow_up_of_id');
     }
 
     /** The first order of a split group; the order itself when it was never split. */

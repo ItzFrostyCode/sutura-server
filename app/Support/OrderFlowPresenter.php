@@ -28,6 +28,8 @@ final class OrderFlowPresenter
             'status' => $job->status,
             'permissions' => [
                 'can_see_money' => $money,
+                // Set-up sign-offs: details & sizes, measurements, the customer's own fabric, materials, in-person approval, ETA.
+                'can_prepare' => $money,
                 'can_edit_quotation' => $money && $gated && $job->status === 'pending',
                 'can_assign' => $money && $gated,
                 'can_confirm' => $money && $gated && $job->status === 'pending',
@@ -198,6 +200,8 @@ final class OrderFlowPresenter
                 $stage('completed', 'Completed'),
             ],
             'qc_passed_at' => $job->qc_passed_at,
+            // When the customer was told it is ready (stamped together with the notification).
+            'ready_at' => $job->ready_for_pickup_at,
             'fitting_requirement' => $job->fitting_requirement,
             'fitting_passed_at' => $job->fitting_passed_at,
             'open_corrections' => $open->count(),
@@ -225,6 +229,8 @@ final class OrderFlowPresenter
             'released_with_balance' => $job->released_with_balance_at !== null && (float) $job->balance > 0.005,
             'balance_due_by' => $job->balance_due_by?->toDateString(),
             'balance' => $money ? (float) $job->balance : null,
+            // Payments by GCash / Maya (or similar) that wait to be verified before they count against the balance.
+            'pending_verification' => $money ? OrderReadiness::pendingVerification($job) : null,
         ];
     }
 }

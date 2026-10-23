@@ -259,8 +259,9 @@ class OrderDeliveryController extends Controller
             'quantity' => 'required|integer|min:1',
             'received_by' => [$release && $balance > 0.005 ? 'required' : 'nullable', 'string', 'max:120'],
             'note' => 'nullable|string|max:500',
-            'pay_by' => 'nullable|date|after_or_equal:today',
-        ]);
+            // Garments that leave before they are paid need a date by which the balance will be paid.
+            'pay_by' => [$release && $balance > 0.005 ? 'required' : 'nullable', 'date', 'after_or_equal:today'],
+        ], ['pay_by.required' => 'Choose the date the customer will pay the balance by.']);
 
         $remaining = $jobOrder->garmentCount() - OrderReadiness::handedOver($jobOrder);
         if ($v['quantity'] > $remaining) {

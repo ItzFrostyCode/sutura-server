@@ -8,6 +8,7 @@ use App\Models\Appointment;
 use App\Models\CatalogItem;
 use App\Models\Measurement;
 use App\Models\Store;
+use App\Support\BranchPin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -94,7 +95,14 @@ class MeasurementController extends Controller
     {
         $data = $request->validated();
         $data['metrics'] = $data['metrics'] ?? []; // photo-only profiles carry no typed values
-        $data = $this->withPurpose($data, isset($data['appointment_id']) ? Appointment::find($data['appointment_id']) : null);
+        // The visit must be this shop's own (and, for a branch-pinned account, this branch's): another shop's or branch's
+        // visit is never read for its service / design.
+        $pin = BranchPin::of($request->user());
+        $appointment = isset($data['appointment_id']) ? $store->appointments()->find($data['appointment_id']) : null;
+        if (isset($data['appointment_id']) && (! $appointment || ($pin && $appointment->store_branch_id && (int) $appointment->store_branch_id !== $pin))) {
+            return response()->json(['success' => false, 'message' => 'That visit does not belong to your branch.'], 403);
+        }
+        $data = $this->withPurpose($data, $appointment);
         $measurement = $store->measurements()->create($data);
 
         return response()->json([

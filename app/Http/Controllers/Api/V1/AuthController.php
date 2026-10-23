@@ -28,7 +28,9 @@ class AuthController extends Controller
         // password. Let this registration claim it instead of bouncing on a
         // false-positive duplicate-email error; a fully-claimed account
         // (owner, staff, or an already-registered customer) is still blocked.
-        if ($existing && $existing->password_set_at !== null) {
+        // A shop account (owner, manager, staff) or admin is never claimable by public sign-up, even without a password yet.
+        $isShopAccount = $existing && $existing->roles()->whereIn('name', ['store_owner', 'branch_manager', 'staff', 'admin'])->exists();
+        if ($existing && ($existing->password_set_at !== null || $isShopAccount)) {
             return response()->json([
                 'success' => false,
                 'message' => 'This email is already registered. Please log in instead.',
@@ -67,7 +69,8 @@ class AuthController extends Controller
             ]);
         }
 
-        $role = Role::where('name', $request->role)->first();
+        // Public sign-up only ever makes a customer, whatever else the request says.
+        $role = Role::where('name', 'customer')->first();
         if ($role && ! $user->hasRole($role->name)) {
             $user->roles()->attach($role->id);
         }

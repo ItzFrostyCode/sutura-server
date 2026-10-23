@@ -7,13 +7,13 @@ use App\Models\Role;
 use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Models\StoreBranch;
-use App\Models\User;
 use App\Services\GoogleMapsLinkResolver;
+use App\Support\BranchPin;
 use App\Support\DavaoLocations;
+use App\Support\ShopAccounts;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -49,9 +49,12 @@ class StoreBranchController extends Controller
         return null;
     }
 
-    public function index($storeId)
+    public function index(Request $request, $storeId)
     {
+        // A branch manager / staff account is pinned to their own branch: they never list the other branches
+        // (their staff, managers and order counts). The owner sees every branch.
         $branches = StoreBranch::where('store_id', $storeId)
+            ->when(BranchPin::of($request->user()), fn ($q, $pin) => $q->where('id', $pin))
             ->withCount(['staffProfiles', 'jobOrders'])
             ->with([
                 'manager.user:id,name,email,phone,profile_picture',
@@ -86,18 +89,11 @@ class StoreBranchController extends Controller
             'longitude' => 'required|numeric|between:-180,180',
             'operating_hours' => 'nullable|string|max:255',
             'guide_image_url' => 'nullable|string|max:500',
+            // The "Branch manager" section: a new account, an existing staff member (their staff profile id), or neither.
             'manager_id' => 'nullable|integer',
-            // The owner makes the branch manager's login right here; the manager then adds their own staff.
             'manager' => 'nullable|array',
-            'manager.name' => 'required_with:manager|string|max:191',
-            'manager.email' => 'required_with:manager|email|max:191',
-            'manager.password' => 'required_with:manager|string|min:8',
-            'manager.phone' => 'nullable|string|max:20',
+            ...$this->managerRules(),
         ]);
-
-        if ($request->filled('manager') && ($error = $this->managerEmailProblem($request->input('manager.email')))) {
-            return $error;
-        }
 
         $place = $this->resolvePlace($request, null);
         if ($place instanceof JsonResponse) {
@@ -120,96 +116,154 @@ class StoreBranchController extends Controller
             ], 403);
         }
 
-        $branch = StoreBranch::create([
-            'store_id' => $store->id,
-            'name' => $request->name,
-            // Same pattern as Store::slug (StoreController@store) — lets the
-            // public booking page identify a branch without exposing a raw
-            // sequential id in the URL.
-            'slug' => Str::slug($request->name).'-'.uniqid(),
-            'address' => $request->address,
-            'landmark' => $request->landmark,
-            'barangay' => $barangay,
-            'city' => $request->city,
-            'district' => $district,
-            'contact_number' => $request->contact_number,
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
-            'operating_hours' => $request->operating_hours,
-            'status' => 'active',
-            // Not on the public map until the System Admin has checked the location.
-            'verification_status' => 'pending',
-            'is_main' => $branchCount === 0,
-            'guide_image_url' => $request->guide_image_url,
-        ]);
-
-        if ($request->filled('manager')) {
-            $this->createManager($store, $branch, $request->input('manager'));
+        // Everything below is one unit: the branch, then (optionally) the manager's login + staff profile, or the
+        // promotion of a picked staff member. Any failure rolls all of it back.
+        if ($problem = $this->managerProblem($request, $store)) {
+            return $problem;
         }
 
-        if ($request->filled('manager_id')) {
-            $staff = StaffProfile::where('store_id', $storeId)->find($request->manager_id);
-            if ($staff) {
-                $staff->update([
-                    'store_branch_id' => $branch->id,
-                    'is_branch_manager' => true,
-                ]);
-                $bmRole = Role::where('name', 'branch_manager')->first();
-                if ($bmRole && $staff->user) {
-                    $staff->user->roles()->syncWithoutDetaching([$bmRole->id]);
-                }
+        $branch = DB::transaction(function () use ($request, $store, $barangay, $district, $branchCount) {
+            $branch = StoreBranch::create([
+                'store_id' => $store->id,
+                'name' => $request->name,
+                // Same pattern as Store::slug (StoreController@store) — lets the
+                // public booking page identify a branch without exposing a raw
+                // sequential id in the URL.
+                'slug' => Str::slug($request->name).'-'.uniqid(),
+                'address' => $request->address,
+                'landmark' => $request->landmark,
+                'barangay' => $barangay,
+                'city' => $request->city,
+                'district' => $district,
+                'contact_number' => $request->contact_number,
+                'latitude' => $request->latitude,
+                'longitude' => $request->longitude,
+                'operating_hours' => $request->operating_hours,
+                'status' => 'active',
+                // Not on the public map until the System Admin has checked the location.
+                'verification_status' => 'pending',
+                'is_main' => $branchCount === 0,
+                'guide_image_url' => $request->guide_image_url,
+            ]);
+
+            $manager = $this->attachManager($request, $store, $branch);
+
+            $store->auditLogs()->create([
+                'user_id' => $request->user()->id,
+                'action' => 'branch_created',
+                'model_type' => StoreBranch::class,
+                'model_id' => $branch->id,
+                'payload' => [
+                    'name' => $branch->name,
+                    'description' => "Added branch \"{$branch->name}\"".($manager ? " with {$manager->user?->name} as its manager" : ' without a manager yet'),
+                ],
+                'ip_address' => $request->ip(),
+            ]);
+
+            return $branch;
+        });
+
+        return response()->json(['success' => true, 'message' => 'Branch added successfully.', 'data' => $this->withManager($branch)]);
+    }
+
+    /** Owner only: give a branch that has no manager one, from the same "create a new account / pick a staff member" section. */
+    public function assignManager(Request $request, $storeId, StoreBranch $branch)
+    {
+        if ($branch->store_id != $storeId) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+        $request->validate([
+            'manager_id' => 'nullable|integer',
+            'manager' => 'nullable|array',
+            ...$this->managerRules(),
+        ]);
+        if (! $request->filled('manager') && ! $request->filled('manager_id')) {
+            return response()->json(['success' => false, 'message' => 'Create a new account or pick a staff member.'], 422);
+        }
+        if ($branch->manager()->exists()) {
+            return response()->json(['success' => false, 'message' => 'This branch already has a manager.'], 422);
+        }
+
+        $store = Store::findOrFail($storeId);
+        if ($problem = $this->managerProblem($request, $store)) {
+            return $problem;
+        }
+
+        $manager = DB::transaction(function () use ($request, $store, $branch) {
+            $manager = $this->attachManager($request, $store, $branch);
+            $store->auditLogs()->create([
+                'user_id' => $request->user()->id,
+                'action' => 'branch_manager_assigned',
+                'model_type' => StoreBranch::class,
+                'model_id' => $branch->id,
+                'payload' => ['name' => $branch->name, 'description' => "Made {$manager->user?->name} the manager of \"{$branch->name}\""],
+                'ip_address' => $request->ip(),
+            ]);
+
+            return $manager;
+        });
+
+        return response()->json(['success' => true, 'message' => "{$manager->user?->name} now manages {$branch->name}.", 'data' => $this->withManager($branch)]);
+    }
+
+    /** Validation rules of the "Branch manager" section's new-account fields (same password rule as Sign Up). */
+    private function managerRules(): array
+    {
+        return [
+            'manager.name' => 'required_with:manager|string|max:191',
+            'manager.email' => 'required_with:manager|email|max:191',
+            'manager.password' => ShopAccounts::passwordRules('required_with:manager'),
+            'manager.gender' => 'nullable|in:male,female',
+            'manager.phone' => 'nullable|string|max:20',
+        ];
+    }
+
+    /** Checks the chosen manager before anything is written; an error response, or null. */
+    private function managerProblem(Request $request, Store $store): ?JsonResponse
+    {
+        if ($request->filled('manager')) {
+            if (ShopAccounts::emailTaken($request->input('manager.email'))) {
+                return ShopAccounts::emailTakenResponse('manager.email');
+            }
+            if ($message = ShopAccounts::staffLimitMessage($store)) {
+                return response()->json(['success' => false, 'message' => $message], 403);
+            }
+        } elseif ($request->filled('manager_id')) {
+            $profile = StaffProfile::with('user')->find($request->input('manager_id'));
+            if ($message = ShopAccounts::promotionProblem($store, $profile)) {
+                return response()->json(['success' => false, 'message' => $message, 'errors' => ['manager_id' => [$message]]], 422);
             }
         }
 
+        return null;
+    }
+
+    /** Creates the manager's login + staff profile in this branch, or moves the picked staff member here as its manager. */
+    private function attachManager(Request $request, Store $store, StoreBranch $branch): ?StaffProfile
+    {
+        if ($request->filled('manager')) {
+            return ShopAccounts::create($store, $branch, $request->input('manager'), true);
+        }
+        if ($request->filled('manager_id')) {
+            $profile = StaffProfile::with('user')->findOrFail($request->input('manager_id'));
+            ShopAccounts::promote($store, $branch, $profile);
+
+            return $profile;
+        }
+
+        return null;
+    }
+
+    private function withManager(StoreBranch $branch): StoreBranch
+    {
         $branch->loadCount(['staffProfiles', 'jobOrders']);
-        $branch->load([
+
+        return $branch->load([
             'manager.user:id,name,email,phone,profile_picture',
             'staffProfiles' => function ($q) {
                 $q->where('is_branch_manager', true)->with('user:id,name,email,phone,profile_picture');
             },
         ]);
-
-        return response()->json(['success' => true, 'message' => 'Branch added successfully.', 'data' => $branch]);
-    }
-
-    /** A new branch manager's email must be free: not a registered account and not a customer. */
-    private function managerEmailProblem(string $email): ?JsonResponse
-    {
-        $existing = User::where('email', $email)->first();
-        if (! $existing) {
-            return null;
-        }
-        $taken = $existing->password_set_at !== null
-            || $existing->hasRole('customer')
-            || DB::table('store_customers')->where('user_id', $existing->id)->exists();
-
-        return $taken
-            ? response()->json(['success' => false, 'message' => 'This email already belongs to an account.', 'errors' => ['manager.email' => ['This email already belongs to an account.']]], 422)
-            : null;
-    }
-
-    /** Creates the manager's login and pins it to this branch (the old manager of the branch, if any, is demoted). */
-    private function createManager(Store $store, StoreBranch $branch, array $data): void
-    {
-        StaffProfile::where('store_id', $store->id)->where('store_branch_id', $branch->id)->where('is_branch_manager', true)->update(['is_branch_manager' => false]);
-
-        $user = User::where('email', $data['email'])->first() ?? new User(['email' => $data['email']]);
-        $user->forceFill([
-            'name' => $data['name'],
-            'phone' => $data['phone'] ?? $user->phone,
-            'password' => Hash::make($data['password']),
-            'password_set_at' => now(),
-        ])->save();
-
-        $role = Role::where('name', 'branch_manager')->first();
-        if ($role) {
-            $user->roles()->syncWithoutDetaching([$role->id]);
-        }
-        StaffProfile::updateOrCreate(
-            ['user_id' => $user->id, 'store_id' => $store->id],
-            ['store_branch_id' => $branch->id, 'role' => 'head_tailor', 'is_branch_manager' => true, 'is_active' => true, 'hired_at' => now()->toDateString()],
-        );
-        \Illuminate\Support\Facades\Cache::driver('file')->forget("store_staff_{$store->id}");
     }
 
     public function update(Request $request, $storeId, StoreBranch $branch)
@@ -238,11 +292,13 @@ class StoreBranchController extends Controller
             'guide_image_url' => 'nullable|string|max:500',
             'manager_id' => 'nullable',
             'manager' => 'nullable|array',
-            'manager.name' => 'required_with:manager|string|max:191',
-            'manager.email' => 'required_with:manager|email|max:191',
-            'manager.password' => 'required_with:manager|string|min:8',
-            'manager.phone' => 'nullable|string|max:20',
+            ...$this->managerRules(),
         ]);
+
+        // A replacement manager is checked before anything is saved (new login: free email, staff limit).
+        if ($request->filled('manager') && ($problem = $this->managerProblem($request, Store::findOrFail($storeId)))) {
+            return $problem;
+        }
 
         $place = $this->resolvePlace($request, $branch);
         if ($place instanceof JsonResponse) {
@@ -274,10 +330,16 @@ class StoreBranchController extends Controller
         }
 
         if ($request->filled('manager')) {
-            if ($error = $this->managerEmailProblem($request->input('manager.email'))) {
-                return $error;
-            }
-            $this->createManager(Store::findOrFail($storeId), $branch, $request->input('manager'));
+            DB::transaction(function () use ($request, $storeId, $branch) {
+                // The branch's current manager steps back to plain staff.
+                foreach ($branch->staffProfiles()->where('is_branch_manager', true)->with('user')->get() as $old) {
+                    $old->update(['is_branch_manager' => false]);
+                    if ($old->user) {
+                        ShopAccounts::syncPlatformRole($old->user, false);
+                    }
+                }
+                $this->attachManager($request, Store::findOrFail($storeId), $branch);
+            });
         }
 
         if ($request->has('manager_id')) {
