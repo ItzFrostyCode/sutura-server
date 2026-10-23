@@ -19,6 +19,7 @@ use App\Notifications\AppointmentBookedNotification;
 use App\Notifications\AppointmentPaymentStatusNotification;
 use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\StoreActivityNotification;
+use App\Support\BranchPin;
 use App\Support\WalkInCustomer;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -976,6 +977,11 @@ class AppointmentController extends Controller
 
             $data = $request->validated();
             $newStatus = $data['status'] ?? null;
+            // A branch-pinned account cannot move a visit to another branch.
+            $pin = BranchPin::of($user);
+            if ($pin && ! empty($data['store_branch_id']) && (int) $data['store_branch_id'] !== $pin) {
+                return response()->json(['success' => false, 'message' => 'You can only keep visits at your own branch.'], 403);
+            }
 
             // ── Role enforcement & State transition check ────────────────────────
             $error = $this->validateAndEnforceRole($appointment, $isStaff, $newStatus);
@@ -1270,7 +1276,7 @@ class AppointmentController extends Controller
     // ─── Done (exactly three results) ─────────────────────────────────────────
 
     /**
-     * Closes a visit with one of three results:
+     * Closes a visit with one of these results (no_order has its own endpoint, markNoOrder, which also works on a finished visit):
      *   completed        = Consultation only (nothing more to make)
      *   converted_to_job = Proceed to Production Order (needs the order; creating the order already closes the visit)
      *   no_show          = Didn't come (the one way to record a no-show; allowed before or after Start)
@@ -1375,6 +1381,54 @@ class AppointmentController extends Controller
         ]);
 
         return response()->json(['success' => true, 'data' => $appointment]);
+    }
+
+    /**
+     * "No order": the customer did not go ahead with an order after the consultation.
+     * Works on a visit that is in progress or already done, has no job order, and is not a production visit.
+     * Sets status completed + outcome no_order and keeps the optional reason on the visit notes. The customer is not messaged.
+     */
+    public function markNoOrder(Request $request, Store $store, Appointment $appointment): JsonResponse
+    {
+        if ($appointment->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+        if ($denied = $this->branchAccessDenied($request, $appointment)) {
+            return $denied;
+        }
+
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
+
+        if (! in_array($appointment->status, ['in_progress', 'completed'], true)) {
+            return response()->json(['success' => false, 'message' => 'Only a visit that has started can be marked as no order.'], 422);
+        }
+        if ($appointment->job_order_id) {
+            return response()->json(['success' => false, 'message' => 'This visit already has a job order.'], 422);
+        }
+        if ($appointment->kind === 'production') {
+            return response()->json(['success' => false, 'message' => 'A production visit cannot be marked as no order.'], 422);
+        }
+        if (! in_array($appointment->outcome, [null, 'completed'], true)) {
+            return response()->json(['success' => false, 'message' => 'This visit is already closed.'], 422);
+        }
+
+        $update = ['status' => 'completed', 'outcome' => 'no_order'];
+        if (filled($data['note'] ?? null)) {
+            $line = 'No order: '.trim($data['note']);
+            $update['visit_notes'] = trim(($appointment->visit_notes ? $appointment->visit_notes."\n\n" : '').$line);
+        }
+        $appointment->update($update);
+
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id,
+            'action' => 'appointment_no_order',
+            'model_type' => Appointment::class,
+            'model_id' => $appointment->id,
+            'payload' => ['type' => $appointment->appointment_type, 'outcome' => 'no_order', 'note' => $data['note'] ?? null],
+            'ip_address' => $request->ip(),
+        ]);
+
+        return response()->json(['success' => true, 'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number'])]);
     }
 
     private function validateAndEnforceRole(Appointment $appointment, bool $isStaff, ?string $newStatus): ?string

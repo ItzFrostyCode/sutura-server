@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Store;
 use App\Models\User;
+use App\Support\BranchPin;
 use App\Support\PhoneNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -58,17 +59,21 @@ class CustomerController extends Controller
         $notesByCustomerId = $store->customers()->pluck('store_customers.notes', 'users.id');
         $trustedIds = $store->customers()->wherePivot('is_trusted', true)->pluck('users.id')->flip();
 
+        // A customer belongs to the whole shop, but a branch manager / staff pinned to a branch only sees that branch's
+        // orders and visits for them (and the totals worked out from those), never another branch's.
+        $pin = BranchPin::of($request->user());
         $customers = User::whereIn('id', $customerIds)
             ->with([
-                'jobOrders' => function ($query) use ($store) {
-                    $query->where('store_id', $store->id);
+                'jobOrders' => function ($query) use ($store, $pin) {
+                    $query->where('store_id', $store->id)->when($pin, fn ($q) => $q->where('store_branch_id', $pin));
                 },
                 // Eager-loaded once for all customers (already ordered so the
                 // first element is the most recent) instead of running a
                 // fresh query per customer inside the map() below — avoids an
                 // N+1 that scaled with the store's total customer count.
-                'appointments' => function ($query) use ($store) {
-                    $query->where('store_id', $store->id)->orderBy('scheduled_at', 'desc');
+                'appointments' => function ($query) use ($store, $pin) {
+                    $query->where('store_id', $store->id)->orderBy('scheduled_at', 'desc')
+                        ->when($pin, fn ($q) => $q->where(fn ($w) => $w->where('store_branch_id', $pin)->orWhereNull('store_branch_id')));
                 },
             ])
             ->get()
@@ -111,14 +116,17 @@ class CustomerController extends Controller
             ->latest()
             ->get();
 
+        $pin = BranchPin::of($request->user());
         $jobs = $store->jobOrders()
             ->where('customer_id', $customer->id)
+            ->when($pin, fn ($q) => $q->where('store_branch_id', $pin))
             ->with(['service', 'assignedStaff:id,name', 'staffStages', 'payments.recordedBy:id,name', 'branch:id,name'])
             ->latest()
             ->get();
 
         $appointments = $store->appointments()
             ->where('customer_id', $customer->id)
+            ->when($pin, fn ($q) => $q->where(fn ($w) => $w->where('store_branch_id', $pin)->orWhereNull('store_branch_id')))
             ->with(['service:id,name,base_price', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number'])
             ->orderBy('scheduled_at', 'desc')
             ->get();
@@ -367,8 +375,8 @@ class CustomerController extends Controller
 
     public function destroy(Request $request, Store $store, User $customer): JsonResponse
     {
-        if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager') && ! $request->user()->hasRole('staff')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager')) {
+            return response()->json(['message' => 'Only the owner or a branch manager can remove a customer.'], 403);
         }
 
         // Same "belongs to this store" test as show() and update(): a customer whose profile opens can be edited and removed.

@@ -7,6 +7,7 @@ use App\Models\SmsMessage;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\Sms\SmsOutbox;
+use App\Support\BranchPin;
 use App\Support\PlanGate;
 use App\Support\SmsText;
 use Illuminate\Http\JsonResponse;
@@ -39,7 +40,7 @@ class CustomerTextController extends Controller
     public function index(Request $request, Store $store, User $customer): JsonResponse
     {
         $this->ensureOnBook($store, $customer);
-        $messages = SmsMessage::where('store_id', $store->id)->where('user_id', $customer->id)->latest('id')->limit(50)->get();
+        $messages = SmsMessage::where('store_id', $store->id)->where('user_id', $customer->id)->forBranch(BranchPin::of($request->user()))->latest('id')->limit(50)->get();
 
         return response()->json(['success' => true, 'data' => [
             'sms_mode' => $store->sms_mode,

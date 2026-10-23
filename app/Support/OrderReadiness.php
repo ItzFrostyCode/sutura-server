@@ -158,6 +158,10 @@ final class OrderReadiness
         if (! $job->production_authorized_at) {
             $out[] = ['key' => 'authorization', 'message' => 'The owner or branch manager has not authorized production yet.'];
         }
+        // Moving into the first production task needs the deposit (a change approved after confirming can raise the total).
+        if (! $job->production_started_at && ! self::depositMet($job)) {
+            $out[] = ['key' => 'deposit', 'message' => 'The required deposit is not fully paid yet.'];
+        }
 
         return $out;
     }
@@ -170,6 +174,40 @@ final class OrderReadiness
         }
 
         return $job->production_started_at ? 'in_production' : ($job->confirmed_at ? 'confirmed' : 'pending');
+    }
+
+    /**
+     * The generic status update (PUT /jobs/{id}) may not move an order around inside production: that is
+     * Next / Back / Hold / Resume (OrderProductionController). It still serves the flow endpoints' own moves:
+     * quality check -> Ready or Fixing, Fixing -> Quality check, Ready and handover, and starting production.
+     * Returns a plain message, or null when the move is fine. Applies to every order, ordered or not.
+     */
+    public static function productionJumpError(JobOrder $job, string $old, string $new): ?string
+    {
+        $line = [...JobOrder::PRODUCTION_TASKS, 'in_repair'];
+        $holdable = [...$line, 'qc_ironing', 'qc_check', 'final_adjustments'];
+        $useButtons = 'Use Next or Back on the order page.';
+
+        if ($job->production_started_at && in_array($new, ['pending', 'confirmed', 'awaiting_materials'], true)) {
+            return 'Production has already started, so this order cannot go back to '.($new === 'pending' ? 'a request' : 'confirmed').'.';
+        }
+        if ($old === 'on_hold' && ($job->status_before_hold || $job->production_started_at)) {
+            return 'Use Resume on the order page.';
+        }
+        if ($new === 'on_hold' && in_array($old, $holdable, true)) {
+            return 'Use Put on hold on the order page.';
+        }
+        if (in_array($old, $line, true)) {
+            return $useButtons;
+        }
+        if (in_array($old, ['qc_ironing', 'qc_check'], true) && ! in_array($new, ['ready_for_pickup', 'final_adjustments'], true)) {
+            return 'Use Quality check passed or Needs a fix on the order page.';
+        }
+        if ($old === 'final_adjustments' && in_array($new, [...$line, 'qc_check'], true)) {
+            return 'Use Back to quality check on the order page.';
+        }
+
+        return null;
     }
 
     /** @return array{message:string,blockers:list<array{key:string,message:string}>}|null */
@@ -210,8 +248,8 @@ final class OrderReadiness
                 return $err('Confirm the order (approved quotation and verified deposit) before starting production.', self::confirmationBlockers($job));
             }
             if (in_array($from, ['confirmed', 'awaiting_materials'], true)) {
-                if (! in_array($new, $tasks, true)) {
-                    return $err('Start production first: choose the first production task.');
+                if ($new !== $job->firstProductionTask()) {
+                    return $err('Production starts with '.$job->firstProductionTaskLabel().'.');
                 }
                 $b = self::startBlockers($job);
                 if ($from === 'awaiting_materials') {

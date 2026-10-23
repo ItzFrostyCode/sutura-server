@@ -40,7 +40,8 @@ class RegisterRequest extends FormRequest
             // self-register a System Admin account. Self-signup is customers
             // only now: store owners go through /store-applications (admin
             // reviewed), staff are created by their owner, admins are seeded.
-            'role' => ['required', 'string', Rule::in(['customer'])],
+            // Optional and ignored beyond this check: AuthController::register always assigns `customer`.
+            'role' => ['nullable', 'string', Rule::in(['customer'])],
         ];
     }
 }

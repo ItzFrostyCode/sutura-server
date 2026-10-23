@@ -11,13 +11,9 @@ class StoreServiceRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        // Branch managers can create/edit services too now — the dashboard
-        // sidebar has always shown "Services" to them (isStoreOwner ||
-        // isBranchManager in dashboard/layout.tsx), but this coarse check
-        // used to only allow store_owner, so the route-level middleware
-        // change (routes/api.php) alone wasn't enough — this FormRequest's
-        // own authorize() was a second, independent gate blocking them.
-        return $this->user()->hasRole('store_owner') || $this->user()->hasRole('branch_manager');
+        // Services are shop-wide, so only the shop owner writes them. A branch manager can read the list
+        // but not change it. The route group (role:store_owner) is the first gate; this is the second.
+        return $this->user()->hasRole('store_owner');
     }
 
     public function rules(): array

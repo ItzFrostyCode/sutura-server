@@ -574,7 +574,9 @@ class JobOrderTest extends TestCase
             ['status' => 'rejected']
         );
 
-        $response->assertStatus(422);
+        // Plain staff only update production, so declining an order is refused outright (403), before any of the
+        // status / reason checks the owner would meet.
+        $response->assertStatus(403);
         $this->assertDatabaseHas('job_orders', [
             'id' => $jobOrder->id,
             'status' => 'pending',

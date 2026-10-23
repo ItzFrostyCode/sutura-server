@@ -9,6 +9,7 @@ use App\Models\Store;
 use App\Models\StoreBranch;
 use App\Notifications\CatalogOrderPaymentStatusNotification;
 use App\Notifications\NewCatalogOrderNotification;
+use App\Support\BranchPin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +32,17 @@ class CatalogOrderController extends Controller
         }
 
         return $store;
+    }
+
+    /** A branch-pinned account may only act on its own branch's walk-in orders (rows with no branch stay shop-wide). */
+    private function branchDenied(Request $request, CatalogOrder $order): ?\Illuminate\Http\JsonResponse
+    {
+        $pin = BranchPin::of($request->user());
+        if ($pin && $order->store_branch_id && (int) $order->store_branch_id !== $pin) {
+            return response()->json(['success' => false, 'message' => 'This order belongs to a different branch.'], 403);
+        }
+
+        return null;
     }
 
     public function index($storeId, Request $request)
@@ -97,6 +109,15 @@ class CatalogOrderController extends Controller
             'payment_reference' => 'nullable|string|max:255',
             'payment_receipt_path' => 'nullable|string|max:2048',
         ]);
+
+        // A branch-pinned account records walk-in sales for their own branch only.
+        $pin = BranchPin::of($request->user());
+        if ($pin) {
+            if (! empty($validated['store_branch_id']) && (int) $validated['store_branch_id'] !== $pin) {
+                return response()->json(['success' => false, 'message' => 'You can only record orders for your own branch.'], 403);
+            }
+            $validated['store_branch_id'] = $pin;
+        }
 
         // Same "auto-assign when there's only one branch" convenience
         // AppointmentController::store already gives owners/managers —
@@ -179,11 +200,20 @@ class CatalogOrderController extends Controller
         $this->authorizeStore($storeId);
 
         $order = CatalogOrder::where('store_id', $storeId)->findOrFail($orderId);
+        if ($denied = $this->branchDenied($request, $order)) {
+            return $denied;
+        }
 
         $validated = $request->validate([
             'status' => 'required|in:pending,ready,completed,cancelled',
             'payment_status' => 'sometimes|in:pending,paid',
         ]);
+
+        // Marking a sale paid or unpaid is money handling: owner / branch manager only. Staff can still move the sale's status.
+        if (isset($validated['payment_status']) && $validated['payment_status'] !== $order->payment_status
+            && ! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager')) {
+            return response()->json(['success' => false, 'message' => 'Only the owner or a branch manager can change a sale\'s payment status.'], 403);
+        }
 
         // A cancelled order voids a mistaken/duplicate entry — once the item has actually
         // moved (handed over / picked up) it must be handled through the normal lifecycle
@@ -215,6 +245,9 @@ class CatalogOrderController extends Controller
         $store = $this->authorizeStore($storeId);
 
         $order = CatalogOrder::where('store_id', $storeId)->findOrFail($orderId);
+        if ($denied = $this->branchDenied($request, $order)) {
+            return $denied;
+        }
 
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
@@ -273,6 +306,9 @@ class CatalogOrderController extends Controller
         $this->authorizeStore($storeId);
 
         $order = CatalogOrder::where('store_id', $storeId)->findOrFail($orderId);
+        if ($denied = $this->branchDenied($request, $order)) {
+            return $denied;
+        }
 
         $validated = $request->validate([
             'payment_status' => 'required|in:pending,paid,rejected',

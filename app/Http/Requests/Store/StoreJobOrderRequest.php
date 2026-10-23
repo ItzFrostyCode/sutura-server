@@ -141,6 +141,11 @@ class StoreJobOrderRequest extends FormRequest
                 Rule::exists('catalog_items', 'id')->where('store_id', $store?->id),
             ],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
+            // The completed order this one follows up (a repeat order or a customer's change after pick-up).
+            'follow_up_of_id' => [
+                'nullable', 'integer',
+                Rule::exists('job_orders', 'id')->where('store_id', $store?->id)->whereNull('deleted_at'),
+            ],
         ];
     }
 }

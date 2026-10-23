@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Store;
 
 use App\Models\StaffProfile;
+use App\Support\ShopAccounts;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -24,14 +25,16 @@ class StoreStaffRequest extends FormRequest
 
         return [
             'name' => ['required', 'string', 'max:191'],
-            // No `unique:users` — a guest-booking "shadow" account (no real
-            // password yet) may already own this email; the controller lets
-            // that case be claimed as this staff account instead of blocking.
+            // The controller answers 422 "This email already has an account." for any existing account.
             'email' => ['required', 'string', 'email', 'max:191'],
-            'password' => ['required', 'string', 'min:8'],
+            // Same rule as public Sign Up; the new person must change it on first sign-in anyway.
+            'password' => ShopAccounts::passwordRules(),
             'phone' => ['nullable', 'string', 'max:20'],
             'gender' => ['nullable', 'in:male,female'],
-            'role' => ['required', Rule::in(StaffProfile::ROLES)],
+            // Employment details are optional "More details" on the staff profile now; role defaults to tailor.
+            'role' => ['nullable', Rule::in(StaffProfile::ROLES)],
+            // Only the owner's pick counts (the controller ignores it for a branch manager); the shop's own branches only.
+            'store_branch_id' => ['nullable', 'integer', Rule::exists('store_branches', 'id')->where('store_id', $store?->id)],
             // Ranked secondary roles — index 0 is rank 2, index 1 is rank 3, etc.
             // Lets one versatile staff member cover multiple roles without a
             // separate duplicate account per role.

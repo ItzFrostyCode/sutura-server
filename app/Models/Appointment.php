@@ -52,8 +52,8 @@ class Appointment extends Model
     /** The kinds a person can create. */
     public const BOOKABLE_KINDS = ['service', 'shop'];
 
-    /** The three results of "Done": consultation only, proceed to a production order, or the customer didn't come. */
-    public const DONE_RESULTS = ['completed', 'converted_to_job', 'no_show'];
+    /** The results of "Done": consultation only, proceed to a production order, the customer didn't come, or the customer did not go ahead with an order ("No order"). */
+    public const DONE_RESULTS = ['completed', 'converted_to_job', 'no_show', 'no_order'];
 
     /** Where the design comes from: the shop's own, the customer's finished file, the customer's to be redone, or none yet. */
     public const DESIGN_SOURCES = ['shop_design', 'customer_ready', 'customer_redo', 'none'];
@@ -348,7 +348,7 @@ class Appointment extends Model
         return $query->whereIn('status', ['in_progress', 'completed'])
             ->whereNull('job_order_id')
             ->where('kind', '!=', 'production')
-            ->where(fn ($q) => $q->whereNull('outcome')->orWhereNotIn('outcome', ['no_show', 'cancelled', 'rescheduled']));
+            ->where(fn ($q) => $q->whereNull('outcome')->orWhereNotIn('outcome', ['no_show', 'cancelled', 'rescheduled', 'no_order']));
     }
 
     /**

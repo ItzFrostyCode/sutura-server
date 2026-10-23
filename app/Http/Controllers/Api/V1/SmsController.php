@@ -7,6 +7,7 @@ use App\Models\SmsMessage;
 use App\Models\Store;
 use App\Services\Sms\SmsSender;
 use App\Services\Sms\SmsTemplates;
+use App\Support\BranchPin;
 use App\Support\PhoneNumber;
 use App\Support\PlanGate;
 use App\Support\SmsText;
@@ -23,18 +24,7 @@ class SmsController extends Controller
 
     private function scoped(Request $request, Store $store)
     {
-        $q = SmsMessage::where('store_id', $store->id);
-        $branch = $request->user()->hasRole('store_owner') ? null : $request->user()->staffProfile?->store_branch_id;
-        if ($branch) {
-            $q->where(function ($w) use ($branch) {
-                $w->where(fn ($a) => $a->where('related_type', 'appointment')->whereIn('related_id', \App\Models\Appointment::where('store_branch_id', $branch)->select('id')))
-                    ->orWhere(fn ($j) => $j->where('related_type', 'job_order')->whereIn('related_id', \App\Models\JobOrder::where('store_branch_id', $branch)->select('id')))
-                    // Texts written from a customer's profile belong to no branch; the branch manager who may write them may send them.
-                    ->orWhere('event', 'manual');
-            });
-        }
-
-        return $q;
+        return SmsMessage::where('store_id', $store->id)->forBranch(BranchPin::of($request->user()));
     }
 
     private function present(SmsMessage $m): array
