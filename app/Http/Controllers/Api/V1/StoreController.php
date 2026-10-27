@@ -122,6 +122,7 @@ class StoreController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->whereRaw('LOWER(name) LIKE ?', ['%'.$search.'%'])
                     ->orWhereRaw('LOWER(specializations) LIKE ?', ['%'.$search.'%'])
+                    ->orWhereRaw('LOWER(custom_services) LIKE ?', ['%'.$search.'%'])
                     // "Ubalde" finds shops in that barangay; "Jasmin" finds the street.
                     ->orWhereHas('branches', fn ($bq) => $bq->whereRaw('LOWER(barangay) LIKE ?', ['%'.$search.'%'])->orWhereRaw('LOWER(address) LIKE ?', ['%'.$search.'%']))
                     ->orWhereHas('services', function ($sq) use ($search) {
@@ -146,6 +147,11 @@ class StoreController extends Controller
         // men/women/children, or (a store has no equivalent column for
         // "does services" other than having any) any active service at all
         // for 'services'.
+        // Landing "Featured & Recommended": only shops on an active Premium plan.
+        if ($request->boolean('premium_only')) {
+            $query->premiumActive();
+        }
+
         if ($request->filled('department')) {
             $department = strtolower(trim((string) $request->string('department')));
             if ($department === 'services' || $department === 'service') {

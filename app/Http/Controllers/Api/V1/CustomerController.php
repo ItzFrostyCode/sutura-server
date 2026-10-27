@@ -22,11 +22,26 @@ class CustomerController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Get customers from pivot AND job orders
+        // Get customers from pivot, job orders, AND appointments
         $jobCustomerIds = $store->jobOrders()->pluck('customer_id')->toArray();
         $pivotCustomerIds = $store->customers()->pluck('users.id')->toArray();
+        $apptCustomerIds = $store->appointments()->pluck('customer_id')->toArray();
 
-        $customerIds = collect(array_merge($jobCustomerIds, $pivotCustomerIds))->unique();
+        $customerIds = collect(array_merge($jobCustomerIds, $pivotCustomerIds, $apptCustomerIds))->filter()->unique();
+
+        // Server-side search filter across name, email, and contact number
+        $search = trim($request->input('search', ''));
+        if ($search !== '') {
+            $matchingUserIds = User::where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%");
+            })->whereDoesntHave('roles', function ($q) {
+                $q->whereIn('name', ['store_owner', 'staff', 'branch_manager', 'admin']);
+            })->pluck('id')->toArray();
+
+            $customerIds = $customerIds->merge($matchingUserIds)->unique();
+        }
 
         // "My customers": the ones with an appointment assigned to me or a job I'm on.
         if ($request->boolean('mine')) {
@@ -44,7 +59,16 @@ class CustomerController extends Controller
         // same N+1-avoidance reasoning as the jobOrders/appointments eager loads.
         $notesByCustomerId = $store->customers()->pluck('store_customers.notes', 'users.id');
 
-        $customers = User::whereIn('id', $customerIds)
+        $customersQuery = User::whereIn('id', $customerIds);
+        if ($search !== '') {
+            $customersQuery->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        $customers = $customersQuery
             ->with([
                 'jobOrders' => function ($query) use ($store) {
                     $query->where('store_id', $store->id);
@@ -60,15 +84,16 @@ class CustomerController extends Controller
             ->get()
             ->map(function ($user) use ($notesByCustomerId) {
                 $hasWalkInJobs = $user->jobOrders->where('intake_channel', 'walk_in')->isNotEmpty();
+                $hasOnlineJobs = $user->jobOrders->where('intake_channel', 'online')->isNotEmpty();
                 $hasWalkInAppts = $user->appointments->where('intake_channel', 'walk_in')->isNotEmpty();
                 $isSyntheticWalkIn = Str::startsWith($user->email, 'walkin_');
 
-                $user->total_spend = $user->jobOrders->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
+                $user->total_spend = (float) $user->jobOrders->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
                 $user->last_appointment = $user->appointments->first();
-                $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled'])->count();
+                $user->active_jobs = $user->jobOrders->whereNotIn('status', ['completed', 'cancelled', 'rejected'])->count();
                 $user->completed_jobs = $user->jobOrders->where('status', 'completed')->count();
                 $user->store_notes = $notesByCustomerId[$user->id] ?? null;
-                $user->is_walk_in = $isSyntheticWalkIn || ($hasWalkInJobs && $user->jobOrders->where('intake_channel', 'online')->isEmpty());
+                $user->is_walk_in = $isSyntheticWalkIn || ($hasWalkInJobs && ! $hasOnlineJobs);
                 $user->intake_channel = $user->is_walk_in ? 'walk_in' : 'online';
 
                 return $user;
@@ -96,6 +121,8 @@ class CustomerController extends Controller
         }
 
         $storeNotes = $store->customers()->where('user_id', $customer->id)->value('store_customers.notes');
+
+        \App\Support\JobMeasurementSync::syncForCustomer($store, $customer->id);
 
         $measurements = $store->measurements()
             ->where('customer_id', $customer->id)
@@ -140,6 +167,47 @@ class CustomerController extends Controller
         ]);
     }
 
+    public function measurements(Request $request, Store $store, User $customer): JsonResponse
+    {
+        if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager') && ! $request->user()->hasRole('staff')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        \App\Support\JobMeasurementSync::syncForCustomer($store, $customer->id);
+
+        $measurements = $store->measurements()
+            ->where('customer_id', $customer->id)
+            ->with('customer:id,name,email')
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $measurements,
+        ]);
+    }
+
+    public function customerMeasurements(Request $request, User $customer): JsonResponse
+    {
+        $store = $request->user()->ownedStore ?? $request->user()->staffProfile?->store;
+        if (! $store) {
+            return response()->json(['message' => 'Store not found'], 404);
+        }
+
+        \App\Support\JobMeasurementSync::syncForCustomer($store, $customer->id);
+
+        $measurements = $store->measurements()
+            ->where('customer_id', $customer->id)
+            ->with('customer:id,name,email')
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $measurements,
+        ]);
+    }
+
     public function store(Request $request, Store $store): JsonResponse
     {
         if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager') && ! $request->user()->hasRole('staff')) {
@@ -149,100 +217,117 @@ class CustomerController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'nullable|email',
-            'phone' => 'required|string|max:20',
+            'phone' => 'nullable|string|max:30',
             'suki_tag' => 'nullable|string|max:50',
             'notes' => 'nullable|string|max:2000',
         ]);
 
-        $email = $validated['email'] ?? null;
+        $rawEmail = ! empty($validated['email']) ? trim($validated['email']) : null;
+        $rawPhone = ! empty($validated['phone']) ? trim($validated['phone']) : null;
+        $digitsPhone = $rawPhone ? preg_replace('/[^0-9]/', '', $rawPhone) : null;
+        if ($digitsPhone && str_starts_with($digitsPhone, '63') && strlen($digitsPhone) === 12) {
+            $digitsPhone = '0'.substr($digitsPhone, 2);
+        }
 
-        // Walk-in customers routinely have no email at all — the store's
-        // whole relationship with them is by name and phone number, exactly
-        // per the interview research this system is built on. Without an
-        // email to match on, every walk-in submission used to mint a brand
-        // new synthetic walkin_ account even when the same person (same
-        // phone) had already walked in before, fragmenting their job
-        // history across multiple "customers" and silently breaking the
-        // repeat-customer discount signal (JobOrderController checks job
-        // count per customer_id). Scoped to this store specifically — a
-        // phone match against a stranger at a different store must never
-        // merge unrelated customer bases.
-        if (! $email) {
-            // Same "who counts as this store's customer" definition index()
-            // already uses (CRM pivot ∪ job orders ∪ appointments) — a
-            // phone match has to check all three, not just the CRM pivot,
-            // or a walk-in whose only prior contact was a job order (no CRM
-            // entry) still wouldn't be found.
+        $matchedUser = null;
+
+        // 1. Match by email if a real email address is provided
+        if ($rawEmail && ! str_starts_with($rawEmail, 'walkin_')) {
+            $matchedUser = User::where('email', $rawEmail)->first();
+        }
+
+        // 2. Match by contact number if provided
+        if (! $matchedUser && $digitsPhone) {
             $existingCustomerIds = collect()
                 ->merge($store->customers()->pluck('users.id'))
                 ->merge($store->jobOrders()->pluck('customer_id'))
                 ->merge($store->appointments()->pluck('customer_id'))
                 ->filter()
                 ->unique();
-            $existingByPhone = User::whereIn('id', $existingCustomerIds)
-                ->where('phone', $validated['phone'])
+
+            // First search within the current store's customer base
+            $matchedUser = User::whereIn('id', $existingCustomerIds)
+                ->where(function ($q) use ($rawPhone, $digitsPhone) {
+                    $q->where('phone', $rawPhone)
+                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '(', ''), ')', '') = ?", [$digitsPhone]);
+                })
                 ->first();
-            if ($existingByPhone) {
-                $email = $existingByPhone->email;
+
+            // If not found in current store, check across customer users in database
+            if (! $matchedUser) {
+                $matchedUser = User::where(function ($q) use ($rawPhone, $digitsPhone) {
+                    $q->where('phone', $rawPhone)
+                        ->orWhereRaw("REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '(', ''), ')', '') = ?", [$digitsPhone]);
+                })->whereDoesntHave('roles', function ($q) {
+                    $q->whereIn('name', ['store_owner', 'staff', 'branch_manager', 'admin']);
+                })->first();
             }
         }
 
-        if (! $email) {
-            $email = 'walkin_'.time().'_'.Str::random(4).self::SUTURA_DOMAIN;
-        }
+        if ($matchedUser) {
+            // Guard: ensure matched account is not a staff/store_owner account
+            $isBusinessAccount = $matchedUser->hasRole('store_owner') || $matchedUser->hasRole('staff')
+                || $matchedUser->hasRole('branch_manager') || $matchedUser->hasRole('admin');
 
-        $user = User::where('email', $email)->first();
-        if ($user) {
-            // Only overwrite the profile fields when the matched account is an
-            // actual customer (or a bare placeholder with no role yet) — email
-            // is globally unique, so a match could just as easily be another
-            // store's owner/staff/admin account, and this endpoint must never
-            // let one store's walk-in form silently rewrite a stranger's identity.
-            $isBusinessAccount = $user->hasRole('store_owner') || $user->hasRole('staff')
-                || $user->hasRole('branch_manager') || $user->hasRole('admin');
-
-            // The original guard here only stopped the profile from being
-            // overwritten — it still fell through to attach this business
-            // account to store_customers below, so a store owner (or their own
-            // staff) typing their own email into the walk-in form ended up
-            // listed as a customer of their own store. Reject the whole
-            // operation instead of partially proceeding.
             if ($isBusinessAccount) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This email belongs to a staff or owner account and cannot be added as a customer.',
-                    'errors' => ['email' => ['This email belongs to a staff or owner account and cannot be added as a customer.']],
+                    'message' => 'This email or phone belongs to a staff or owner account and cannot be added as a customer.',
+                    'errors' => ['email' => ['This account belongs to a staff or owner user.']],
                 ], 422);
             }
 
-            $user->update([
-                'name' => $validated['name'],
-                'phone' => $validated['phone'] ?? $user->phone,
-                'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
-            ]);
+            $updates = [];
+            if (! empty($validated['name']) && (empty($matchedUser->name) || Str::startsWith($matchedUser->email, 'walkin_'))) {
+                $updates['name'] = $validated['name'];
+            }
+            if ($rawPhone && empty($matchedUser->phone)) {
+                $updates['phone'] = $rawPhone;
+            }
+            if ($rawEmail && ! str_starts_with($rawEmail, 'walkin_') && Str::startsWith($matchedUser->email, 'walkin_')) {
+                $updates['email'] = $rawEmail;
+            }
+            if (! empty($validated['suki_tag'])) {
+                $updates['suki_tag'] = $validated['suki_tag'];
+            }
+
+            if (! empty($updates)) {
+                $matchedUser->update($updates);
+            }
+
+            $user = $matchedUser;
         } else {
+            $email = $rawEmail ?: ('walkin_'.time().'_'.Str::random(4).self::SUTURA_DOMAIN);
             $user = User::create([
                 'email' => $email,
                 'name' => $validated['name'],
-                'phone' => $validated['phone'] ?? null,
+                'phone' => $rawPhone,
                 'suki_tag' => $validated['suki_tag'] ?? null,
-                'password' => Hash::make(Str::random(12)),
+                'password' => Hash::make(Str::random(16)),
             ]);
         }
 
-        // Attach to store if not already attached — syncWithoutDetaching handles
-        // both "attach for the first time" and "already attached, just update
-        // the pivot notes" in one call, without touching any other customer's
-        // pivot row the way a plain sync() would.
+        // Attach to store if not already attached, updating notes on pivot
         $store->customers()->syncWithoutDetaching([
             $user->id => ['notes' => $validated['notes'] ?? null],
         ]);
 
+        $userJobs = $user->jobOrders()->where('store_id', $store->id)->get();
+        $hasWalkInJobs = $userJobs->where('intake_channel', 'walk_in')->isNotEmpty();
+        $hasOnlineJobs = $userJobs->where('intake_channel', 'online')->isNotEmpty();
+        $isSyntheticWalkIn = Str::startsWith($user->email, 'walkin_');
+
+        $user->is_walk_in = $isSyntheticWalkIn || ($hasWalkInJobs && ! $hasOnlineJobs);
+        $user->intake_channel = $user->is_walk_in ? 'walk_in' : 'online';
+        $user->active_jobs = $userJobs->whereNotIn('status', ['completed', 'cancelled', 'rejected'])->count();
+        $user->completed_jobs = $userJobs->where('status', 'completed')->count();
+        $user->total_spend = (float) $userJobs->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
+
         return response()->json([
             'success' => true,
             'data' => $user,
-            'message' => 'Customer created successfully.',
-        ], 201);
+            'message' => $matchedUser ? 'Existing customer matched and linked successfully.' : 'Customer created successfully.',
+        ], $matchedUser ? 200 : 201);
     }
 
     public function update(Request $request, Store $store, User $customer): JsonResponse

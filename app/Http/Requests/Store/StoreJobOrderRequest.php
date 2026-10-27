@@ -48,11 +48,14 @@ class StoreJobOrderRequest extends FormRequest
                 'required', 'integer',
                 Rule::exists('services', 'id')->where('store_id', $store?->id),
             ],
-            // assigned_staff_id is not accepted here at all anymore — no more
-            // upfront "who's doing this" pre-assignment at creation. It's
-            // purely server-derived, set automatically the moment anyone
-            // actually moves the job into a production stage (see
-            // JobOrderController::update()'s auto-attribution block).
+            'assigned_staff_id' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
+            'assigned_to' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
             // One job order for a whole combo package (the set's services are listed with it).
             'service_package_id' => [
                 'nullable', 'integer',
@@ -112,7 +115,7 @@ class StoreJobOrderRequest extends FormRequest
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link' => ['nullable', 'string', 'max:500', new \App\Rules\SafeLink],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
-            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
+            'garment_category' => ['nullable', 'string', \Illuminate\Validation\Rule::in(\App\Support\GarmentCategory::all())],
             'is_rush' => ['nullable', 'boolean'],
             'rush_fee' => ['nullable', 'numeric', 'min:0'],
             'catalog_item_id' => [

@@ -22,10 +22,14 @@ class UpdateJobOrderRequest extends FormRequest
             // Store pickup only — the approved thesis explicitly excludes
             // logistics/courier/delivery management from the system's scope.
             'fulfillment_type' => ['sometimes', 'in:pickup'],
-            // assigned_staff_id is not client-settable here — it's
-            // server-derived, auto-set to whoever actually moves the job's
-            // status forward (see JobOrderController::update()'s
-            // auto-attribution block), never picked directly.
+            'assigned_staff_id' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
+            'assigned_to' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
             'measurement_id' => [
                 'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('store_id', $store?->id),
@@ -94,7 +98,7 @@ class UpdateJobOrderRequest extends FormRequest
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link' => ['nullable', 'string', 'max:500', new \App\Rules\SafeLink],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
-            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
+            'garment_category' => ['nullable', 'string', \Illuminate\Validation\Rule::in(\App\Support\GarmentCategory::all())],
             'hold_reason' => ['nullable', 'string', 'max:2000'],
         ];
     }

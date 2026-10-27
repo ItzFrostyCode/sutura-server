@@ -44,6 +44,7 @@ class MeasurementController extends Controller
         $query = $store->measurements()->with('customer:id,name,email');
 
         if ($request->has('customer_id')) {
+            \App\Support\JobMeasurementSync::syncForCustomer($store, (int) $request->customer_id);
             $query->where('customer_id', $request->customer_id);
         }
 

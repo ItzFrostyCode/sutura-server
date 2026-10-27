@@ -139,16 +139,18 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // Assign Trial Subscription to Store (Default to Premium plan)
+        // Active Premium (yearly) — a paid-up Premium shop is what the landing
+        // page's "Featured & Recommended" spotlight shows (Store::scopePremiumActive),
+        // so a fresh seed always has one there. (A 30-day trial used to expire.)
         $premiumPlan = SubscriptionPlan::where('slug', 'premium')->first();
         if ($premiumPlan && ! $store->subscription()->exists()) {
             StoreSubscription::create([
                 'store_id' => $store->id,
                 'plan_id' => $premiumPlan->id,
-                'status' => 'trial',
+                'status' => 'active',
+                'billing_cycle' => 'yearly',
                 'starts_at' => now(),
-                'ends_at' => now()->addDays(30),
-                'trial_ends_at' => now()->addDays(30),
+                'ends_at' => now()->addYear(),
             ]);
         }
 

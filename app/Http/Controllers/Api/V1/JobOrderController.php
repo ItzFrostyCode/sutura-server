@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Notifications\AppointmentStatusNotification;
 use App\Notifications\CustomerPaymentRejectedNotification;
 use App\Notifications\CustomMessageNotification;
+use App\Notifications\JobOrderAssignedNotification;
 use App\Notifications\JobStatusUpdatedNotification;
 use App\Notifications\NewJobOrderNotification;
 use App\Notifications\OrderReadyNotification;
@@ -27,6 +28,7 @@ use App\Notifications\PaymentRejectedNotification;
 use App\Notifications\StoreActivityNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -234,6 +236,8 @@ class JobOrderController extends Controller
 
         $jobOrder->load(['customer:id,name', 'service']);
 
+        $store->customers()->syncWithoutDetaching([$jobOrder->customer_id]);
+
         $storeOwner = $store->owner;
         if ($storeOwner) {
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
@@ -332,6 +336,8 @@ class JobOrderController extends Controller
 
         $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
 
+        $store->customers()->syncWithoutDetaching([$jobOrder->customer_id]);
+
         $storeOwner = $store->owner;
         if ($storeOwner) {
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
@@ -401,9 +407,296 @@ class JobOrderController extends Controller
 
         $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
 
+        $store->customers()->syncWithoutDetaching([$jobOrder->customer_id]);
+
         $storeOwner = $store->owner;
         if ($storeOwner) {
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
+        }
+
+        return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    }
+
+    /**
+     * Customer-facing "Online Order" straight off a Service's detail page —
+     * no Catalog Design or appointment needed. Lands as an online, pending
+     * job order the shop approves or rejects from its Orders board, same as
+     * Made-to-Order. Price is the picked pricing line (or the service's own
+     * current price) × quantity; the shop can still adjust it after review.
+     * Repair-only services keep their own flow (damage notes, repair items).
+     */
+    public function customerServiceOrder(Request $request, Store $store): JsonResponse
+    {
+        // Same four parts as the shop's walk-in wizard (customer, measurements,
+        // order specs, invoice & payment), stored under the same
+        // custom_order_data keys so the shop reads both kinds of order alike.
+        $validated = $request->validate([
+            'service_id' => 'required|integer',
+            'contact_phone' => 'required|string|max:20',
+            'store_branch_id' => 'nullable|integer',
+
+            'order_mode' => 'required|in:individual,bulk',
+            'measurement_id' => 'nullable|integer',
+            'individual_measurements' => 'nullable|array',
+            'individual_measurements.unit' => 'nullable|in:in,cm',
+            'individual_measurements.*' => 'nullable',
+            'size_breakdown' => 'required_if:order_mode,bulk|array',
+            'size_breakdown.*' => 'nullable|integer|min:0|max:500',
+            'team_name' => 'nullable|string|max:255',
+            'measurement_sheets' => 'nullable|array|max:5',
+            'measurement_sheets.*' => 'string|max:1000',
+
+            'pricing_id' => 'nullable|integer',
+            'size' => 'nullable|string|max:50',
+            'material_source' => ['required', Rule::in(JobOrder::MATERIAL_SOURCES)],
+            'material_description' => 'nullable|string|max:500',
+            'answers' => 'nullable|array',
+            'answers.*' => 'nullable|string|max:500',
+            'notes' => 'nullable|string|max:2000',
+            'reference_images' => 'nullable|array|max:5',
+            'reference_images.*' => 'string|max:1000',
+            'reference_link' => ['nullable', 'string', 'max:500', new \App\Rules\SafeLink],
+
+            'quantity' => 'required_if:order_mode,individual|nullable|integer|min:1|max:500',
+            'rush_requested' => 'nullable|boolean',
+            'needed_by' => 'nullable|date|after:today',
+            'payment_term' => 'required|in:full,downpayment',
+            // Paid up front by GCash only: the shop's GCash account + the customer's receipt.
+            'payment_method_id' => 'nullable|integer',
+            'payment_receipt' => 'nullable|string|max:2048',
+            'payment_reference' => 'nullable|string|max:255',
+        ]);
+
+        // Only the walk-in form's measurement fields, each a plain number.
+        $measurements = null;
+        if ($validated['order_mode'] === 'individual' && ! empty($validated['individual_measurements'])) {
+            $measurements = ['unit' => $validated['individual_measurements']['unit'] ?? 'in'];
+            foreach (['chest', 'waist', 'hips', 'shoulders', 'length', 'neck', 'sleeve', 'inseam'] as $key) {
+                $value = $validated['individual_measurements'][$key] ?? null;
+                if ($value === null || $value === '') {
+                    continue;
+                }
+                if (! is_numeric($value) || $value <= 0 || $value > 200) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Measurements must be numbers between 0 and 200.',
+                        'errors' => ["individual_measurements.$key" => ['Enter a number between 0 and 200.']],
+                    ], 422);
+                }
+                $measurements[$key] = (string) (0 + $value);
+            }
+            if (count($measurements) === 1) {
+                $measurements = null;
+            }
+        }
+
+        $sizeBreakdown = null;
+        if ($validated['order_mode'] === 'bulk') {
+            $sizeBreakdown = collect($validated['size_breakdown'] ?? [])
+                ->only(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'])
+                ->map(fn ($qty) => (int) $qty)
+                ->filter(fn ($qty) => $qty > 0)
+                ->all();
+            if (! $sizeBreakdown) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Add how many pieces you need in at least one size.',
+                    'errors' => ['size_breakdown' => ['Enter at least one size quantity.']],
+                ], 422);
+            }
+        }
+
+        $service = Service::where('id', $validated['service_id'])
+            ->where('store_id', $store->id)
+            ->where('is_active', true)
+            ->with('pricing')
+            ->first();
+
+        if (! $service) {
+            return response()->json(['success' => false, 'message' => 'This service is not available to order right now.'], 404);
+        }
+        if ($service->service_types === [Service::TYPE_ALTERATION_REPAIR]) {
+            return response()->json(['success' => false, 'message' => 'Repairs use the repair request form instead.'], 422);
+        }
+
+        $quantity = $sizeBreakdown ? (int) array_sum($sizeBreakdown) : (int) $validated['quantity'];
+        if ($quantity > 500) {
+            return response()->json(['success' => false, 'message' => 'Online orders are capped at 500 pieces. Message the shop for larger batches.'], 422);
+        }
+        if ($service->min_order_qty > 1 && $quantity < $service->min_order_qty) {
+            return response()->json([
+                'success' => false,
+                'message' => "This service requires a minimum of {$service->min_order_qty} pieces.",
+                'errors' => ['quantity' => ["Order at least {$service->min_order_qty} pieces."]],
+            ], 422);
+        }
+
+        // A service with several pricing lines needs one picked; a single line is implied.
+        $pricing = null;
+        if (! empty($validated['pricing_id'])) {
+            $pricing = $service->pricing->firstWhere('id', (int) $validated['pricing_id']);
+            if (! $pricing) {
+                return response()->json(['success' => false, 'message' => 'That option is no longer offered. Please pick another.'], 422);
+            }
+        } elseif ($service->pricing->count() === 1) {
+            $pricing = $service->pricing->first();
+        } elseif ($service->pricing->count() > 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please choose an option for this service.',
+                'errors' => ['pricing_id' => ['Choose an option.']],
+            ], 422);
+        }
+
+        // Required service questions must be answered, and only known questions are kept.
+        // Keyed by the question's label, same as booking answers (the job form pre-fills from them).
+        $answers = [];
+        $missing = [];
+        foreach ($service->custom_fields ?? [] as $field) {
+            $label = trim((string) ($field['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $value = trim((string) ($validated['answers'][$label] ?? ''));
+            if ($value !== '') {
+                $answers[$label] = $value;
+            } elseif (! empty($field['required']) && ($field['type'] ?? '') !== 'checkbox') {
+                $missing[] = $label;
+            }
+        }
+        if ($missing) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please answer: '.implode(', ', $missing).'.',
+                'errors' => ['answers' => ['Some required questions are unanswered.']],
+            ], 422);
+        }
+
+        $branch = ! empty($validated['store_branch_id'])
+            ? $store->branches()->live()->where('id', $validated['store_branch_id'])->first()
+            : null;
+        if (! empty($validated['store_branch_id']) && ! $branch) {
+            return response()->json(['success' => false, 'message' => 'That branch is not taking orders right now.'], 422);
+        }
+        $branch ??= $store->branches()->live()->where('is_main', true)->first()
+            ?? $store->branches()->live()->first();
+
+        $customerId = $request->user()->id;
+        $measurementId = null;
+        if (! empty($validated['measurement_id'])) {
+            $measurementId = Measurement::where('id', $validated['measurement_id'])
+                ->where('store_id', $store->id)
+                ->where('customer_id', $customerId)
+                ->value('id');
+            if (! $measurementId) {
+                return response()->json(['success' => false, 'message' => 'That measurement record is not on file with this shop.'], 422);
+            }
+        }
+
+        $unitPrice = $pricing && $pricing->amount !== null ? (float) $pricing->amount : $service->effectivePrice();
+        $totalAmount = round($unitPrice * $quantity, 2);
+
+        $sheets = $validated['measurement_sheets'] ?? [];
+        $customOrderData = array_filter([
+            ...$answers,
+            'contact_phone' => trim($validated['contact_phone']),
+            'individual_measurements' => $measurements,
+            'size_breakdown' => $sizeBreakdown,
+            'measurement_sheets' => $sheets ?: null,
+            'team_name' => $sizeBreakdown ? (trim((string) ($validated['team_name'] ?? '')) ?: null) : null,
+            'size' => $sizeBreakdown ? null : ($validated['size'] ?? null),
+            'option' => $pricing && $service->pricing->count() > 1 ? $pricing->label : null,
+            'customer_fabric' => $validated['material_source'] === 'customer_supplied' ? ($validated['material_description'] ?? null) : null,
+            'item_rate' => (string) $unitPrice,
+            'payment_term' => $validated['payment_term'],
+            // The customer asks; the shop decides whether to take it as rush and sets the fee.
+            'rush_requested' => ! empty($validated['rush_requested']) ? 'Yes' : null,
+            'needed_by' => ! empty($validated['needed_by']) ? \Carbon\Carbon::parse($validated['needed_by'])->toDateString() : null,
+        ], fn ($v) => $v !== null && $v !== '');
+
+        // What the chosen payment term asks for now: everything, or the service's deposit share.
+        $requirements = \App\Support\OrderRequirements::resolve($store, [$service]);
+        $amountDue = $validated['payment_term'] === 'full'
+            ? $totalAmount
+            : round($totalAmount * \App\Support\OrderRequirements::depositFraction($requirements['payment_policy'], $requirements['payment_policy_percent']), 2);
+
+        $gcashAccounts = \App\Models\PaymentMethod::where('store_id', $store->id)
+            ->where('is_active', true)
+            ->where('kind', 'gcash')
+            ->where(fn ($q) => $q->whereNull('store_branch_id')->when($branch, fn ($qq) => $qq->orWhere('store_branch_id', $branch->id)));
+
+        $gcash = null;
+        if ($amountDue > 0 && (clone $gcashAccounts)->exists()) {
+            $gcash = ! empty($validated['payment_method_id'])
+                ? (clone $gcashAccounts)->where('id', $validated['payment_method_id'])->first()
+                : null;
+            if (! $gcash) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Pick the shop\'s GCash account you paid to.',
+                    'errors' => ['payment_method_id' => ['Choose the GCash account.']],
+                ], 422);
+            }
+            if (empty($validated['payment_receipt'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Upload a screenshot of your GCash receipt.',
+                    'errors' => ['payment_receipt' => ['Upload your GCash receipt.']],
+                ], 422);
+            }
+        }
+
+        $orderNumber = $this->generateOrderNumber($store);
+        $jobOrder = DB::transaction(function () use ($store, $orderNumber, $branch, $customerId, $service, $measurementId, $quantity, $validated, $totalAmount, $sheets, $customOrderData, $gcash, $amountDue, $request) {
+            $jobOrder = $store->jobOrders()->create([
+            'order_number' => $orderNumber,
+            'tracking_code' => $this->generateTrackingCode($store, $orderNumber),
+            'intake_channel' => 'online',
+            'store_branch_id' => $branch?->id,
+            'customer_id' => $customerId,
+            'service_id' => $service->id,
+            'measurement_id' => $measurementId,
+            'quantity' => $quantity,
+            'garment_category' => $service->service_category,
+            'material_source' => $validated['material_source'],
+            'total_amount' => $totalAmount,
+            'balance' => $totalAmount,
+            'payment_status' => 'unpaid',
+            'status' => 'pending',
+            'notes' => ! empty($validated['notes']) ? 'Customer note: '.$validated['notes'] : null,
+            // Sheets ride along with the reference photos, same as walk-in.
+            'reference_images' => array_values(array_unique([...($validated['reference_images'] ?? []), ...$sheets])),
+            'reference_link' => $validated['reference_link'] ?? null,
+            'custom_order_data' => $customOrderData ?: null,
+            ]);
+
+            // Same record as "I have paid" on My Orders: pending until the shop verifies the receipt.
+            if ($gcash) {
+                $jobOrder->payments()->create([
+                    'amount' => $amountDue,
+                    'payment_method' => 'gcash',
+                    'source' => 'online',
+                    'type' => Payment::inferType($jobOrder, $amountDue),
+                    'payment_method_id' => $gcash->id,
+                    'reference' => $validated['payment_reference'] ?? null,
+                    'recorded_by' => $request->user()->id,
+                    'receipt_path' => $validated['payment_receipt'],
+                ]);
+            }
+
+            return $jobOrder;
+        });
+
+        $jobOrder->load(['customer:id,name', 'service']);
+
+        $store->customers()->syncWithoutDetaching([$customerId]);
+
+        $storeOwner = $store->owner;
+        if ($storeOwner) {
+            $storeOwner->notify(new NewJobOrderNotification($jobOrder));
+            if ($gcash) {
+                $storeOwner->notify(new PaymentReceivedNotification($jobOrder, $amountDue, true));
+            }
         }
 
         return response()->json(['success' => true, 'data' => $jobOrder], 201);
@@ -414,18 +707,30 @@ class JobOrderController extends Controller
         $query = $store->jobOrders()->with([
             'customer:id,name,suki_tag',
             'service',
-            'assignedStaff:id,name',
+            'assignedStaff:id,name,email',
+            'assignedTo:id,name,email',
             'branch:id,name',
             'catalogItem:id,name,garment_type,price,fabric_image_url',
             'catalogItem.images',
         ]);
 
+        $user = $request->user();
+        $isOwnerOrManager = $user->hasRole('store_owner') || $user->hasRole('branch_manager');
+
+        // RBAC: Staff/Tailors can only view orders specifically assigned to them
+        if (! $isOwnerOrManager && $user->hasRole('staff')) {
+            $query->where(function ($q) use ($user) {
+                $q->where('assigned_staff_id', $user->id)
+                    ->orWhere('assigned_to', $user->id);
+            });
+        }
+
         $branchId = null;
-        if (! $request->user()->hasRole('store_owner') && $request->user()->staffProfile?->store_branch_id) {
+        if (! $user->hasRole('store_owner') && $user->staffProfile?->store_branch_id) {
             // Staff/branch managers pinned to a branch only ever see that branch's
             // jobs — matches the per-action branch check enforced elsewhere below,
             // so nothing shows up in the list that they'd then be blocked from opening.
-            $branchId = $request->user()->staffProfile->store_branch_id;
+            $branchId = $user->staffProfile->store_branch_id;
         } elseif ($request->filled('branch_id')) {
             $branchId = $request->branch_id;
         }
@@ -603,16 +908,10 @@ class JobOrderController extends Controller
         $validated['tracking_code'] = $this->generateTrackingCode($store, $validated['order_number']);
         $validated['order_type'] = $validated['order_type'] ?? 'walk_in';
 
-        // assigned_staff_id is no longer accepted from the client at creation
-        // time — no more upfront "who's doing this" pre-assignment. It's
-        // purely server-derived now, auto-set the moment anyone actually
-        // moves the job into a production stage (see the auto-attribution
-        // block in update()), same job_order_staff table the Staff
-        // Productivity report already reads. Explicitly null, not unset —
-        // same "column exists but missing from the create response until
-        // re-fetched" bug class as quantity above: create()'s in-memory
-        // model never reports an attribute it was never given at all.
-        $validated['assigned_staff_id'] = null;
+        // Staff Assignment: Allow owners & managers to assign tailor directly during order creation
+        $assignedStaffId = $validated['assigned_staff_id'] ?? $validated['assigned_to'] ?? null;
+        $validated['assigned_staff_id'] = $assignedStaffId;
+        $validated['assigned_to'] = $assignedStaffId;
 
         // Auto-assign branch when not explicitly set, falling back to the
         // creator's own branch (staff/branch manager).
@@ -727,6 +1026,12 @@ class JobOrderController extends Controller
 
         $jobOrder = $store->jobOrders()->create($validated);
 
+        // Auto-save body measurements or measurement sheet photos directly into customer's profile
+        \App\Support\JobMeasurementSync::syncForJob($store, $jobOrder);
+
+        // Always record/sync customer in store's Client Book
+        $store->customers()->syncWithoutDetaching([$jobOrder->customer_id]);
+
         // Link back to the appointment now that the job exists
         if ($appointment) {
             // 'outcome' has its own dedicated dropdown on the "Complete
@@ -765,6 +1070,15 @@ class JobOrderController extends Controller
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
         }
 
+        // Notify assigned tailor of the job order assignment
+        if (! empty($jobOrder->assigned_staff_id)) {
+            $assignedStaff = User::find($jobOrder->assigned_staff_id);
+            if ($assignedStaff) {
+                $assignedStaff->notify(new JobOrderAssignedNotification($jobOrder, $request->user()));
+                Cache::driver('file')->forget("user_notifications_{$assignedStaff->id}");
+            }
+        }
+
         return response()->json([
             'success' => true,
             'data' => $jobOrder,
@@ -781,7 +1095,17 @@ class JobOrderController extends Controller
             return $denied;
         }
 
-        $jobOrder->load(['customer', 'service', 'assignedStaff', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name']);
+        $user = $request->user();
+        $isOwnerOrManager = $user->hasRole('store_owner') || $user->hasRole('branch_manager');
+
+        // RBAC: Staff/Tailors can only access orders assigned to them
+        if (! $isOwnerOrManager && $user->hasRole('staff')) {
+            if ((int) $jobOrder->assigned_staff_id !== (int) $user->id && (int) $jobOrder->assigned_to !== (int) $user->id) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized. You are only allowed to access orders assigned to you.'], 403);
+            }
+        }
+
+        $jobOrder->load(['customer', 'service', 'assignedStaff:id,name,email', 'assignedTo:id,name,email', 'measurement', 'staffStages', 'payments.recordedBy:id,name', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'branch:id,name']);
 
         // Repeat-customer context surfaced right on the job so the owner can
         // decide on a manual discount ("this is their 5th order") without
@@ -824,9 +1148,32 @@ class JobOrderController extends Controller
             return $denied;
         }
 
+        $user = $request->user();
+        $isOwnerOrManager = $user->hasRole('store_owner') || $user->hasRole('branch_manager');
+
+        // RBAC: Staff/Tailors can only edit jobs assigned to them
+        if (! $isOwnerOrManager && $user->hasRole('staff')) {
+            if ((int) $jobOrder->assigned_staff_id !== (int) $user->id && (int) $jobOrder->assigned_to !== (int) $user->id) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized. You can only update jobs assigned to you.'], 403);
+            }
+        }
+
         $oldStatus = $jobOrder->status;
+        $oldAssignedStaffId = $jobOrder->assigned_staff_id ?? $jobOrder->assigned_to;
         $validated = $request->validated();
         $newStatus = $validated['status'] ?? null;
+
+        // Staff members are prohibited from reassigning jobs
+        if (! $isOwnerOrManager && $user->hasRole('staff')) {
+            unset($validated['assigned_staff_id'], $validated['assigned_to']);
+        } elseif ($isOwnerOrManager) {
+            // Keep assigned_staff_id and assigned_to in sync when owner/manager assigns tailor
+            if (array_key_exists('assigned_staff_id', $validated) || array_key_exists('assigned_to', $validated)) {
+                $assignedStaffId = $validated['assigned_staff_id'] ?? $validated['assigned_to'] ?? null;
+                $validated['assigned_staff_id'] = $assignedStaffId;
+                $validated['assigned_to'] = $assignedStaffId;
+            }
+        }
 
         // Same auto-calculated rush fee default as store() (including the
         // repeat-customer discount) — only fills in a starting figure when
@@ -963,6 +1310,36 @@ class JobOrderController extends Controller
 
         $jobOrder->update($validated);
 
+        // Staff Assignment notification & audit log
+        $newAssignedStaffId = $jobOrder->assigned_staff_id ?? $jobOrder->assigned_to;
+        $staffAssignmentChanged = (array_key_exists('assigned_staff_id', $validated) || array_key_exists('assigned_to', $validated))
+            && (int) ($oldAssignedStaffId ?? 0) !== (int) ($newAssignedStaffId ?? 0);
+
+        if ($staffAssignmentChanged) {
+            $store->auditLogs()->create([
+                'user_id' => $user->id,
+                'action' => 'job_staff_assigned',
+                'model_type' => JobOrder::class,
+                'model_id' => $jobOrder->id,
+                'payload' => [
+                    'assigned_staff_id' => $newAssignedStaffId,
+                    'previous_staff_id' => $oldAssignedStaffId,
+                ],
+                'ip_address' => $request->ip(),
+            ]);
+
+            if ($newAssignedStaffId) {
+                $assignee = User::find($newAssignedStaffId);
+                if ($assignee) {
+                    $assignee->notify(new JobOrderAssignedNotification($jobOrder, $user));
+                    Cache::driver('file')->forget("user_notifications_{$assignee->id}");
+                }
+            }
+        }
+
+        // Auto-sync measurements if updated in custom_order_data
+        \App\Support\JobMeasurementSync::syncForJob($store, $jobOrder);
+
         // Auto-derived production attribution: replaces the old "owner
         // manually pre-assigns a staff member to a stage before they can
         // touch it" model. Any staff member at the matching branch could
@@ -1015,7 +1392,10 @@ class JobOrderController extends Controller
                 }
             }
 
-            $jobOrder->update(['assigned_staff_id' => $actorId]);
+            // Attribute assigned_staff_id only if unassigned and actor is staff
+            if (! $jobOrder->assigned_staff_id && $user->hasRole('staff')) {
+                $jobOrder->update(['assigned_staff_id' => $actorId, 'assigned_to' => $actorId]);
+            }
         }
 
         // Cancelling a job leaves its linked fitting appointment(s) dangling
@@ -1166,7 +1546,8 @@ class JobOrderController extends Controller
         // pipeline status is notifiable by default instead of silently excluded.
         $otherNotifiableStatuses = array_diff(JobOrder::STATUSES, ['pending', 'ready_for_pickup']);
         if (in_array($jobOrder->status, $otherNotifiableStatuses, true) && $jobOrder->status !== $oldStatus) {
-            $jobOrder->customer->notify(new JobStatusUpdatedNotification($jobOrder, $jobOrder->status, $request->user()));
+            $notifStatus = ($oldStatus === 'pending' && in_array($jobOrder->status, ['production', 'design'], true)) ? 'approved' : $jobOrder->status;
+            $jobOrder->customer?->notify(new JobStatusUpdatedNotification($jobOrder, $notifStatus, $request->user()));
             $this->notifyOwnerOfActivity($request, $store, [
                 'type' => 'job_'.$jobOrder->status,
                 'title' => 'Job Order Updated',
@@ -1618,11 +1999,49 @@ class JobOrderController extends Controller
             'rejection_reason' => $validated['reason'],
         ]);
 
-        $jobOrder->customer->notify(new JobStatusUpdatedNotification($jobOrder, 'rejected', $request->user()));
+        $jobOrder->customer?->notify(new JobStatusUpdatedNotification($jobOrder, 'rejected', $request->user()));
 
         return response()->json([
             'success' => true,
             'message' => 'Job order rejected.',
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
+        ]);
+    }
+
+    public function approveOrder(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
+    {
+        if ($jobOrder->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Job order not found'], 404);
+        }
+
+        if ($denied = $this->branchAccessDenied($request, $jobOrder)) {
+            return $denied;
+        }
+
+        if ($jobOrder->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a pending order can be approved.',
+            ], 422);
+        }
+
+        $jobOrder->update([
+            'status' => 'production',
+        ]);
+
+        $jobOrder->customer?->notify(new JobStatusUpdatedNotification($jobOrder, 'approved', $request->user()));
+
+        $this->notifyOwnerOfActivity($request, $store, [
+            'type' => 'job_approved',
+            'title' => 'Job Order Approved',
+            'message' => "{$jobOrder->order_number} ({$jobOrder->customer?->name}) approved and in production.",
+            'url' => '/dashboard/jobs/'.$jobOrder->id,
+            'extra' => ['job_order_id' => $jobOrder->id, 'order_number' => $jobOrder->order_number],
+        ], $jobOrder);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Job order approved and moved to production.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
         ]);
     }

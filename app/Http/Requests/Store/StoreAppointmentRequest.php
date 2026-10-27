@@ -62,7 +62,7 @@ class StoreAppointmentRequest extends FormRequest
             ],
             'outcome' => ['nullable', 'string', 'in:completed,rescheduled,no_show,converted_to_job,cancelled'],
             'priority' => ['nullable', 'string', 'in:normal,urgent,rush'],
-            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
+            'garment_category' => ['nullable', 'string', \Illuminate\Validation\Rule::in(\App\Support\GarmentCategory::all())],
         ];
     }
 

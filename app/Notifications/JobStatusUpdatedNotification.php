@@ -46,7 +46,7 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
         if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
             $channels[] = 'mail';
         }
-        if ($this->status === 'ready_for_fitting') {
+        if (in_array($this->status, ['ready_for_fitting', 'approved', 'production', 'rejected'], true) && ! empty($notifiable->phone)) {
             $channels[] = SmsChannel::class;
         }
 
@@ -63,6 +63,10 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
     private function titles(): array
     {
         return [
+            'approved' => 'Order Approved',
+            'production' => 'Order In Production',
+            'quality_check' => 'Order In Progress: Quality Check',
+            'adjustments' => 'Order In Progress: Adjustments',
             'design' => 'Order In Progress: Design',
             'pattern_making' => 'Order In Progress: Pattern Making',
             'mass_cutting_printing' => 'Order In Progress: Mass Cutting & Printing',
@@ -80,17 +84,21 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
     private function messages(): array
     {
         return [
+            'approved' => 'Your order ('.$this->jobOrder->order_number.') has been approved and moved to production.',
+            'production' => 'Your order ('.$this->jobOrder->order_number.') is now in production.',
+            'quality_check' => 'Your order ('.$this->jobOrder->order_number.') is receiving its quality check.',
+            'adjustments' => 'Your order ('.$this->jobOrder->order_number.') is undergoing adjustments after your fitting.',
             'design' => 'Your order ('.$this->jobOrder->order_number.') is now in the design stage.',
             'pattern_making' => 'Your order ('.$this->jobOrder->order_number.') is now having its pattern drafted.',
             'mass_cutting_printing' => 'Your order ('.$this->jobOrder->order_number.') has entered mass cutting and printing.',
             'cutting' => 'Your order ('.$this->jobOrder->order_number.') has entered the cutting stage.',
             'sewing' => 'Your order ('.$this->jobOrder->order_number.') is now being sewn and assembled.',
-            'ready_for_fitting' => 'Your order ('.$this->jobOrder->order_number.') is ready for fitting. We\'ve scheduled a fitting appointment and will confirm the exact time with you shortly.',
+            'ready_for_fitting' => 'Your order ('.$this->jobOrder->order_number.') is ready for fitting! Please visit the shop for your fitting schedule.',
             'final_adjustments' => 'Your order ('.$this->jobOrder->order_number.') is undergoing final adjustments after your fitting.',
             'qc_ironing' => 'Your order ('.$this->jobOrder->order_number.') is receiving its final quality check and ironing.',
             'completed' => 'Your order ('.$this->jobOrder->order_number.') is now complete. Thank you for trusting us with your custom tailoring!',
             'cancelled' => 'Your order ('.$this->jobOrder->order_number.') has been cancelled.',
-            'rejected' => 'Your order ('.$this->jobOrder->order_number.') could not be accepted. Please reach out to the store directly for details.',
+            'rejected' => 'Your order ('.$this->jobOrder->order_number.') could not be accepted.'.($this->jobOrder->rejection_reason ? ' Reason: '.$this->jobOrder->rejection_reason : ' Please contact the shop for details.'),
         ];
     }
 
@@ -104,15 +112,29 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
         $message = $this->messages()[$this->status] ?? 'Your order status has been updated.';
 
         $store = $this->jobOrder->store;
-        $storeUrl = $store?->slug ? url(env('FRONTEND_URL', 'http://localhost:3000').'/store/'.$store->slug) : null;
+        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
+        $trackingUrl = $this->jobOrder->tracking_code
+            ? "{$frontendUrl}/track/{$this->jobOrder->tracking_code}"
+            : "{$frontendUrl}/account/orders/{$this->jobOrder->id}";
 
         $mail = (new MailMessage)
             ->subject($title.' — '.($store?->name ?? 'SUTURA'))
             ->greeting('Hello '.$notifiable->name.',')
             ->line($message);
 
-        if ($storeUrl) {
-            $mail->action('Visit '.$store->name, $storeUrl);
+        if ($this->status === 'rejected') {
+            if ($this->jobOrder->rejection_reason) {
+                $mail->line('Reason / Notes: '.$this->jobOrder->rejection_reason);
+            }
+            $storeUrl = $store?->slug ? "{$frontendUrl}/store/{$store->slug}" : null;
+            if ($storeUrl) {
+                $mail->action('Contact '.$store->name, $storeUrl);
+            }
+        } elseif ($this->status === 'ready_for_fitting') {
+            $mail->action('View Fitting & Order Status', $trackingUrl);
+            $mail->line('Please visit the shop or contact us to confirm your preferred fitting schedule.');
+        } else {
+            $mail->action('Track Production Progress', $trackingUrl);
         }
 
         return $mail->line('Thank you for trusting us with your custom tailoring!');
@@ -127,14 +149,18 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
         $messages = $this->messages();
 
         $store = $this->jobOrder->store;
+        $trackingUrl = $this->jobOrder->tracking_code
+            ? '/track/'.$this->jobOrder->tracking_code
+            : '/account/orders/'.$this->jobOrder->id;
 
         return [
             'type' => 'job_'.$this->status,
             'title' => $titles[$this->status] ?? 'Order Update',
             'message' => $messages[$this->status] ?? 'Your order status has been updated.',
-            'action_url' => '/account/orders/'.$this->jobOrder->id,
+            'action_url' => $trackingUrl,
             'job_order_id' => $this->jobOrder->id,
             'order_number' => $this->jobOrder->order_number,
+            'tracking_code' => $this->jobOrder->tracking_code,
             'store' => $store ? [
                 'id' => $store->id, 'name' => $store->name, 'slug' => $store->slug, 'logo_path' => $store->logo_path,
             ] : null,

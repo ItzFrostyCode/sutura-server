@@ -46,9 +46,18 @@ class StoreApplicationRequest extends FormRequest
             'district' => ['nullable', 'string', 'max:100'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
-            'specializations' => ['required', 'array', 'min:1'],
+            // At least one service: picked from the list, typed in, or both.
+            'specializations' => ['required_without:custom_services', 'array'],
             // New shops pick from the current list only (no retired tags).
             'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::storeSpecializations())],
+            // "Add Other Service": short free-text services not in the list.
+            'custom_services' => ['required_without:specializations', 'nullable', 'array', 'max:5'],
+            'custom_services.*' => ['string', 'min:2', 'max:40', 'distinct:ignore_case'],
+            // "Branches (Optional)": other locations, display only (stores.declared_branches),
+            // allowed on any plan. Setting up a real branch stays behind the plan's limit.
+            'branches' => ['nullable', 'array', 'max:10'],
+            'branches.*.name' => ['required', 'string', 'max:191', 'distinct:ignore_case'],
+            'branches.*.address' => ['required', 'string', 'max:255'],
 
             // Documents
             'landmark_image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],

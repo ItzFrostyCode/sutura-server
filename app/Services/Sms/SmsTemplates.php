@@ -20,6 +20,8 @@ class SmsTemplates
         'appointment_rescheduled' => 'Appointment moved',
         'appointment_cancelled' => 'Appointment cancelled',
         'appointment_reminder' => 'Appointment reminder',
+        'order_approved' => 'Order approved',
+        'order_rejected' => 'Order declined',
         'order_ready_fitting' => 'Ready for fitting',
         'order_ready_pickup' => 'Ready for pickup',
     ];
@@ -28,7 +30,7 @@ class SmsTemplates
      * Texts cost money and customers already get an email and an in-app notice for everything, so by default only
      * the moments where a missed message costs the shop a visit or a no-show are texted. A shop can switch any on or off.
      */
-    public const DEFAULT_ENABLED = ['appointment_rescheduled', 'appointment_cancelled', 'appointment_reminder', 'order_ready_fitting', 'order_ready_pickup'];
+    public const DEFAULT_ENABLED = ['appointment_rescheduled', 'appointment_cancelled', 'appointment_reminder', 'order_approved', 'order_rejected', 'order_ready_fitting', 'order_ready_pickup'];
 
     /** @return array<int,string> */
     public static function enabledFor(?array $stored): array
@@ -82,14 +84,39 @@ class SmsTemplates
     {
         $shop = SmsText::shopName($job->store?->name);
         $no = SmsText::fit($job->order_number, 12);
+        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
+        $trackUrl = $job->tracking_code ? "{$frontendUrl}/track/{$job->tracking_code}" : '';
 
+        if ($stage === 'approved' || $stage === 'production') {
+            return [
+                'event' => 'order_approved',
+                'body' => "{$shop}: order {$no} is APPROVED! Track live progress: {$trackUrl}",
+                'dedupe' => 'job:'.$job->id.':approved',
+            ];
+        }
+        if ($stage === 'rejected') {
+            $reason = $job->rejection_reason ? ' Note: '.SmsText::fit($job->rejection_reason, 40) : '';
+            return [
+                'event' => 'order_rejected',
+                'body' => "{$shop}: order {$no} could not be accepted.{$reason} Please contact shop.",
+                'dedupe' => 'job:'.$job->id.':rejected',
+            ];
+        }
         if ($stage === 'ready_for_fitting') {
-            return ['event' => 'order_ready_fitting', 'body' => "{$shop}: order {$no} is ready for FITTING. We will confirm your time. Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':fitting:'.now()->toDateString()];
+            return [
+                'event' => 'order_ready_fitting',
+                'body' => "{$shop}: order {$no} is ready for FITTING! Please visit shop for fitting. Track: {$trackUrl}",
+                'dedupe' => 'job:'.$job->id.':fitting:'.now()->toDateString(),
+            ];
         }
         if ($stage === 'ready_for_pickup') {
             $owing = (float) $job->balance > 0 ? ' Balance: PHP '.number_format((float) $job->balance, 2).'.' : '';
 
-            return ['event' => 'order_ready_pickup', 'body' => "{$shop}: order {$no} is ready for PICK-UP.{$owing} Track code: {$job->tracking_code}", 'dedupe' => 'job:'.$job->id.':pickup'];
+            return [
+                'event' => 'order_ready_pickup',
+                'body' => "{$shop}: order {$no} is ready for PICK-UP.{$owing} Track: {$trackUrl}",
+                'dedupe' => 'job:'.$job->id.':pickup',
+            ];
         }
 
         return null;

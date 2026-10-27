@@ -33,15 +33,11 @@ class JobOrder extends Model
      *   forward to 'qc_ironing' once resolved.
      */
     public const STATUSES = [
-        'pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
-        'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
+        'pending', 'production', 'quality_check', 'ready_for_fitting', 'adjustments', 'ready_for_pickup',
         'completed', 'cancelled', 'rejected', 'on_hold',
-        // Repair Override short pipeline (isRepairOnly() below) — 'pending',
-        // 'ready_for_pickup', 'completed', 'cancelled', 'rejected', 'on_hold'
-        // are shared with the custom-tailoring pipeline above; these three are
-        // repair-specific. Values only — the actual status-transition logic a
-        // repair job moves through is Staff/Owner operational work, not built
-        // here (docs/REPAIR-WORKFLOW.md §5, cross-role dependency).
+        // Granular legacy stages preserved for full backward compatibility
+        'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
+        'final_adjustments', 'qc_ironing',
         'queued', 'in_repair', 'qc_check',
     ];
 
@@ -69,6 +65,7 @@ class JobOrder extends Model
      * Pickup" and sit there having never actually passed the DP gate.
      */
     public const STAGES_REQUIRING_DOWNPAYMENT = [
+        'production', 'quality_check', 'adjustments',
         'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
         'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
         // Repair Override pipeline — same "no material committed until a
@@ -112,7 +109,7 @@ class JobOrder extends Model
 
     protected $fillable = [
         'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'customer_id', 'service_id', 'service_package_id',
-        'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'quantity', 'total_amount',
+        'catalog_item_id', 'assigned_staff_id', 'assigned_to', 'measurement_id', 'quantity', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
         'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
@@ -178,6 +175,11 @@ class JobOrder extends Model
     public function assignedStaff(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_staff_id');
+    }
+
+    public function assignedTo(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to');
     }
 
     public function measurement(): BelongsTo
@@ -275,6 +277,14 @@ class JobOrder extends Model
      */
     protected static function booted(): void
     {
+        static::saving(function (JobOrder $job) {
+            if ($job->assigned_staff_id && ! $job->assigned_to) {
+                $job->assigned_to = $job->assigned_staff_id;
+            } elseif ($job->assigned_to && ! $job->assigned_staff_id) {
+                $job->assigned_staff_id = $job->assigned_to;
+            }
+        });
+
         // Snapshot the requirements at creation (design -> linked service -> store;
         // combo -> own else store). Every creation path goes through here.
         static::creating(function (JobOrder $job) {

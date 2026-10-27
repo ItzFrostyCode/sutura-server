@@ -96,7 +96,19 @@ class StoreApplicationController extends Controller
                 'email' => $request->email,
                 'latitude' => $request->latitude,
                 'longitude' => $request->longitude,
-                'specializations' => array_values(array_unique($request->specializations)),
+                'specializations' => array_values(array_unique($request->specializations ?? [])),
+                'custom_services' => collect($request->custom_services ?? [])
+                    ->map(fn ($s) => trim(preg_replace('/\s+/', ' ', (string) $s)))
+                    ->filter()
+                    ->unique(fn ($s) => mb_strtolower($s))
+                    ->values()
+                    ->all() ?: null,
+                // "Branches (Optional)": display only, on any plan. Not store_branches
+                // rows — setting up a real branch (pin, booking) stays Premium-only.
+                'declared_branches' => collect($request->branches ?? [])
+                    ->map(fn ($b) => ['name' => trim($b['name']), 'address' => trim($b['address'])])
+                    ->values()
+                    ->all() ?: null,
                 'status' => 'pending',
             ]);
 

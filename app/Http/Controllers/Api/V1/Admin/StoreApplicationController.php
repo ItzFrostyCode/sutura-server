@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Store;
+use App\Models\StoreApplication;
 use App\Models\StoreSubscription;
 use App\Notifications\ShopLoginIssuedNotification;
+use App\Notifications\StoreApplicationChangesRequestedNotification;
 use App\Notifications\StoreApplicationStatusNotification;
 use App\Support\AdminAudit;
 use App\Support\ShopLogin;
@@ -15,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -67,11 +71,14 @@ class StoreApplicationController extends Controller
         ]);
 
         $login = $store->owner?->email;
+        $store->application?->load('changeRequester:id,name');
 
         return response()->json([
             'success' => true,
             'data' => [
                 'store' => $store,
+                // The checklist the Request Changes dialog shows.
+                'change_items' => collect(StoreApplication::CHANGE_ITEMS)->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values(),
                 'documents' => $store->application?->documentList() ?? [],
                 // What the approve form pre-fills; the admin can edit it.
                 'suggested_login' => $login && preg_match(ShopLogin::pattern(), $login)
@@ -144,6 +151,8 @@ class StoreApplicationController extends Controller
                 'approved_by' => $request->user()->id,
                 'rejection_reason' => null,
             ]);
+            // An open "update your application" link stops working once decided.
+            $store->application?->update(['review_state' => null, 'update_token_hash' => null, 'update_token_expires_at' => null]);
         // The admin looked at the pinned location while reviewing — the shop's branches go live with it.
         $store->branches()->where('verification_status', 'pending')->update(['verification_status' => 'verified', 'verified_at' => now(), 'verified_by' => $request->user()->id]);
 
@@ -198,13 +207,72 @@ class StoreApplicationController extends Controller
 
         DB::transaction(function () use ($request, $store, $validated) {
             $store->update(['status' => 'rejected', 'rejection_reason' => $validated['reason']]);
-            $store->application?->update(['reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
+            $store->application?->update([
+                'reviewed_by' => $request->user()->id, 'reviewed_at' => now(),
+                'review_state' => null, 'update_token_hash' => null, 'update_token_expires_at' => null,
+            ]);
             AdminAudit::record($request, 'store_application_rejected', Store::class, $store->id, $store->name, $store->id, $validated['reason']);
         });
 
         $this->notifyOwner($store, 'rejected');
 
         return response()->json(['success' => true, 'message' => 'Application rejected. The owner has been notified.', 'data' => $store->fresh()]);
+    }
+
+    /**
+     * "Request Changes": the store stays pending (hidden) while the owner fixes
+     * the ticked items through a private emailed link — they can't sign in yet.
+     * Asking again replaces the previous link; Approve/Reject still work.
+     */
+    public function requestChanges(Request $request, Store $store): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*' => ['string', 'distinct', Rule::in(array_keys(StoreApplication::CHANGE_ITEMS))],
+            'note' => ['required', 'string', 'min:5', 'max:1000'],
+        ]);
+
+        $application = $store->application;
+        if ($store->status !== 'pending' || ! $application) {
+            return response()->json(['success' => false, 'message' => 'Only a pending shop application can be sent back for changes.'], 422);
+        }
+
+        $token = Str::random(64);
+        $expires = now()->addDays(StoreApplication::UPDATE_LINK_DAYS);
+
+        DB::transaction(function () use ($request, $store, $application, $validated, $token, $expires) {
+            $application->update([
+                'review_state' => 'changes_requested',
+                'change_request_items' => array_values($validated['items']),
+                'change_request_note' => trim($validated['note']),
+                'change_requested_at' => now(),
+                'change_requested_by' => $request->user()->id,
+                'update_token_hash' => hash('sha256', $token),
+                'update_token_expires_at' => $expires,
+            ]);
+            AdminAudit::record($request, 'store_application_changes_requested', Store::class, $store->id, $store->name, $store->id, trim($validated['note']));
+        });
+
+        $updateUrl = rtrim((string) config('app.frontend_url'), '/').'/register/store/update?token='.$token;
+        $sentTo = $store->owner?->contact_email ?: $store->owner?->email;
+        $emailed = false;
+        try {
+            $store->owner?->notify(new StoreApplicationChangesRequestedNotification(
+                $store->fresh(), $application->fresh()->requestedItems(), trim($validated['note']), $updateUrl, $expires->format('F j, Y'),
+            ));
+            $emailed = (bool) $store->owner;
+        } catch (\Throwable $e) {
+            Log::warning("Store application change-request email failed for store {$store->id}: {$e->getMessage()}");
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $emailed
+                ? "Change request sent to {$sentTo}."
+                : 'Change request saved, but the email could not be sent. Copy the link below and send it to the owner yourself.',
+            // Only when the email failed, so the admin can still pass the link on.
+            'update_url' => $emailed ? null : $updateUrl,
+        ]);
     }
 
     /**

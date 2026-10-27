@@ -17,9 +17,9 @@ use Illuminate\Support\Facades\DB;
  */
 class StaffOverviewController extends Controller
 {
-    private const IN_PRODUCTION = ['pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'final_adjustments', 'in_repair'];
+    private const IN_PRODUCTION = ['production', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'final_adjustments', 'adjustments', 'in_repair'];
 
-    private const QUALITY_CHECK = ['qc_ironing', 'qc_check'];
+    private const QUALITY_CHECK = ['quality_check', 'qc_ironing', 'qc_check'];
 
     private const QUEUE_LIMIT = 8;
 

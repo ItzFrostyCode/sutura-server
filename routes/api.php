@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\FileUploadController;
 use App\Http\Controllers\Api\V1\JobOrderController;
 use App\Http\Controllers\Api\V1\JobOrderTrackingController;
+use App\Http\Controllers\Api\V1\MapLinkController;
 use App\Http\Controllers\Api\V1\MeasurementController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\ProfileController;
@@ -30,6 +31,7 @@ use App\Http\Controllers\Api\V1\ServicePackageReviewController;
 use App\Http\Controllers\Api\V1\ServiceReviewController;
 use App\Http\Controllers\Api\V1\StaffController;
 use App\Http\Controllers\Api\V1\StoreApplicationController;
+use App\Http\Controllers\Api\V1\StoreApplicationUpdateController;
 use App\Http\Controllers\Api\V1\StoreBranchController;
 use App\Http\Controllers\Api\V1\StoreController;
 use App\Http\Controllers\Api\V1\StorePostController;
@@ -82,6 +84,15 @@ Route::prefix('v1')->group(function () {
     // store + the verification packet. Multipart uploads, so rate-limited.
     Route::post('/store-applications', [StoreApplicationController::class, 'store'])->middleware('throttle:5,1,store-application');
     Route::get('/public/subscription-plans', [StoreApplicationController::class, 'plans']);
+
+    // "Request Changes": the owner (not signed in yet) updates the ticked items
+    // through the private emailed link. Throttled like the original application.
+    Route::get('/store-applications/update', [StoreApplicationUpdateController::class, 'show'])->middleware('throttle:30,1,store-application-update-view');
+    Route::post('/store-applications/update', [StoreApplicationUpdateController::class, 'update'])->middleware('throttle:5,1,store-application-update');
+
+    // Location picker: expands a short Google Maps link (maps.app.goo.gl) to
+    // lat/lng. Public (registration is signed out); outbound fetch, so throttled.
+    Route::post('/public/resolve-map-url', [MapLinkController::class, 'resolve'])->middleware('throttle:20,1,resolve-map-url');
 
     // Public Job Order Tracking — no account needed, just the tracking_code
     // handed to the customer at intake. Backend-only for now; no consuming
@@ -156,6 +167,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/stores/{store:slug}/repair-requests', [JobOrderController::class, 'customerRepairRequest']);
         Route::post('/stores/{store:slug}/bulk-orders', [JobOrderController::class, 'customerBulkOrder']);
         Route::post('/stores/{store:slug}/made-to-order', [JobOrderController::class, 'customerMadeToOrder']);
+        Route::post('/stores/{store:slug}/service-orders', [JobOrderController::class, 'customerServiceOrder'])->middleware('throttle:sensitive-writes');
 
         // My Orders / My Appointments — cross-store, for whoever is logged
         // in (Objective 5: "customers monitor their order progress from
@@ -191,6 +203,7 @@ Route::prefix('v1')->group(function () {
         Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->middleware('throttle:sensitive-writes');
         Route::put('/profile/availability', [ProfileController::class, 'toggleAvailability']);
         Route::post('/profile/upload', [ProfileController::class, 'uploadImage'])->middleware('throttle:uploads');
+        Route::get('/customers/{customer}/measurements', [CustomerController::class, 'customerMeasurements']);
 
         // Store Owner & Staff Routes
         Route::prefix('stores/{store}')->group(function () {
@@ -256,6 +269,7 @@ Route::prefix('v1')->group(function () {
                 // staff for every method here, so the route gate must match it.
                 Route::get('/customers', [CustomerController::class, 'index']);
                 Route::get(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'show']);
+                Route::get('/customers/{customer}/measurements', [CustomerController::class, 'measurements']);
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::put(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'update']);
                 Route::delete(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'destroy']);
@@ -307,6 +321,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
                 Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment']);
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
+                Route::post('/jobs/{jobOrder}/approve', [JobOrderController::class, 'approveOrder']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
@@ -465,6 +480,9 @@ Route::prefix('v1')->group(function () {
         // Admin Routes
         Route::prefix('admin')->middleware('role:admin')->group(function () {
             Route::get('/dashboard', [AdminDashboardController::class, 'overview']);
+            Route::get('/notifications', [\App\Http\Controllers\Api\V1\Admin\NotificationController::class, 'index']);
+            Route::post('/notifications/mark-all-read', [\App\Http\Controllers\Api\V1\Admin\NotificationController::class, 'markAllRead']);
+            Route::post('/notifications/{id}/read', [\App\Http\Controllers\Api\V1\Admin\NotificationController::class, 'markRead']);
             // Branch map-location checks (a new or moved branch stays off the public map until verified)
             Route::get('/branches', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'index']);
             Route::put('/branches/{branch}/verify', [\App\Http\Controllers\Api\V1\Admin\BranchVerificationController::class, 'verify']);
@@ -489,6 +507,7 @@ Route::prefix('v1')->group(function () {
                 ->where('document', '[a-z-]+[0-9]*');
             Route::put('/store-applications/{store}/approve', [AdminStoreApplicationController::class, 'approve']);
             Route::put('/store-applications/{store}/reject', [AdminStoreApplicationController::class, 'reject']);
+            Route::put('/store-applications/{store}/request-changes', [AdminStoreApplicationController::class, 'requestChanges']);
 
             Route::get('/accounts', [AdminAccountController::class, 'index']);
             Route::put('/accounts/{user}/suspend', [AdminAccountController::class, 'suspend']);
