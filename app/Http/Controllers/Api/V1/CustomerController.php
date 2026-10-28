@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\JobOrder;
 use App\Models\Store;
 use App\Models\User;
 use App\Support\BranchPin;
+use App\Support\JobMeasurementSync;
 use App\Support\PhoneNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -91,9 +93,18 @@ class CustomerController extends Controller
                 return $user;
             });
 
+        $sorted = collect($customers)->sortByDesc('total_spend')->values();
+        // Plain staff see the customers and their orders without what was spent or paid.
+        if (! JobOrder::mayRevealMoney($request->user())) {
+            $sorted->each(function ($c) use ($request) {
+                $c->total_spend = null;
+                $c->jobOrders->each(fn (JobOrder $j) => $j->seenBy($request->user()));
+            });
+        }
+
         return response()->json([
             'success' => true,
-            'data' => collect($customers)->sortByDesc('total_spend')->values(),
+            'data' => $sorted,
         ]);
     }
 
@@ -109,6 +120,10 @@ class CustomerController extends Controller
         }
 
         $storeNotes = $store->customers()->where('user_id', $customer->id)->value('store_customers.notes');
+
+        // Backfill first: a job order that still carries measurements without a linked profile gets
+        // one, so the detail screen's measurement list never misses the customer's own measurements.
+        JobMeasurementSync::syncForCustomer($store, $customer->id);
 
         $measurements = $store->measurements()
             ->where('customer_id', $customer->id)
@@ -137,11 +152,15 @@ class CustomerController extends Controller
         $customerData['shop_number'] = $this->shopNumberOf($store, $customer->id);
         $customerData['is_walk_in'] = ! self::cameOnline($jobs, $appointments);
         $customerData['intake_channel'] = $customerData['is_walk_in'] ? 'walk_in' : 'online';
-        $customerData['total_spend'] = (float) $jobs->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount);
+        $customerData['total_spend'] = JobOrder::mayRevealMoney($request->user())
+            ? (float) $jobs->sum(fn ($j) => (float) $j->total_amount - (float) $j->balance - (float) $j->discount_amount)
+            : null;
         $customerData['active_jobs'] = $jobs->whereNotIn('status', ['completed', 'cancelled'])->count();
         $customerData['completed_jobs'] = $jobs->where('status', 'completed')->count();
         $customerData['no_show_count'] = $appointments->where('status', 'no_show')->count();
         $customerData['last_appointment'] = $appointments->first();
+        // Plain staff see this customer's orders without amounts or payments.
+        $jobs->each(fn (JobOrder $j) => $j->seenBy($request->user()));
 
         return response()->json([
             'success' => true,
@@ -151,6 +170,35 @@ class CustomerController extends Controller
                 'jobs' => $jobs,
                 'appointments' => $appointments,
             ],
+        ]);
+    }
+
+    /**
+     * One customer's measurement history (every version of every profile), for the Client Book's
+     * detail screen. Backfills first, like show() above.
+     */
+    public function measurements(Request $request, Store $store, User $customer): JsonResponse
+    {
+        if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager') && ! $request->user()->hasRole('staff')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Same "belongs to this store" test as show() and update(): no other shop's customer is reachable here.
+        if (! $this->isCustomerOfStore($store, $customer)) {
+            return response()->json(['message' => self::MSG_NOT_FOUND], 404);
+        }
+
+        JobMeasurementSync::syncForCustomer($store, $customer->id);
+
+        $measurements = $store->measurements()
+            ->where('customer_id', $customer->id)
+            ->with('customer:id,name,email')
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $measurements,
         ]);
     }
 

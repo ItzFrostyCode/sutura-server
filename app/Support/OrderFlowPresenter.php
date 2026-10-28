@@ -94,7 +94,7 @@ final class OrderFlowPresenter
                 'fitting_requirement' => $job->fitting_requirement,
                 'material_source' => $job->material_source,
                 'is_rush' => (bool) $job->is_rush,
-                'rush_fee' => (float) $job->rush_fee,
+                'rush_fee' => $money ? (float) $job->rush_fee : null,
                 'quantity' => $job->quantity,
                 'people_count' => $job->custom_order_data['people_count'] ?? null,
             ],
@@ -215,8 +215,9 @@ final class OrderFlowPresenter
             ])->values(),
             'handover' => [
                 'quantity' => $job->garmentCount(),
-                // A group order counts its people; older orders count pieces.
-                'unit' => ! empty($job->custom_order_data['people_count']) ? 'people' : 'garments',
+                // Counted in people only while every person has exactly one garment; otherwise in garments.
+                'unit' => $job->peopleCount() > 0 && $job->garmentCount() === $job->peopleCount() ? 'people' : 'garments',
+                'people' => $job->peopleCount() ?: null,
                 'handed_over' => $given,
                 'remaining' => max(0, $job->garmentCount() - $given),
                 'records' => $handovers->map(fn ($h) => [

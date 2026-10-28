@@ -76,6 +76,13 @@ class UpdateJobOrderRequest extends FormRequest
             'custom_order_data.team_roster.*.size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.top_size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.bottom_size' => ['nullable', 'string', 'max:50'],
+            // Same per-wearer fields as when the order is made, so editing the team list never drops them.
+            'custom_order_data.team_roster.*.qty' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'custom_order_data.team_roster.*.measurement_id' => ['nullable', 'integer', Rule::exists('measurements', 'id')->where('store_id', $store?->id)],
+            'custom_order_data.team_roster.*.fit_metrics' => ['nullable', 'array', 'max:30'],
+            'custom_order_data.team_roster.*.fit_metrics.*' => ['nullable', 'string', 'max:20'],
+            'custom_order_data.roster_unit' => ['nullable', 'in:in,cm'],
+            'custom_order_data.team_roster.*.measure_area' => ['nullable', 'in:top,bottom,both'],
             'custom_order_data.team_roster.*.remarks' => ['nullable', 'string', 'max:255'],
             'custom_order_data.team_roster.*.completed' => ['nullable', 'boolean'],
             'custom_order_data.spec_table' => ['nullable', 'array'],

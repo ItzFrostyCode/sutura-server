@@ -3,8 +3,10 @@
 namespace App\Http\Requests\Store;
 
 use App\Models\Service;
+use App\Models\ServicePricing;
 use App\Support\CanonicalTaxonomy;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Validation\Rule;
 
 class StoreServiceRequest extends FormRequest
@@ -14,6 +16,18 @@ class StoreServiceRequest extends FormRequest
         // Services are shop-wide, so only the shop owner writes them. A branch manager can read the list
         // but not change it. The route group (role:store_owner) is the first gate; this is the second.
         return $this->user()->hasRole('store_owner');
+    }
+
+    /** A set is one top and one bottom: it cannot be sold as a set while covering only one part. */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $v) {
+            foreach ((array) $this->input('pricing_tiers', []) as $i => $tier) {
+                if (($tier['sold_as'] ?? null) === 'set' && ($tier['covers'] ?? null) !== 'both') {
+                    $v->errors()->add("pricing_tiers.$i.sold_as", 'A set is one top and one bottom: set what it covers to Top & Bottom.');
+                }
+            }
+        });
     }
 
     public function rules(): array
@@ -60,6 +74,9 @@ class StoreServiceRequest extends FormRequest
             'pricing_tiers' => ['nullable', 'array'],
             'pricing_tiers.*.label' => ['required', 'string', 'max:100'],
             'pricing_tiers.*.amount' => ['nullable', 'numeric', 'min:0'],
+            // What an option covers and what one ordered unit is: two separate settings (null = not configured, the legacy behaviour).
+            'pricing_tiers.*.covers' => ['nullable', Rule::in(ServicePricing::COVERS)],
+            'pricing_tiers.*.sold_as' => ['nullable', Rule::in(ServicePricing::SOLD_AS)],
             'is_active' => ['sometimes', 'boolean'],
             'image_url' => ['nullable', 'string', 'max:2048'],
             'size_chart_image_url' => ['nullable', 'string', 'max:2048'],

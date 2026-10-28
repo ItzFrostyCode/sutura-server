@@ -162,9 +162,16 @@ final class OrderProgress
                 return ['You approved the price.', 'We received your payment proof. The shop is checking it.', null];
             }
 
+            // What is still to pay, not the whole deposit again: a part that was already verified is not asked for twice.
+            $required = OrderReadiness::requiredDeposit($job);
+            $paid = min($required, OrderReadiness::paidSoFar($job));
+            $left = round($required - $paid, 2);
+
             return [
                 'You approved the price.',
-                'Please pay '.self::money(OrderReadiness::requiredDeposit($job)).' so we can start.',
+                $paid > 0.005
+                    ? 'Please pay '.self::money($left).' more ('.self::money($paid).' of '.self::money($required).' received) so we can start.'
+                    : 'Please pay '.self::money($required).' so we can start.',
                 ['key' => 'pay_deposit', 'label' => 'Pay the deposit'],
             ];
         }

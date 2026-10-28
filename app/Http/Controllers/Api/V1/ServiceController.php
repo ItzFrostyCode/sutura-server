@@ -9,9 +9,11 @@ use App\Models\Service;
 use App\Models\Store;
 use App\Models\StoreBranch;
 use App\Support\CanonicalTaxonomy;
+use App\Support\OrderRequirements;
 use App\Support\SearchIntent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class ServiceController extends Controller
 {
@@ -65,7 +67,7 @@ class ServiceController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->with([
-                'pricing:id,service_id,label,amount',
+                'pricing',
                 'store' => fn ($q) => $q->with([
                     'owner:id,name',
                     'branches' => fn ($bq) => $bq->live(),
@@ -179,7 +181,7 @@ class ServiceController extends Controller
             ->withCount(['reviews', 'saves', 'jobOrders'])
             ->withAvg('reviews', 'rating')
             ->with([
-                'pricing:id,service_id,label,amount',
+                'pricing',
                 // Individual reviews (star-only, no comment column on this
                 // table — see ServiceReview's own docblock) so the service
                 // detail page's "View All" ratings screen has something to
@@ -194,7 +196,7 @@ class ServiceController extends Controller
                 'min_order_qty', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
                 'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
             ])
-            ->each(function (Service $service) {
+            ->each(function (Service $service) use ($store) {
                 // withAvg() returns a numeric string, not a float — round it
                 // the same way ServiceController::publicShowroom does.
                 $service->reviews_avg_rating = $service->reviews_avg_rating !== null
@@ -202,6 +204,10 @@ class ServiceController extends Controller
                     : null;
                 $service->orders_count = (int) ($service->job_orders_count ?? 0);
                 $service->saves_count = (int) ($service->saves_count ?? 0);
+                // What an online order of this service will ask of the customer
+                // (measurements, fitting, deposit) — the service setting when set,
+                // else the shop default. Same resolution the job order snapshots on creation.
+                $service->order_requirements = OrderRequirements::resolve($store, [$service]);
             });
 
         return response()->json([
@@ -353,13 +359,17 @@ class ServiceController extends Controller
     private function syncPricingTiers(Service $service, array $tiers): void
     {
         $service->pricing()->delete();
+        $hasUnit = Schema::hasColumn('service_pricing', 'covers') && Schema::hasColumn('service_pricing', 'sold_as');
         foreach ($tiers as $tier) {
             $label = trim((string) ($tier['label'] ?? ''));
             if ($label !== '') {
-                $service->pricing()->create([
-                    'label' => $label,
-                    'amount' => $tier['amount'] ?? 0,
-                ]);
+                $row = ['label' => $label, 'amount' => $tier['amount'] ?? 0];
+                // Written only once the columns exist, so saving a service keeps working until the migration has been run.
+                if ($hasUnit) {
+                    $row['covers'] = $tier['covers'] ?? null;
+                    $row['sold_as'] = $tier['sold_as'] ?? null;
+                }
+                $service->pricing()->create($row);
             }
         }
     }

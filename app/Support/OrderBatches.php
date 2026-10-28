@@ -112,10 +112,13 @@ class OrderBatches
 
         $total = (float) $parent->total_amount;
         $discount = (float) $parent->discount_amount;
-        $per = $n > 0 ? $total / $n : 0.0;
+        // The default share is by pieces, not heads: a wearer with 3 polos carries more of the price than one with 1.
+        $piecesOf = fn (array $people) => JobOrder::rosterPieces(array_map(fn ($i) => $roster[$i] ?? [], $people));
+        $allPieces = JobOrder::rosterPieces($roster);
+        $per = $allPieces > 0 ? $total / $allPieces : 0.0;
         $parts = [];
         foreach ($groups as $g) {
-            $k = count($g['people']);
+            $k = $piecesOf($g['people']);
             $partTotal = isset($g['total_amount']) ? round((float) $g['total_amount'], 2) : round($per * $k, 2);
             $partDiscount = isset($g['discount_amount']) ? round((float) $g['discount_amount'], 2) : ($total > 0 ? round($discount * ($partTotal / $total), 2) : 0.0);
             if ($partTotal < 0 || $partDiscount < 0 || $partDiscount > $partTotal) {

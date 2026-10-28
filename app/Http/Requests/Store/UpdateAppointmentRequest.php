@@ -99,6 +99,11 @@ class UpdateAppointmentRequest extends FormRequest
 
             // Notes always updatable
             'notes' => ['nullable', 'string', 'max:2000'],
+            'shared_notes' => ['nullable', 'string', 'max:4000'],
+            'shared_links' => ['nullable', 'array', 'max:10'],
+            'shared_links.*' => ['string', 'max:1000', new \App\Rules\SafeLink],
+            'shared_images' => ['nullable', 'array', 'max:10'],
+            'shared_images.*' => ['string', 'max:1000'],
             'job_order_id' => [
                 'nullable', 'integer',
                 Rule::exists('job_orders', 'id')->where('store_id', $store?->id),

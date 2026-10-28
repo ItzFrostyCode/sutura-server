@@ -38,16 +38,25 @@ class OrderCancelController extends Controller
             return response()->json(['success' => false, 'message' => 'This order is already '.$jobOrder->status.' and can no longer be cancelled.'], 422);
         }
 
+        // An order made by mistake never involved the customer: no agreement is asked, they are not told, and it only
+        // applies while no money has been taken (otherwise it is a real cancellation, with a refund to record).
+        $mistake = $request->input('reason') === 'entered_by_mistake';
         $v = $request->validate([
             'reason' => ['required', 'string', Rule::in(JobOrder::CANCELLATION_REASONS)],
             'note' => ['nullable', 'string', 'max:500'],
-            'agreed_via' => ['required', 'string', Rule::in(self::AGREED_VIA)],
-            'customer_agreed' => ['required', 'accepted'],
+            'agreed_via' => [$mistake ? 'nullable' : 'required', 'string', Rule::in(self::AGREED_VIA)],
+            'customer_agreed' => [$mistake ? 'nullable' : 'required', $mistake ? 'boolean' : 'accepted'],
         ]);
+        if ($mistake) {
+            $paid = (float) $jobOrder->total_amount - (float) $jobOrder->balance - (float) ($jobOrder->discount_amount ?? 0);
+            if ($paid > 0.009) {
+                return response()->json(['success' => false, 'message' => 'Money was already taken on this order. Cancel it with the customer\'s agreement and record the refund instead.'], 422);
+            }
+        }
 
         $oldStatus = $jobOrder->status;
         $record = [
-            'agreed_via' => $v['agreed_via'],
+            'agreed_via' => $v['agreed_via'] ?? null,
             'note' => $v['note'] ?? null,
             'by' => $request->user()->id,
             'at' => now()->toIso8601String(),
@@ -60,6 +69,10 @@ class OrderCancelController extends Controller
 
             // Close the open production stage the order was in, the same as moving it out of that stage.
             DB::table('job_order_staff')->where('job_order_id', $jobOrder->id)->whereNull('completed_at')->update(['completed_at' => now()]);
+            // A wrong order lets go of the consultation it was written from, so the right one can be made from it again.
+            if ($v['reason'] === 'entered_by_mistake') {
+                Appointment::where('job_order_id', $jobOrder->id)->where('kind', '!=', 'production')->update(['job_order_id' => null, 'outcome' => null]);
+            }
             if ($oldStatus === 'on_hold' && $jobOrder->held_at) {
                 $jobOrder->forceFill(['held_at' => null])->save();
             }
@@ -69,10 +82,14 @@ class OrderCancelController extends Controller
         $jobOrder->fittings()->whereIn('status', ['pending', 'confirmed', 'in_progress'])->get()
             ->each(function (Appointment $appointment) use ($request) {
                 $appointment->update(['status' => 'cancelled']);
-                $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'cancelled', null, $request->user()));
+                if (! $mistake) {
+                    $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'cancelled', null, $request->user()));
+                }
             });
 
-        SafeNotify::send($jobOrder->customer, new JobStatusUpdatedNotification($jobOrder, 'cancelled', $request->user()));
+        if (! $mistake) {
+            SafeNotify::send($jobOrder->customer, new JobStatusUpdatedNotification($jobOrder, 'cancelled', $request->user()));
+        }
         $this->notifyOthers($request, $store, $jobOrder);
         $this->logOrderAction($request, $store, $jobOrder, 'job_order_cancelled', [
             'order_number' => $jobOrder->order_number,

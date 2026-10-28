@@ -30,7 +30,7 @@ final class OrderPreProduction
             $pending = OrderReadiness::pendingVerification($job);
             $paymentNote = $pending > 0.005
                 ? '₱'.number_format($pending, 2).' is waiting to be verified.'
-                : 'Deposit of ₱'.number_format(OrderReadiness::requiredDeposit($job), 2).' not paid yet.';
+                : self::depositNote($job);
         }
 
         $steps = [
@@ -49,5 +49,16 @@ final class OrderPreProduction
         $current = collect($steps)->first(fn (array $s) => ! $s['done']);
 
         return ['steps' => $steps, 'current' => $current['key'] ?? null];
+    }
+
+    /** The deposit step's note: what is still to pay when part of it is already in. */
+    private static function depositNote(JobOrder $job): string
+    {
+        $required = OrderReadiness::requiredDeposit($job);
+        $paid = min($required, OrderReadiness::paidSoFar($job));
+
+        return $paid > 0.005
+            ? '₱'.number_format($paid, 2).' of the ₱'.number_format($required, 2).' deposit is paid; ₱'.number_format($required - $paid, 2).' to go.'
+            : 'Deposit of ₱'.number_format($required, 2).' not paid yet.';
     }
 }

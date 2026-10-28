@@ -44,6 +44,8 @@ class StoreJobOrderRequest extends FormRequest
                     $fail('This account belongs to a staff or owner user, not a customer.');
                 }
             }],
+            // The pricing option of the service this order is made from. Only its id is taken: what it covers and what one unit is are read from it on the server.
+            'pricing_id' => ['nullable', 'integer'],
             'service_id' => [
                 'required', 'integer',
                 Rule::exists('services', 'id')->where('store_id', $store?->id),
@@ -88,6 +90,15 @@ class StoreJobOrderRequest extends FormRequest
             'custom_order_data.team_roster.*.size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.top_size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.bottom_size' => ['nullable', 'string', 'max:50'],
+            // Garments for this one wearer. Different from the number of wearers: a person can need several pieces.
+            'custom_order_data.team_roster.*.qty' => ['nullable', 'integer', 'min:1', 'max:500'],
+            // The wearer's own measurements: a profile already saved (checked against the customer in the controller),
+            // or typed points that become that wearer's profile when the order is made.
+            'custom_order_data.team_roster.*.measurement_id' => ['nullable', 'integer', Rule::exists('measurements', 'id')->where('store_id', $store?->id)],
+            'custom_order_data.team_roster.*.fit_metrics' => ['nullable', 'array', 'max:30'],
+            'custom_order_data.team_roster.*.fit_metrics.*' => ['nullable', 'string', 'max:20'],
+            'custom_order_data.roster_unit' => ['nullable', 'in:in,cm'],
+            'custom_order_data.team_roster.*.measure_area' => ['nullable', 'in:top,bottom,both'],
             'custom_order_data.team_roster.*.remarks' => ['nullable', 'string', 'max:255'],
             'custom_order_data.team_roster.*.completed' => ['nullable', 'boolean'],
             'custom_order_data.pre_existing_damage_notes' => ['nullable', 'string', 'max:2000'],
