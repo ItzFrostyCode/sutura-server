@@ -142,6 +142,7 @@ class ActivityRecorder
         'POST stores/{store}/tickets' => ['ticket_opened', 'Opened a support ticket'],
         'POST stores/{store}/tickets/{ticket}/reply' => ['ticket_replied', 'Replied to a support ticket'],
         'POST stores/{store}/tickets/{ticket}/close' => ['ticket_closed', 'Closed a support ticket'],
+        'POST my-tickets' => ['ticket_opened', 'Opened a support ticket'],
         'POST my-tickets/{ticket}/reply' => ['ticket_replied', 'Replied to a support ticket'],
         'POST admin/tickets/{ticket}/reply' => ['ticket_replied', 'Replied to a support ticket'],
         'PUT admin/tickets/{ticket}/status' => ['ticket_status_changed', 'Changed a support ticket status'],
