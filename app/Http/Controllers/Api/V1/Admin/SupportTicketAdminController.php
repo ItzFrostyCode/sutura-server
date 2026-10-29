@@ -94,9 +94,9 @@ class SupportTicketAdminController extends Controller
 
         $reply->load('user:id,name,email');
 
-        // The admin frontend doesn't exist yet, so this reply is otherwise
-        // invisible to the store owner unless they happen to reopen the
-        // ticket page themselves.
+        // Neither the shop's support page nor My Support Tickets polls for
+        // new replies, so the filer only sees this one unless they reopen
+        // the ticket page themselves — ping them in-app instead.
         $ticket->submittedBy?->notify(new SupportTicketReplyNotification($ticket, $reply->user->name));
 
         return response()->json([
