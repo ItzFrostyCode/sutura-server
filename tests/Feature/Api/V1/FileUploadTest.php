@@ -14,11 +14,23 @@ class FileUploadTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** @var string[] Files already in stores/ before the test: real uploads that must survive it. */
+    private array $filesBefore = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->filesBefore = Storage::disk('public')->allFiles('stores');
+    }
+
     protected function tearDown(): void
     {
         // These URL-correctness tests deliberately use the REAL 'public' disk
-        // (not Storage::fake()) -- see note below -- so clean up what they wrote.
-        Storage::disk('public')->deleteDirectory('stores');
+        // (not Storage::fake()) -- see note below -- so clean up what THEY wrote, and only that.
+        // This used to be deleteDirectory('stores'), which also erased every real upload (every shop's logo, service
+        // and design photos) on the computer that ran the tests.
+        $written = array_diff(Storage::disk('public')->allFiles('stores'), $this->filesBefore);
+        Storage::disk('public')->delete($written);
         parent::tearDown();
     }
 
