@@ -515,7 +515,7 @@ class CatalogController extends Controller
             // frontend needs service_types to decide, not just the id.
             // The service's price too: a design is priced by its service (it only changes for custom work or add-ons).
             'service:id,name,service_category,service_types,min_order_qty,roster_fields,base_price,sale_price,sale_starts_at,sale_ends_at',
-            'service.pricing:id,service_id,label,amount',
+            'service.pricing',
         ];
 
         if ($this->belongsToStore($request, $store)) {

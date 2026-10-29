@@ -266,4 +266,86 @@ class PreProductionFlowTest extends TestCase
         $this->assertNotNull($job->fresh()->shop_accepted_at);
         $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/accept-request")->assertStatus(422);
     }
+
+    public function test_a_part_that_was_already_paid_is_not_asked_for_again(): void
+    {
+        $job = $this->order();
+        $this->quote($job)->assertOk();
+        $this->actingAs($this->customer)->postJson("/api/v1/my-orders/{$job->id}/decision", ['decision' => 'accept', 'accepted_terms' => true])->assertOk();
+
+        // The deposit is 50% of 5,000 = 2,500; 1,000 of it is in.
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/pay", ['amount' => 1000, 'payment_method' => 'cash', 'cash_tendered' => 1000])->assertStatus(200);
+
+        $detail = $this->actingAs($this->customer)->getJson("/api/v1/my-orders/{$job->id}")->json('data.progress.detail');
+        $this->assertStringContainsString('₱1,500.00 more', $detail, 'The customer is told what is left, not the whole deposit again');
+        $this->assertStringContainsString('₱1,000.00 of ₱2,500.00 received', $detail);
+
+        $note = collect($this->actingAs($this->owner)->getJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/readiness")->json('data.pre_production.steps'))->firstWhere('key', 'payment')['note'] ?? '';
+        $this->assertStringContainsString('₱1,000.00 of the ₱2,500.00 deposit is paid; ₱1,500.00 to go.', $note, 'The shop sees the same');
+    }
+
+    public function test_a_mis_clicked_details_approval_can_be_undone_until_the_customer_answers(): void
+    {
+        $job = $this->order();
+        $base = "/api/v1/stores/{$this->store->id}/jobs/{$job->id}";
+        $this->actingAs($this->owner)->postJson("$base/specs/approve")->assertOk();
+        $this->assertNotNull($job->fresh()->specs_approved_at);
+
+        $this->actingAs($this->owner)->deleteJson("$base/details-approval")->assertOk();
+        $this->assertNull($job->fresh()->specs_approved_at);
+
+        // After the customer accepted the price the details are what they agreed to.
+        $this->actingAs($this->owner)->postJson("$base/specs/approve")->assertOk();
+        $job->forceFill(['customer_approved_at' => now()])->save();
+        $this->actingAs($this->owner)->deleteJson("$base/details-approval")->assertStatus(422);
+        $this->assertNotNull($job->fresh()->specs_approved_at);
+
+        // Plain staff cannot undo a sign-off.
+        $this->actingAs($this->staff)->deleteJson("$base/details-approval")->assertForbidden();
+    }
+
+    public function test_an_order_made_by_mistake_is_cancelled_without_the_customer_and_without_telling_them(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        $job = $this->order();
+        $url = "/api/v1/stores/{$this->store->id}/jobs/{$job->id}/cancel";
+
+        // Without the mistake reason the customer's agreement is still required.
+        $this->actingAs($this->owner)->postJson($url, ['reason' => 'other'])->assertStatus(422);
+
+        $this->actingAs($this->owner)->postJson($url, ['reason' => 'entered_by_mistake', 'note' => 'Wrong service'])->assertOk();
+        $this->assertSame('cancelled', $job->fresh()->status);
+        $this->assertSame('entered_by_mistake', $job->fresh()->cancellation_reason);
+        \Illuminate\Support\Facades\Notification::assertNotSentTo($this->customer, \App\Notifications\JobStatusUpdatedNotification::class);
+    }
+
+    public function test_a_wrong_order_lets_go_of_its_consultation(): void
+    {
+        $job = $this->order();
+        $visit = \App\Models\Appointment::create([
+            'store_id' => $this->store->id, 'customer_id' => $this->customer->id, 'service_id' => $this->service->id,
+            'scheduled_at' => now()->subHour(), 'status' => 'completed', 'job_order_id' => $job->id,
+        ]);
+
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/cancel", ['reason' => 'entered_by_mistake'])->assertOk();
+        $this->assertNull($visit->fresh()->job_order_id, 'The visit can be written up again');
+    }
+
+    public function test_made_by_mistake_is_refused_once_money_was_taken(): void
+    {
+        $job = $this->order();
+        $job->forceFill(['total_amount' => 500, 'balance' => 250])->save();
+
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/cancel", ['reason' => 'entered_by_mistake'])->assertStatus(422);
+        $this->assertNotSame('cancelled', $job->fresh()->status);
+    }
+
+    public function test_the_customer_is_told_when_the_shop_writes_up_their_order(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        $job = $this->order();
+
+        \Illuminate\Support\Facades\Notification::assertSentTo($this->customer, \App\Notifications\OrderUpdateNotification::class,
+            fn ($n) => $n->key === 'created' && $n->jobOrder->id === $job->id && str_contains($n->message, $job->tracking_code));
+    }
 }

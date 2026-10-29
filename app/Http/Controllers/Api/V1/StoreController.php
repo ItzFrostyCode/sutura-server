@@ -446,7 +446,7 @@ class StoreController extends Controller
     {
         return $query->with([
             'branches' => fn ($q) => $q->live(),
-            'services' => fn ($q) => $q->where('is_active', true)->withCount('reviews')->withAvg('reviews', 'rating'),
+            'services' => fn ($q) => $q->where('is_active', true)->withCount(['reviews', 'saves', 'jobOrders'])->withAvg('reviews', 'rating'),
             'owner:id,name',
             'catalogItems' => function ($cq) use ($request) {
                 $cq->listed()->with('images');
@@ -462,7 +462,9 @@ class StoreController extends Controller
                         '%'.$search.'%',
                     ]);
                 }
-                $cq->latest()->take(10);
+                // No take() here: a limit inside an eager load caps the rows of ALL the shops together, so most shops got
+                // no designs (and no pictures). Each shop is cut to its 10 newest designs after loading (transformStoreCollection).
+                $cq->latest();
             },
         ])->paginate($request->input('per_page', 20));
     }
@@ -525,7 +527,14 @@ class StoreController extends Controller
                     $svc->reviews_avg_rating = $svc->reviews_avg_rating !== null
                         ? round((float) $svc->reviews_avg_rating, 1)
                         : null;
+                    // The same two numbers the service pages show (ServiceController).
+                    $svc->orders_count = (int) ($svc->job_orders_count ?? 0);
+                    $svc->saves_count = (int) ($svc->saves_count ?? 0);
                 });
+            }
+
+            if ($store->relationLoaded('catalogItems')) {
+                $store->setRelation('catalogItems', $store->catalogItems->take(10)->values());
             }
 
             return $store;

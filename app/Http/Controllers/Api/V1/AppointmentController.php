@@ -26,6 +26,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class AppointmentController extends Controller
@@ -584,16 +585,12 @@ class AppointmentController extends Controller
      *
      * @return array{0: ?JsonResponse, 1: \Illuminate\Support\Collection} the refusal (if any) and the requests to move
      */
-    private function walkInClash(Request $request, Store $store, Carbon $scheduledAt, ?int $branchId, int $duration, ?string $onConflict, bool $arrivesNow = false): array
+    private function walkInClash(Request $request, Store $store, Carbon $scheduledAt, ?int $branchId, int $duration, ?string $onConflict): array
     {
-        // A visit the shop books for LATER (a visit, a follow-up) must not overlap anything: not a confirmed visit and not a
-        // request a customer made online and is waiting on, which is the same rule the customer's own booking follows. Only a
-        // customer who is standing at the counter right now (Start consultation) takes priority over a waiting request.
-        if ($denied = $this->assertSlotAvailable($store, $scheduledAt, $branchId, $duration, ! $arrivesNow)) {
+        // Confirmed visits are never displaced. Pending online requests are handled below so the owner can choose
+        // whether to serve the walk-in or ask the online customer to move.
+        if ($denied = $this->assertSlotAvailable($store, $scheduledAt, $branchId, $duration, false)) {
             return [$denied, collect()];
-        }
-        if (! $arrivesNow) {
-            return [null, collect()];
         }
 
         $pending = Appointment::getOverlappingPendingAppointments($store, $branchId, $scheduledAt, $duration);
@@ -692,7 +689,8 @@ class AppointmentController extends Controller
         $onConflict = $data['on_conflict'] ?? null;
         $walkInName = $data['walk_in_name'] ?? null;
         $walkInPhone = $data['walk_in_phone'] ?? null;
-        unset($data['on_conflict'], $data['walk_in_name'], $data['walk_in_phone']);
+        $walkInGender = $data['walk_in_gender'] ?? null;
+        unset($data['on_conflict'], $data['walk_in_name'], $data['walk_in_phone'], $data['walk_in_gender']);
 
         // Any visit made at the shop: get to know the person first. Choose a customer, or give a name and a mobile number.
         // (There is no nameless walk-in any more.)
@@ -753,7 +751,7 @@ class AppointmentController extends Controller
         $scheduledAt = Carbon::parse($data['scheduled_at']);
 
         // Closed day, a confirmed booking (never displaced), or a waiting online request (the owner chooses).
-        [$denied, $overlappingPending] = $this->walkInClash($request, $store, $scheduledAt, $data['store_branch_id'] ?? null, $data['duration_minutes'], $onConflict, (bool) $request->attributes->get('consultation_now'));
+        [$denied, $overlappingPending] = $this->walkInClash($request, $store, $scheduledAt, $data['store_branch_id'] ?? null, $data['duration_minutes'], $onConflict);
         if ($denied) {
             return $denied;
         }
@@ -770,9 +768,9 @@ class AppointmentController extends Controller
         }
 
         // The appointment and its item are saved together or not at all.
-        $appointment = DB::transaction(function () use ($store, $data, $itemsData, $walkInName, $walkInPhone) {
+        $appointment = DB::transaction(function () use ($store, $data, $itemsData, $walkInName, $walkInPhone, $walkInGender) {
             if (empty($data['customer_id'])) {
-                $data['customer_id'] = WalkInCustomer::make($store, $walkInName, $walkInPhone)->id;
+                $data['customer_id'] = WalkInCustomer::make($store, $walkInName, $walkInPhone, $walkInGender)->id;
             }
             $appointment = $store->appointments()->create($data);
             if ($appointment->customer_id && ! $store->customers()->where('user_id', $appointment->customer_id)->exists()) {
@@ -977,10 +975,39 @@ class AppointmentController extends Controller
 
             $data = $request->validated();
             $newStatus = $data['status'] ?? null;
-            // A branch-pinned account cannot move a visit to another branch.
             $pin = BranchPin::of($user);
-            if ($pin && ! empty($data['store_branch_id']) && (int) $data['store_branch_id'] !== $pin) {
-                return response()->json(['success' => false, 'message' => 'You can only keep visits at your own branch.'], 403);
+            $isBranchManager = $roles->contains('branch_manager') && ! $roles->contains('store_owner');
+
+            if (($isStaff || $isBranchManager) && array_key_exists('store_branch_id', $data)) {
+                $targetBranch = $data['store_branch_id'] === null ? null : (int) $data['store_branch_id'];
+                if ($targetBranch === null || ($pin && $targetBranch !== $pin) || ($appointment->store_branch_id && $targetBranch !== (int) $appointment->store_branch_id)) {
+                    return response()->json(['success' => false, 'message' => 'You can only keep visits at your own branch.'], 403);
+                }
+            }
+
+            if ($isStaff && array_key_exists('customer_id', $data)) {
+                return response()->json(['success' => false, 'message' => 'Use the customer attachment action for a walk-in visit.'], 403);
+            }
+
+            if ($isStaff && (array_key_exists('scheduled_at', $data) || array_key_exists('duration_minutes', $data))) {
+                return response()->json(['success' => false, 'message' => 'Staff cannot change an appointment time or duration.'], 403);
+            }
+
+            if (array_key_exists('outcome', $data)) {
+                return response()->json(['success' => false, 'message' => 'Use the dedicated appointment action for this outcome.'], 422);
+            }
+
+            if (array_key_exists('job_order_id', $data) && $data['job_order_id'] !== null) {
+                $jobOrder = JobOrder::where('store_id', $store->id)->find($data['job_order_id']);
+                $customerId = (int) ($data['customer_id'] ?? $appointment->customer_id);
+                $branchId = array_key_exists('store_branch_id', $data) ? $data['store_branch_id'] : $appointment->store_branch_id;
+
+                if (! $jobOrder || (int) $jobOrder->customer_id !== $customerId) {
+                    return response()->json(['success' => false, 'message' => 'That job order belongs to a different customer.'], 422);
+                }
+                if ($branchId !== null && $jobOrder->store_branch_id !== null && (int) $jobOrder->store_branch_id !== (int) $branchId) {
+                    return response()->json(['success' => false, 'message' => 'That job order belongs to a different branch.'], 422);
+                }
             }
 
             // ── Role enforcement & State transition check ────────────────────────
@@ -990,37 +1017,47 @@ class AppointmentController extends Controller
             }
 
             if ($isStaff) {
-                // Staff cannot modify schedule or notes
-                unset($data['scheduled_at'], $data['notes'], $data['assigned_staff_id']);
+                // Staff cannot modify booking administration or customer-sharing fields.
+                unset(
+                    $data['scheduled_at'],
+                    $data['notes'],
+                    $data['assigned_staff_id'],
+                    $data['shared_notes'],
+                    $data['shared_links'],
+                    $data['shared_images']
+                );
             }
 
-            // ── Reschedule logic ──────────────────────────────────────────────────
+            // ── Reschedule and duration-change logic ─────────────────────────────
             $isRescheduled = false;
-            if (! $error && ! empty($data['scheduled_at'])) {
-                $oldAt = $appointment->scheduled_at?->format('Y-m-d H:i:s');
-                $newAt = date('Y-m-d H:i:s', strtotime($data['scheduled_at']));
+            $oldAt = $appointment->scheduled_at?->format('Y-m-d H:i:s');
+            $newAt = array_key_exists('scheduled_at', $data)
+                ? date('Y-m-d H:i:s', strtotime($data['scheduled_at']))
+                : $oldAt;
+            $scheduleChanged = $oldAt !== $newAt;
+            $durationChanged = array_key_exists('duration_minutes', $data)
+                && (int) $data['duration_minutes'] !== (int) ($appointment->duration_minutes ?? 60);
+            $branchChanged = array_key_exists('store_branch_id', $data)
+                && (int) ($data['store_branch_id'] ?? 0) !== (int) ($appointment->store_branch_id ?? 0);
 
-                if ($oldAt !== $newAt) {
-                    // Only pending or confirmed appointments can be rescheduled
-                    if (! in_array($appointment->status, ['pending', 'confirmed'])) {
-                        $error = 'Only pending or confirmed appointments can be rescheduled.';
-                        $status = 422;
-                    } elseif ($closureTitle = $this->fallsOnAnnouncedClosure($store, Carbon::parse($data['scheduled_at']), $appointment->store_branch_id)) {
+            if (! $error && ($scheduleChanged || $durationChanged || $branchChanged)) {
+                if (! in_array($appointment->status, ['pending', 'confirmed'], true)) {
+                    $error = 'Only pending or confirmed appointments can change their booking slot.';
+                    $status = 422;
+                } else {
+                    $scheduledAt = Carbon::parse($data['scheduled_at'] ?? $appointment->scheduled_at);
+                    $duration = (int) ($data['duration_minutes'] ?? $appointment->duration_minutes ?? 60);
+                    $branchId = array_key_exists('store_branch_id', $data) ? $data['store_branch_id'] : $appointment->store_branch_id;
+
+                    if ($closureTitle = $this->fallsOnAnnouncedClosure($store, $scheduledAt, $branchId)) {
                         $error = "The store is closed on this date ({$closureTitle}). Please choose a different day.";
                         $status = 409;
-                    } elseif (Appointment::hasSchedulingConflict(
-                        $store,
-                        $appointment->store_branch_id,
-                        Carbon::parse($data['scheduled_at']),
-                        $data['duration_minutes'] ?? $appointment->duration_minutes ?? 60,
-                        $appointment->id
-                    )) {
+                    } elseif (Appointment::hasSchedulingConflict($store, $branchId, $scheduledAt, $duration, $appointment->id)) {
                         $error = 'This time slot is already booked. Please choose a different time.';
                         $status = 409;
-                    } else {
+                    } elseif ($scheduleChanged) {
                         $isRescheduled = true;
 
-                        // Audit log
                         $store->auditLogs()->create([
                             'user_id' => $user->id,
                             'action' => 'appointment_rescheduled',
@@ -1034,7 +1071,6 @@ class AppointmentController extends Controller
                             'ip_address' => $request->ip(),
                         ]);
 
-                        // The time it was moved from is kept as a field (shown as "moved from …"), not typed into the notes.
                         $data['previous_scheduled_at'] = $appointment->scheduled_at;
                     }
                 }
@@ -1109,8 +1145,9 @@ class AppointmentController extends Controller
             if (! $error && $newStatus === 'confirmed' && $appointment->status !== 'confirmed') {
                 $checkAt = $isRescheduled ? Carbon::parse($data['scheduled_at']) : $appointment->scheduled_at;
                 $checkDuration = $data['duration_minutes'] ?? $appointment->duration_minutes ?? 60;
+                $checkBranch = array_key_exists('store_branch_id', $data) ? $data['store_branch_id'] : $appointment->store_branch_id;
 
-                if (Appointment::hasSchedulingConflict($store, $appointment->store_branch_id, $checkAt, $checkDuration, $appointment->id, false)) {
+                if (Appointment::hasSchedulingConflict($store, $checkBranch, $checkAt, $checkDuration, $appointment->id, false)) {
                     $error = 'This time slot is already booked by another confirmed appointment. Please reschedule before confirming.';
                     $status = 409;
                 }
@@ -1124,6 +1161,17 @@ class AppointmentController extends Controller
 
                 // Laravel's getOriginal() already holds the NEW value after update(), so keep the old one here.
                 $oldStatus = $appointment->status;
+
+                $sharedContentChanged = array_key_exists('shared_notes', $data)
+                    || array_key_exists('shared_links', $data)
+                    || array_key_exists('shared_images', $data);
+
+                // Keep the legacy singular link in sync with the first shared link.
+                if (array_key_exists('shared_links', $data)) {
+                    $data['shared_link'] = is_array($data['shared_links']) && $data['shared_links'] !== []
+                        ? array_values($data['shared_links'])[0]
+                        : null;
+                }
 
                 // Perform update
                 $appointment->update($data);
@@ -1166,8 +1214,11 @@ class AppointmentController extends Controller
                 $customer = $appointment->customer;
                 if ($customer) {
                     $statusChanged = $newStatus && $newStatus !== $oldStatus;
+                    if ($sharedContentChanged) {
+                        $customer->notify(new AppointmentStatusNotification($appointment, 'shared', null, $request->user()));
+                    }
                     // Accepting a request tells the customer (in-app, email and text), even when the time moved too.
-                    if ($isRescheduled && ! ($statusChanged && $newStatus === 'confirmed')) {
+                    if (! $sharedContentChanged && $isRescheduled && ! ($statusChanged && $newStatus === 'confirmed')) {
                         $this->notifyAssignedStaff($request, $appointment, 'appointment_rescheduled', 'Appointment Time Changed', "Appointment for {$customer->name} is now ".$appointment->scheduled_at?->format('M j, Y g:i A').'.');
                         $customer->notify(new AppointmentStatusNotification($appointment, 'rescheduled', null, $request->user()));
                         $this->notifyOwnerOfActivity($request, $store, [
@@ -1620,7 +1671,7 @@ class AppointmentController extends Controller
         try {
             $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'rejected', null, $request->user()));
         } catch (\Throwable $e) {
-            \Log::warning('Failed sending appointment rejection notification: '.$e->getMessage());
+            Log::warning('Failed sending appointment rejection notification: '.$e->getMessage());
         }
 
         return response()->json(['success' => true, 'message' => 'Appointment rejected.', 'data' => $appointment]);

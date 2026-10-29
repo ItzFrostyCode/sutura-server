@@ -18,7 +18,7 @@ class WalkInCustomer
 {
     public const PLACEHOLDER_NAME = 'Walk-in customer';
 
-    public static function make(Store $store, ?string $name = null, ?string $phone = null): User
+    public static function make(Store $store, ?string $name = null, ?string $phone = null, ?string $gender = null): User
     {
         $normalized = $phone ? PhoneNumber::normalize($phone) : null;
         if ($normalized) {
@@ -34,6 +34,7 @@ class WalkInCustomer
             'email' => 'walkin_'.time().'_'.Str::random(4).'@sutura.com',
             'name' => trim((string) $name) !== '' ? trim((string) $name) : self::PLACEHOLDER_NAME,
             'phone' => $normalized,
+            'gender' => in_array($gender, ['male', 'female'], true) ? $gender : null,
             'password' => Hash::make(Str::random(12)),
         ]);
         $store->customers()->syncWithoutDetaching([$user->id => ['notes' => null]]);

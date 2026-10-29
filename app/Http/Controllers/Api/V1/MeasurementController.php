@@ -9,6 +9,7 @@ use App\Models\CatalogItem;
 use App\Models\Measurement;
 use App\Models\Store;
 use App\Support\BranchPin;
+use App\Support\JobMeasurementSync;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -50,6 +51,21 @@ class MeasurementController extends Controller
     public function myMeasurements(Request $request): JsonResponse
     {
         $customerId = $request->user()->id;
+
+        // Backfill lazily, same rule as the store-scoped index() (?customer_id=): any of this
+        // customer's job orders that still carry measurements in custom_order_data but no linked
+        // profile gets one now, so "My Measurements" never misses what the shop recorded.
+        // Runs for the shops this customer belongs to (added by the shop, or already ordered from).
+        $backfillStores = Store::where(function ($q) use ($customerId) {
+            $q->whereHas('customers', fn ($pq) => $pq->where('users.id', $customerId))
+                ->orWhereHas('jobOrders', fn ($jq) => $jq->where('customer_id', $customerId));
+        })->pluck('id');
+        foreach ($backfillStores as $backfillStoreId) {
+            if ($backfillStore = Store::find($backfillStoreId)) {
+                JobMeasurementSync::syncForCustomer($backfillStore, $customerId);
+            }
+        }
+
         // Each version carries the customer's own job orders it was used for, so My Measurements can show them order by order.
         $measurements = Measurement::where('customer_id', $customerId)
             ->with([
@@ -82,6 +98,11 @@ class MeasurementController extends Controller
         if ($request->has('appointment_id')) {
             $query->where('appointment_id', $request->appointment_id);
         } elseif ($request->has('customer_id')) {
+            // Backfill lazily: any of this customer's job orders that still
+            // carry measurements in custom_order_data but have no linked
+            // profile (e.g. created before the sync existed) gets one now,
+            // so the customer listing never misses a measurement.
+            JobMeasurementSync::syncForCustomer($store, (int) $request->customer_id);
             $query->where('customer_id', $request->customer_id);
         }
 

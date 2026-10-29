@@ -29,6 +29,7 @@ class StoreAppointmentRequest extends FormRequest
             // Optional for a consultation that starts now: with no customer a walk-in placeholder is made (see WalkInCustomer).
             'customer_id' => ['nullable', 'integer', 'exists:users,id'],
             'walk_in_name' => ['nullable', 'string', 'max:120'],
+            'walk_in_gender' => ['nullable', 'in:male,female'],
             'walk_in_phone' => ['nullable', 'string', 'max:20', function (string $attribute, mixed $value, \Closure $fail) {
                 if (\App\Support\PhoneNumber::normalize((string) $value) === null) {
                     $fail('Enter an 11-digit Philippine mobile number starting with 09 (e.g. 0977 704 4683).');

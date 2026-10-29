@@ -208,12 +208,18 @@ class JobOrderTest extends TestCase
             'status' => 'cutting',
         ]);
 
-        $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
-            'status' => 'cancelled',
-            'cancellation_reason' => 'forfeited_deposit_abandoned',
-        ]);
+        // Cancellation only goes through the dedicated endpoint — the generic
+        // status update refuses `cancelled` on purpose ("Use Cancel this order.").
+        $response = $this->actingAs($this->user)->postJson(
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/cancel",
+            [
+                'reason' => 'forfeited_deposit_abandoned',
+                'agreed_via' => 'in_person',
+                'customer_agreed' => true,
+            ]
+        );
 
-        $response->assertStatus(200);
+        $response->assertStatus(200)->assertJsonPath('success', true);
         $this->assertDatabaseHas('job_orders', [
             'id' => $jobOrder->id,
             'status' => 'cancelled',
@@ -221,7 +227,7 @@ class JobOrderTest extends TestCase
         ]);
     }
 
-    public function test_owner_can_reject_a_payment_and_balance_is_reversed()
+    public function test_owner_can_reject_a_verified_payment_and_balance_is_reversed()
     {
         $jobOrder = JobOrder::create([
             'store_id' => $this->store->id,
@@ -234,10 +240,15 @@ class JobOrderTest extends TestCase
             'status' => 'cutting',
         ]);
 
+        // GCash/PayMaya payments stay pending_verification until an owner or
+        // manager confirms the screenshot — only a verified payment was ever
+        // applied to the balance, so only its rejection reverses it.
         $payment = $jobOrder->payments()->create([
             'amount' => 2000,
             'payment_method' => 'gcash',
             'recorded_by' => $this->user->id,
+            'verified_at' => now(),
+            'verified_by' => $this->user->id,
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
@@ -259,7 +270,7 @@ class JobOrderTest extends TestCase
         $this->assertEquals($this->user->id, $payment->rejected_by);
     }
 
-    public function test_rejecting_a_payment_on_an_already_completed_job_still_reverses_balance()
+    public function test_rejecting_a_verified_payment_on_an_already_completed_job_still_reverses_balance()
     {
         $jobOrder = JobOrder::create([
             'store_id' => $this->store->id,
@@ -276,6 +287,8 @@ class JobOrderTest extends TestCase
             'amount' => 5000,
             'payment_method' => 'bank_transfer',
             'recorded_by' => $this->user->id,
+            'verified_at' => now(),
+            'verified_by' => $this->user->id,
         ]);
 
         $response = $this->actingAs($this->user)->postJson(
@@ -288,6 +301,43 @@ class JobOrderTest extends TestCase
         $this->assertDatabaseHas('job_orders', [
             'id' => $jobOrder->id,
             'status' => 'completed',
+            'balance' => 5000.00,
+            'payment_status' => 'unpaid',
+        ]);
+    }
+
+    public function test_rejecting_a_still_pending_payment_does_not_touch_the_balance()
+    {
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9013',
+            'total_amount' => 5000,
+            'balance' => 5000,
+            'payment_status' => 'unpaid',
+            'status' => 'cutting',
+        ]);
+
+        // Still pending verification — it was never applied to the balance,
+        // so rejecting it is a deliberate no-op there (no double-credit).
+        $payment = $jobOrder->payments()->create([
+            'amount' => 2000,
+            'payment_method' => 'gcash',
+            'recorded_by' => $this->user->id,
+        ]);
+
+        $response = $this->actingAs($this->user)->postJson(
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'Screenshot could not be matched to our transaction history.']
+        );
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+
+        $payment->refresh();
+        $this->assertNotNull($payment->rejected_at);
+        $this->assertDatabaseHas('job_orders', [
+            'id' => $jobOrder->id,
             'balance' => 5000.00,
             'payment_status' => 'unpaid',
         ]);
@@ -733,16 +783,19 @@ class JobOrderTest extends TestCase
             'status' => 'design',
         ]);
 
-        $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
-            'status' => 'on_hold',
-            'hold_reason' => 'Waiting on customer to confirm fabric color.',
-        ]);
+        // Holds go through the dedicated production endpoint — the generic
+        // update no longer accepts status `on_hold` directly.
+        $response = $this->actingAs($this->user)->postJson(
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/production/hold",
+            ['reason' => 'Waiting on customer to confirm fabric color.']
+        );
 
-        $response->assertStatus(200);
+        $response->assertStatus(200)->assertJsonPath('success', true);
         $this->assertDatabaseHas('job_orders', [
             'id' => $jobOrder->id,
             'status' => 'on_hold',
             'hold_reason' => 'Waiting on customer to confirm fabric color.',
+            'status_before_hold' => 'design',
         ]);
     }
 
@@ -989,5 +1042,141 @@ class JobOrderTest extends TestCase
         $this->assertCount(2, $jobOrder->custom_order_data['customization_instructions']);
         $this->assertEquals('Logo Placement', $jobOrder->custom_order_data['customization_instructions'][0]['label']);
         $this->assertEquals('https://example.com/logo.svg', $jobOrder->custom_order_data['customization_instructions'][0]['reference_link']);
+    }
+
+    public function test_creating_a_job_with_measurements_creates_a_versioned_profile()
+    {
+        $response = $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'total_amount' => 5000,
+            'balance' => 2500,
+            'status' => 'pending',
+            'custom_order_data' => [
+                'individual_measurements' => ['chest' => 96, 'waist' => 80, 'unit' => 'cm'],
+                'measurement_sheets' => ['https://example.com/sheet-1.jpg'],
+            ],
+        ]);
+
+        $response->assertStatus(201);
+
+        $jobOrder = JobOrder::where('customer_id', $this->customer->id)->first();
+        $this->assertNotNull($jobOrder->measurement_id);
+
+        $profile = Measurement::find($jobOrder->measurement_id);
+        $this->assertSame('Bespoke Suit Profile', $profile->profile_name);
+        $this->assertSame(1, $profile->version);
+        // Shop-entered form data keeps the store_owner source — 'customer'
+        // is reserved for provably customer-provided measurements.
+        $this->assertSame('store_owner', $profile->source);
+        // The unit it was typed in travels with the profile: 96 cm must never be read back as 96 inches.
+        $this->assertSame(['chest' => '96', 'waist' => '80', '_unit' => 'cm'], $profile->metrics);
+        $this->assertSame(['https://example.com/sheet-1.jpg'], $profile->photo_urls);
+        $this->assertNull($profile->superseded_at);
+    }
+
+    public function test_changing_measurements_supersedes_the_existing_profile_version()
+    {
+        $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'total_amount' => 5000,
+            'balance' => 2500,
+            'status' => 'pending',
+            'custom_order_data' => [
+                'individual_measurements' => ['chest' => 96, 'waist' => 80],
+            ],
+        ]);
+
+        $jobOrder = JobOrder::where('customer_id', $this->customer->id)->first();
+        $firstVersion = Measurement::find($jobOrder->measurement_id);
+        $this->assertSame(1, $firstVersion->version);
+
+        $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
+            'custom_order_data' => [
+                'individual_measurements' => ['chest' => 100, 'waist' => 84],
+            ],
+        ]);
+
+        $response->assertStatus(200);
+
+        $jobOrder->refresh();
+        $this->assertNotNull($jobOrder->measurement_id);
+
+        $secondVersion = Measurement::find($jobOrder->measurement_id);
+        $this->assertSame(2, $secondVersion->version);
+        $this->assertSame(['chest' => '100', 'waist' => '84'], $secondVersion->metrics);
+        $this->assertSame('store_owner', $secondVersion->source);
+
+        $firstVersion->refresh();
+        $this->assertNotNull($firstVersion->superseded_at, 'the old version must be marked superseded, not overwritten');
+    }
+
+    public function test_repeated_update_with_identical_measurements_does_not_create_a_new_version()
+    {
+        $this->actingAs($this->user)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'total_amount' => 5000,
+            'balance' => 2500,
+            'status' => 'pending',
+            'custom_order_data' => [
+                'individual_measurements' => ['chest' => 96, 'waist' => 80],
+            ],
+        ]);
+
+        $jobOrder = JobOrder::where('customer_id', $this->customer->id)->first();
+
+        $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}", [
+            'custom_order_data' => [
+                'individual_measurements' => ['chest' => 96, 'waist' => 80],
+            ],
+        ]);
+
+        $jobOrder->refresh();
+
+        $profileCount = Measurement::where('store_id', $this->store->id)
+            ->where('customer_id', $this->customer->id)
+            ->where('profile_name', 'Bespoke Suit Profile')
+            ->count();
+        $this->assertSame(1, $profileCount);
+
+        $profile = Measurement::find($jobOrder->measurement_id);
+        $this->assertSame(1, $profile->version);
+        $this->assertNull($profile->superseded_at);
+    }
+
+    public function test_listing_customer_measurements_backfills_unlinked_job_orders()
+    {
+        // Job created directly (pre-sync behaviour): measurements sit in
+        // custom_order_data but no profile was linked.
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9053',
+            'total_amount' => 3000,
+            'balance' => 3000,
+            'status' => 'pending',
+            'custom_order_data' => [
+                'individual_measurements' => ['hem' => 90],
+            ],
+        ]);
+        $this->assertNull($jobOrder->measurement_id);
+
+        $response = $this->actingAs($this->user)->getJson(
+            "/api/v1/stores/{$this->store->id}/measurements?customer_id={$this->customer->id}"
+        );
+
+        $response->assertStatus(200);
+
+        $jobOrder->refresh();
+        $this->assertNotNull($jobOrder->measurement_id);
+
+        $profile = Measurement::find($jobOrder->measurement_id);
+        $this->assertSame('Bespoke Suit Profile', $profile->profile_name);
+        $this->assertSame(1, $profile->version);
+        $this->assertSame('store_owner', $profile->source);
+        $this->assertSame(['hem' => '90'], $profile->metrics);
     }
 }

@@ -63,6 +63,29 @@ class OrderFlowController extends Controller
         return $this->respond($request, $jobOrder, 'Design and specifications approved.');
     }
 
+    /**
+     * Takes back "specifications approved" and "measurements verified" (a mis-click, or the details changed). Only while the order is
+     * still pending and the customer has not accepted the price: after that, the details are what they agreed to.
+     */
+    public function reopenDetails(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
+    {
+        if ($denied = $this->orderAccessDenied($request, $store, $jobOrder) ?? $this->flowOnly($jobOrder)) {
+            return $denied;
+        }
+        if ($jobOrder->status !== 'pending' || $jobOrder->customer_approved_at) {
+            return response()->json(['success' => false, 'message' => 'The details can only be reopened before the customer accepts the price.'], 422);
+        }
+        if ($jobOrder->specs_approved_at || $jobOrder->measurements_verified_at) {
+            $jobOrder->forceFill([
+                'specs_approved_at' => null, 'specs_approved_by' => null,
+                'measurements_verified_at' => null, 'measurements_verified_by' => null,
+            ])->save();
+            $this->logOrderAction($request, $store, $jobOrder, 'order_details_reopened');
+        }
+
+        return $this->respond($request, $jobOrder, 'Details & sizes reopened.');
+    }
+
     public function verifyMeasurements(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
     {
         if ($denied = $this->orderAccessDenied($request, $store, $jobOrder) ?? $this->flowOnly($jobOrder)) {

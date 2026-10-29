@@ -42,7 +42,7 @@ class OrderDeliveryController extends Controller
 
     private function fail(string $message, int $code = 422): JsonResponse
     {
-        return response()->json(['success' => false, 'message' => $message], $code);
+        return response()->json(['success' => false, 'message' => \App\Models\JobOrder::withoutAmounts($message, request()->user())], $code);
     }
 
     /** Flow 3 step 2: the shop checks the garments against the approved design, measurements and specs. */
@@ -265,7 +265,7 @@ class OrderDeliveryController extends Controller
 
         $remaining = $jobOrder->garmentCount() - OrderReadiness::handedOver($jobOrder);
         if ($v['quantity'] > $remaining) {
-            return $this->fail($jobOrder->garmentCount() > 1 && ! empty($jobOrder->custom_order_data['people_count'])
+            return $this->fail($jobOrder->garmentCount() > 1 && $jobOrder->garmentCount() === $jobOrder->peopleCount()
                 ? "Only {$remaining} of the {$jobOrder->garmentCount()} people's garments ".($remaining === 1 ? 'is' : 'are').' left to hand over.'
                 : "Only {$remaining} garment".($remaining === 1 ? ' is' : 's are').' left to hand over.');
         }

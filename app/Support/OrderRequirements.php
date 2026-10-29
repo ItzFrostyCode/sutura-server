@@ -79,6 +79,24 @@ class OrderRequirements
         ];
     }
 
+    /**
+     * The requirements a specific customer's online order runs under: the resolved hierarchy
+     * with the trusted-customer waiver applied. A trusted customer owes nothing up front,
+     * but may still choose to pay in full — that voluntary choice is charged in full.
+     *
+     * @return array{measurement_requirement:string,fitting_requirement:string,payment_policy:string,payment_policy_percent:int}
+     */
+    public static function forCustomer(Store $store, array $chain, int $customerId): array
+    {
+        $resolved = self::resolve($store, $chain);
+        if ($resolved['payment_policy'] !== 'none' && $store->isTrustedCustomer($customerId)) {
+            $resolved['payment_policy'] = 'none';
+            $resolved['payment_policy_percent'] = 0;
+        }
+
+        return $resolved;
+    }
+
     /** Share of the amount due that must be paid before production. */
     public static function depositFraction(string $policy, int $percent): float
     {
