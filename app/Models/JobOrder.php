@@ -123,8 +123,15 @@ class JobOrder extends Model
      * not refunded. The other three carry no reversal or reporting logic.
      */
     public const CANCELLATION_REASONS = [
-        'customer_request', 'store_unable_to_fulfill', 'forfeited_deposit_abandoned', 'quotation_declined', 'other',
+        'customer_request', 'store_unable_to_fulfill', 'forfeited_deposit_abandoned', 'quotation_declined', 'entered_by_mistake', 'other',
     ];
+
+    /**
+     * The counts the screens show, worked out here once and sent with every order, so a client never has to recompute them
+     * (and can never disagree with handover): the ordered quantity in the unit it was sold in, the physical garments to hand over,
+     * and that unit.
+     */
+    protected $appends = ['ordered_quantity', 'garment_count', 'sold_as'];
 
     protected $fillable = [
         'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'appointment_id', 'customer_id', 'service_id',
@@ -413,15 +420,71 @@ class JobOrder extends Model
         return OrderRequirements::depositFraction($this->payment_policy ?? 'deposit', (int) ($this->payment_policy_percent ?? 50));
     }
 
+    /** The team-list size that means "measured for this person" instead of a chart size (same word as the client's CUSTOM_SIZE). */
+    public const CUSTOM_SIZE = 'Custom Fit';
+
     /**
-     * How many garments have to be handed over: the people, for a group order made after the people count was
-     * recorded (its `quantity` is 1 because the team list holds the people); older orders keep counting `quantity`.
+     * Pieces in a team list: each person's own `qty` (at least 1, so a list without quantities is one piece each),
+     * added up. A person and a piece are different things: one wearer can need several garments.
      */
+    public static function rosterPieces(?array $roster): int
+    {
+        $pieces = 0;
+        foreach ((array) $roster as $row) {
+            $pieces += min(500, max(1, (int) (is_array($row) ? ($row['qty'] ?? 1) : 1)));
+        }
+
+        return $pieces;
+    }
+
+    /** The wearers on a group order (rows of its team list); 0 for an order that is not a group order. */
+    public function peopleCount(): int
+    {
+        return (int) ($this->custom_order_data['people_count'] ?? 0);
+    }
+
+    /**
+     * Five different numbers, kept apart so none is counted twice:
+     *   wearers          peopleCount()       the people (rows of a team list)
+     *   per-wearer qty   `qty` on a row      how many units that person asked for
+     *   ordered quantity orderedQuantity()   the units sold, in the unit the option was sold in (garments, or sets)
+     *   price            amount of the option × ordered quantity: never multiplied by garments per unit
+     *   physical garments garmentCount()     what has to be handed over: ordered quantity × garments per unit
+     * Minimum quantity and the price share of a split use the ordered quantity; only handover uses garmentCount().
+     */
+
+    /** The unit one ordered unit is, taken from the option the order was made from (snapshot); an order with none is sold per garment. */
+    public function soldAsSet(): bool
+    {
+        return ($this->custom_order_data['option_sold_as'] ?? null) === 'set';
+    }
+
+    /** Physical garments in ONE ordered unit: a set is one top and one bottom; anything else is one garment. */
+    public function garmentsPerUnit(): int
+    {
+        return $this->soldAsSet() ? 2 : 1;
+    }
+
+    /**
+     * What was ordered, in the unit it was sold in. A group order made after the people count was recorded has
+     * `quantity` 1 because the team list holds the wearers, so its quantity is the units on that list (each
+     * person's `qty`, one when none was given). Older orders keep counting `quantity`.
+     */
+    public function orderedQuantity(): int
+    {
+        $people = $this->peopleCount();
+        if ($people <= 0) {
+            return (int) $this->quantity;
+        }
+        $roster = $this->custom_order_data['team_roster'] ?? null;
+
+        return is_array($roster) && count($roster) > 0 ? self::rosterPieces($roster) : $people;
+    }
+
+    /** How many physical garments have to be handed over: the ordered quantity × the garments in one unit (2 for a set). */
     public function garmentCount(): int
     {
-        $people = (int) ($this->custom_order_data['people_count'] ?? 0);
-
-        return $people > 0 ? $people : (int) $this->quantity;
+        return $this->orderedQuantity() * $this->garmentsPerUnit();
     }
 
     /** The completed order this one follows up (free fix, repeat or change after pick-up). */
@@ -494,8 +557,8 @@ class JobOrder extends Model
             }
         });
 
-        // Tell the branch's staff a new order has landed (their "new order assignment"):
-        // everyone on the floor at that branch, never the person who made it.
+        // Tell the branch's staff and its manager a new order has landed (their "new order assignment"):
+        // everyone at that branch, never the person who made it.
         static::created(function (JobOrder $job) {
             if (self::$quietCreate) {
                 return;
@@ -511,7 +574,9 @@ class JobOrder extends Model
             }
 
             $staff = User::whereHas('staffProfile', function ($q) use ($job) {
-                $q->where('store_id', $job->store_id)->where('is_branch_manager', false)
+                // A manager hears about an online order through "New online request" instead, so it is not doubled.
+                $q->where('store_id', $job->store_id)
+                    ->when($job->intake_channel === 'online', fn ($q2) => $q2->where('is_branch_manager', false))
                     ->when($job->store_branch_id, fn ($q2) => $q2->where('store_branch_id', $job->store_branch_id));
             })->where('id', '!=', Auth::id() ?? 0)->get();
 
@@ -529,5 +594,70 @@ class JobOrder extends Model
         static::deleting(function (self $jobOrder) {
             DatabaseNotification::whereJsonContains('data->job_order_id', $jobOrder->id)->delete();
         });
+    }
+
+    public function getOrderedQuantityAttribute(): int
+    {
+        return $this->orderedQuantity();
+    }
+
+    public function getGarmentCountAttribute(): int
+    {
+        return $this->garmentCount();
+    }
+
+    /** 'set' or 'garment': what one ordered unit is, from the option the order was made from (an order with none is sold per garment). */
+    public function getSoldAsAttribute(): string
+    {
+        return $this->soldAsSet() ? 'set' : 'garment';
+    }
+
+    /** The fields of an order that are money: never sent to someone who may not see money (plain staff). */
+    public const MONEY_FIELDS = ['total_amount', 'balance', 'discount_amount', 'rush_fee', 'quotation'];
+
+    /** Only the owner and a branch manager see what an order costs and what has been paid. */
+    public static function mayRevealMoney(?User $user): bool
+    {
+        return $user !== null && ($user->hasRole('store_owner') || $user->hasRole('branch_manager'));
+    }
+
+    /**
+     * What staff may know instead of the amounts: only that something is still owed (`has_balance`), which is what decides whether
+     * garments can be handed over. Hidden from the JSON only: the model keeps its values for the server's own rules.
+     */
+    public function hideMoney(): static
+    {
+        $this->setAttribute('has_balance', (float) $this->balance > 0.005);
+        $this->makeHidden(self::MONEY_FIELDS);
+        foreach (['payments', 'quotationVersions', 'refunds'] as $relation) {
+            $this->unsetRelation($relation);
+        }
+        // The price a customer saw when ordering online is kept inside the order's data: not for staff either.
+        $data = $this->custom_order_data;
+        if (is_array($data) && array_key_exists('item_rate', $data)) {
+            unset($data['item_rate']);
+            $this->setAttribute('custom_order_data', $data);
+            $this->syncOriginalAttribute('custom_order_data');
+        }
+
+        return $this;
+    }
+
+    /** This order as the viewer may see it: whole for the owner and a branch manager, without the money for anyone else. */
+    public function seenBy(?User $viewer): static
+    {
+        return self::mayRevealMoney($viewer) ? $this : $this->hideMoney();
+    }
+
+    /** A message that quotes an amount, said to someone who may not see amounts: the amount is left out. */
+    public static function withoutAmounts(string $message, ?User $viewer): string
+    {
+        if (self::mayRevealMoney($viewer)) {
+            return $message;
+        }
+        // "balance of ₱4,500.00" loses the whole phrase; a bare amount is called "the amount".
+        $message = (string) preg_replace('/\s+of\s+₱\s?[\d,]+(?:\.\d+)?/u', '', $message);
+
+        return (string) preg_replace('/₱\s?[\d,]+(?:\.\d+)?/u', 'the amount', $message);
     }
 }

@@ -10,14 +10,18 @@ use App\Models\CatalogItem;
 use App\Models\JobOrder;
 use App\Models\Measurement;
 use App\Models\Payment;
+use App\Models\PaymentMethod;
 use App\Models\Service;
 use App\Models\ServicePricing;
 use App\Models\StaffProfile;
 use App\Models\Store;
+use App\Rules\SafeLink;
 use App\Support\DesignPricing;
+use App\Support\JobMeasurementSync;
 use App\Support\JobOrderPurger;
 use App\Support\OrderNumber;
 use App\Support\OrderReadiness;
+use App\Support\OrderRequirements;
 use App\Support\SafeNotify;
 use App\Support\StaffJobUpdateGuard;
 use App\Models\User;
@@ -163,6 +167,8 @@ class JobOrderController extends Controller
             'service_id' => 'required|integer',
             'garment_description' => 'required|string|max:500',
             'pre_existing_damage_notes' => 'required|string|max:2000',
+            // A fit change (hem, shorten, take in) needs only the part being changed: where, and by how much. Not a body measurement.
+            'local_adjustment' => 'nullable|string|max:500',
             'pricing_ids' => 'required|array|min:1',
             'pricing_ids.*' => 'integer',
             'reference_images' => 'nullable|array|max:10',
@@ -213,16 +219,21 @@ class JobOrderController extends Controller
                 // docs/REPAIR-WORKFLOW.md §3.
                 'repair_note' => $validated['garment_description'],
                 'pre_existing_damage_notes' => $validated['pre_existing_damage_notes'],
+                'local_adjustment' => trim((string) ($validated['local_adjustment'] ?? '')) ?: null,
                 'repair_items' => $pricingRows->map(fn ($p) => ['label' => $p->label, 'amount' => (float) $p->amount])->values()->all(),
             ],
         ]);
 
         $jobOrder->load(['customer:id,name', 'service']);
 
+        // The customer lands in the shop's Client Book (never detached from the others).
+        $store->customers()->syncWithoutDetaching([$request->user()->id]);
+
         $storeOwner = $store->owner;
         if ($storeOwner) {
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
         }
+        $this->notifyManagersOfOnlineOrder($store, $jobOrder);
 
         return response()->json(['success' => true, 'data' => $jobOrder], 201);
     }
@@ -375,10 +386,14 @@ class JobOrderController extends Controller
 
         $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
 
+        // The customer lands in the shop's Client Book (never detached from the others).
+        $store->customers()->syncWithoutDetaching([$request->user()->id]);
+
         $storeOwner = $store->owner;
         if ($storeOwner) {
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
         }
+        $this->notifyManagersOfOnlineOrder($store, $jobOrder);
 
         return response()->json(['success' => true, 'data' => $jobOrder], 201);
     }
@@ -494,10 +509,14 @@ class JobOrderController extends Controller
 
         $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
 
+        // The customer lands in the shop's Client Book (never detached from the others).
+        $store->customers()->syncWithoutDetaching([$request->user()->id]);
+
         $storeOwner = $store->owner;
         if ($storeOwner) {
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
         }
+        $this->notifyManagersOfOnlineOrder($store, $jobOrder);
 
         return response()->json(['success' => true, 'data' => $jobOrder], 201);
     }
@@ -560,18 +579,379 @@ class JobOrderController extends Controller
         ]);
         $jobOrder->load(['customer:id,name', 'service']);
 
+        // The customer lands in the shop's Client Book (never detached from the others).
+        $store->customers()->syncWithoutDetaching([$request->user()->id]);
+
         $store->owner?->notify(new NewJobOrderNotification($jobOrder));
-        // Branch managers see online requests too (the owner and floor staff already do).
+        $this->notifyManagersOfOnlineOrder($store, $jobOrder);
+
+        return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    }
+
+    /**
+     * Customer-facing "Online Order" off a store service page — the same four parts as the shop's
+     * walk-in wizard (customer, measurements, order specs, invoice & payment), stored under the
+     * same custom_order_data keys so the shop reads both kinds of order alike. Landing point for
+     * the service detail page's "Online Order" button; repairs keep their own request form, and
+     * bulk / made-to-order off a catalog design keep theirs.
+     */
+    public function customerServiceOrder(Request $request, Store $store): JsonResponse
+    {
+        $validated = $request->validate([
+            'service_id' => 'required|integer',
+            'contact_phone' => 'required|string|max:20',
+            'store_branch_id' => 'nullable|integer',
+
+            'order_mode' => 'required|in:individual,bulk',
+            'measurement_id' => 'nullable|integer',
+            'individual_measurements' => 'nullable|array',
+            'individual_measurements.unit' => 'nullable|in:in,cm',
+            'individual_measurements.*' => 'nullable',
+            // What the person gets (top, bottom or both): asked first, before any size, whenever the service needs sizing.
+            'measure_area' => 'nullable|in:top,bottom,both',
+            'size_breakdown' => 'required_if:order_mode,bulk|array',
+            'size_breakdown.*' => 'nullable|integer|min:0|max:500',
+            // Top & bottom in bulk: how many of each size for the bottoms (the same number of sets as the tops).
+            'size_breakdown_bottom' => 'nullable|array',
+            'size_breakdown_bottom.*' => 'nullable|integer|min:0|max:500',
+            'team_name' => 'nullable|string|max:255',
+            // Who will wear it when that is not the customer (a child, a relative): keeps their measurements apart from the customer's own.
+            'wearer_name' => 'nullable|string|max:120',
+            'measurement_sheets' => 'nullable|array|max:5',
+            'measurement_sheets.*' => 'string|max:1000',
+
+            'pricing_id' => 'nullable|integer',
+            'size' => 'nullable|string|max:50',
+            // The bottom's size when one person gets top & bottom ('size' is then the top's).
+            'size_bottom' => 'nullable|string|max:50',
+            'material_source' => ['required', Rule::in(JobOrder::MATERIAL_SOURCES)],
+            'material_description' => 'nullable|string|max:500',
+            'answers' => 'nullable|array',
+            'answers.*' => 'nullable|string|max:500',
+            'notes' => 'nullable|string|max:2000',
+            'reference_images' => 'nullable|array|max:5',
+            'reference_images.*' => 'string|max:1000',
+            'reference_link' => ['nullable', 'string', 'max:500', new SafeLink],
+
+            'quantity' => 'required_if:order_mode,individual|nullable|integer|min:1|max:500',
+            'rush_requested' => 'nullable|boolean',
+            'needed_by' => 'nullable|date|after:today',
+            // Only the customer's preference: nothing is paid with the request.
+            'payment_term' => 'required|in:full,downpayment',
+        ]);
+
+        $service = Service::where('id', $validated['service_id'])
+            ->where('store_id', $store->id)
+            ->where('is_active', true)
+            ->with('pricing')
+            ->first();
+
+        if (! $service) {
+            return response()->json(['success' => false, 'message' => 'This service is not available to order right now.'], 404);
+        }
+        if ($service->hasType(Service::TYPE_ALTERATION_REPAIR)) {
+            return response()->json(['success' => false, 'message' => 'Repairs use the repair request form instead.'], 422);
+        }
+
+        // A service with several pricing lines needs one picked; a single line is implied.
+        $pricing = null;
+        if (! empty($validated['pricing_id'])) {
+            $pricing = $service->pricing->firstWhere('id', (int) $validated['pricing_id']);
+            if (! $pricing) {
+                return response()->json(['success' => false, 'message' => 'That option is no longer offered. Please pick another.'], 422);
+            }
+        } elseif ($service->pricing->count() === 1) {
+            $pricing = $service->pricing->first();
+        } elseif ($service->pricing->count() > 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please choose an option for this service.',
+                'errors' => ['pricing_id' => ['Choose an option.']],
+            ], 422);
+        }
+
+        // The option picked decides what is covered and what one ordered unit is, taken from the option itself on the server
+        // (never from what the client says it is). An option with no coverage leaves the customer's own Top / Bottom choice as it was.
+        $optionSnapshot = $pricing ? $pricing->snapshot() : [];
+        if ($service->pricing->count() <= 1) {
+            unset($optionSnapshot['option']); // a single option is implied: the order shows no option name, as before
+        }
+        if ($pricing && in_array($pricing->covers, ServicePricing::COVERS, true)) {
+            $validated['measure_area'] = $pricing->covers;
+        }
+
+        // The service decides first whether any body sizing is asked at all (see "Sizing" below); the typed points only
+        // ever come from the covered part: top = chest, shoulders, sleeve, neck, length; bottom = waist, hips, inseam.
+        $area = $validated['measure_area'] ?? null;
+        $pointsByArea = ['top' => ['chest', 'shoulders', 'sleeve', 'neck', 'length'], 'bottom' => ['waist', 'hips', 'inseam']];
+        $allowedPoints = match ($area) {
+            'top' => $pointsByArea['top'],
+            'bottom' => $pointsByArea['bottom'],
+            default => [...$pointsByArea['top'], ...$pointsByArea['bottom']],
+        };
+
+        // Only the walk-in form's measurement fields, each a plain number.
+        $measurements = null;
+        if ($validated['order_mode'] === 'individual' && ! empty($validated['individual_measurements'])) {
+            $measurements = ['unit' => $validated['individual_measurements']['unit'] ?? 'in'];
+            foreach ($allowedPoints as $key) {
+                $value = $validated['individual_measurements'][$key] ?? null;
+                if ($value === null || $value === '') {
+                    continue;
+                }
+                if (! is_numeric($value) || $value <= 0 || $value > 200) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Measurements must be numbers between 0 and 200.',
+                        'errors' => ["individual_measurements.$key" => ['Enter a number between 0 and 200.']],
+                    ], 422);
+                }
+                $measurements[$key] = (string) (0 + $value);
+            }
+            if (count($measurements) === 1) {
+                $measurements = null;
+            }
+        }
+
+        $sizeBreakdown = null;
+        if ($validated['order_mode'] === 'bulk') {
+            $sizeBreakdown = collect($validated['size_breakdown'] ?? [])
+                ->only(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'])
+                ->map(fn ($qty) => (int) $qty)
+                ->filter(fn ($qty) => $qty > 0)
+                ->all();
+            if (! $sizeBreakdown) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Add how many pieces you need in at least one size.',
+                    'errors' => ['size_breakdown' => ['Enter at least one size quantity.']],
+                ], 422);
+            }
+        }
+
+        $sizeBreakdownBottom = null;
+        if ($sizeBreakdown && $area === 'both') {
+            $sizeBreakdownBottom = collect($validated['size_breakdown_bottom'] ?? [])
+                ->only(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'])
+                ->map(fn ($qty) => (int) $qty)
+                ->filter(fn ($qty) => $qty > 0)
+                ->all();
+            // A set is one top and one bottom, so both lists count the same number of people.
+            if (array_sum($sizeBreakdownBottom) !== array_sum($sizeBreakdown)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The bottoms must add up to the same number as the tops.',
+                    'errors' => ['size_breakdown_bottom' => ['Tops and bottoms must be the same number of pieces.']],
+                ], 422);
+            }
+        }
+
+        // Sizing, in order: (1) a service that needs no body measurements asks nothing about sizing, whatever was sent;
+        // (2) otherwise what the person gets (top / bottom / both) comes first; (3) then, for one person, a top & bottom
+        // standard size needs both sizes. Payment never depends on any of this: it follows the service's own payment rules.
+        $needsSizing = OrderRequirements::resolve($store, [$service])['measurement_requirement'] !== 'none';
+        if (! $needsSizing) {
+            $area = null;
+            $measurements = null;
+            $validated['size'] = $validated['size_bottom'] = null;
+            $sizeBreakdownBottom = null;
+        } else {
+            if (! $area) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Choose what you are ordering first: Top, Bottom or Top & Bottom.',
+                    'errors' => ['measure_area' => ['Choose Top, Bottom or Top & Bottom.']],
+                ], 422);
+            }
+            if (! $sizeBreakdown && $area === 'both' && ! empty($validated['size']) && empty($validated['size_bottom'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Choose the bottom size too.',
+                    'errors' => ['size_bottom' => ['Choose the bottom size.']],
+                ], 422);
+            }
+        }
+        // One line for the shop to read: "M", or "M / L" when the top and the bottom differ.
+        $standardSize = $sizeBreakdown ? null : ($area === 'both'
+            ? (trim(($validated['size'] ?? '').' / '.($validated['size_bottom'] ?? ''), ' /') ?: null)
+            : ($validated['size'] ?? null));
+
+        $quantity = $sizeBreakdown ? (int) array_sum($sizeBreakdown) : (int) $validated['quantity'];
+        if ($quantity > 500) {
+            return response()->json(['success' => false, 'message' => 'Online orders are capped at 500 pieces. Message the shop for larger batches.'], 422);
+        }
+        if ($service->min_order_qty > 1 && $quantity < $service->min_order_qty) {
+            return response()->json([
+                'success' => false,
+                'message' => "This service requires a minimum of {$service->min_order_qty} pieces.",
+                'errors' => ['quantity' => ["Order at least {$service->min_order_qty} pieces."]],
+            ], 422);
+        }
+
+        // Required service questions must be answered, and only known questions are kept.
+        // Keyed by the question's label, same as booking answers (the job form pre-fills from them).
+        $answers = [];
+        $missing = [];
+        foreach ($service->custom_fields ?? [] as $field) {
+            $label = trim((string) ($field['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $value = trim((string) ($validated['answers'][$label] ?? ''));
+            if ($value !== '') {
+                $answers[$label] = $value;
+            } elseif (! empty($field['required']) && ($field['type'] ?? '') !== 'checkbox') {
+                $missing[] = $label;
+            }
+        }
+        if ($missing) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please answer: '.implode(', ', $missing).'.',
+                'errors' => ['answers' => ['Some required questions are unanswered.']],
+            ], 422);
+        }
+
+        $branch = ! empty($validated['store_branch_id'])
+            ? $store->branches()->live()->where('id', $validated['store_branch_id'])->first()
+            : null;
+        if (! empty($validated['store_branch_id']) && ! $branch) {
+            return response()->json(['success' => false, 'message' => 'That branch is not taking orders right now.'], 422);
+        }
+        $branch ??= $store->branches()->live()->where('is_main', true)->first()
+            ?? $store->branches()->live()->first();
+
+        $customerId = $request->user()->id;
+        $measurementId = null;
+        if (! empty($validated['measurement_id'])) {
+            $measurementId = Measurement::where('id', $validated['measurement_id'])
+                ->where('store_id', $store->id)
+                ->where('customer_id', $customerId)
+                ->value('id');
+            if (! $measurementId) {
+                return response()->json(['success' => false, 'message' => 'That measurement record is not on file with this shop.'], 422);
+            }
+        }
+
+        $unitPrice = $pricing && $pricing->amount !== null ? (float) $pricing->amount : $service->effectivePrice();
+        $totalAmount = round($unitPrice * $quantity, 2);
+
+        // standard_size is the key OrderReadiness::measurementsRecorded() reads for "the shop has
+        // something to cut by"; a bulk order keeps its size_breakdown instead and the shop signs
+        // the measurements off on the order page, same as for walk-in team orders.
+        $sheets = $validated['measurement_sheets'] ?? [];
+        $customOrderData = array_filter([
+            ...$answers,
+            'contact_phone' => trim($validated['contact_phone']),
+            'individual_measurements' => $measurements,
+            'size_breakdown' => $sizeBreakdown,
+            'measurement_sheets' => $sheets ?: null,
+            'team_name' => $sizeBreakdown ? (trim((string) ($validated['team_name'] ?? '')) ?: null) : null,
+            'wearer_name' => $sizeBreakdown ? null : (trim((string) ($validated['wearer_name'] ?? '')) ?: null),
+            ...$optionSnapshot,
+            'standard_size' => $standardSize,
+            'measure_area' => $area,
+            'size_breakdown_bottom' => $sizeBreakdownBottom ?: null,
+            'customer_fabric' => $validated['material_source'] === 'customer_supplied' ? ($validated['material_description'] ?? null) : null,
+            'item_rate' => (string) $unitPrice,
+            'payment_term' => $validated['payment_term'],
+            // The customer asks; the shop decides whether to take it as rush and sets the fee.
+            'rush_requested' => ! empty($validated['rush_requested']) ? 'Yes' : null,
+            'needed_by' => ! empty($validated['needed_by']) ? \Carbon\Carbon::parse($validated['needed_by'])->toDateString() : null,
+        ], fn ($v) => $v !== null && $v !== '');
+
+        // A request asks for no money. The shop reviews it, confirms the details and the price, the customer accepts that
+        // price, and only then is the deposit due (paid from My Orders and verified by the shop). The term the customer
+        // prefers travels with the order as a note; the rules it runs under are snapshotted by JobOrder::booted.
+
+        $orderNumber = $this->generateOrderNumber($store);
+        $jobOrder = DB::transaction(function () use ($store, $orderNumber, $branch, $customerId, $service, $measurementId, $quantity, $validated, $totalAmount, $sheets, $customOrderData) {
+            $jobOrder = $store->jobOrders()->create([
+            'order_number' => $orderNumber,
+            'tracking_code' => $this->generateTrackingCode($store, $orderNumber),
+            'intake_channel' => 'online',
+            'store_branch_id' => $branch?->id,
+            'customer_id' => $customerId,
+            'service_id' => $service->id,
+            'measurement_id' => $measurementId,
+            'quantity' => $quantity,
+            // No garment_category: this order belongs to a service, and the legacy garment
+            // taxonomy is left untouched rather than being forced into the 10 old values.
+            'material_source' => $validated['material_source'],
+            'total_amount' => $totalAmount,
+            'balance' => $totalAmount,
+            'payment_status' => 'unpaid',
+            'status' => 'pending',
+            // Same as the other online order entry points: the order runs the shop's normal
+            // confirm -> quote -> approve -> verify deposit -> production pipeline.
+            'uses_confirmation_flow' => true,
+            'notes' => ! empty($validated['notes']) ? 'Customer note: '.$validated['notes'] : null,
+            // Sheets ride along with the reference photos, same as walk-in.
+            'reference_images' => array_values(array_unique([...($validated['reference_images'] ?? []), ...$sheets])),
+            'reference_link' => $validated['reference_link'] ?? null,
+            'custom_order_data' => $customOrderData ?: null,
+            ]);
+
+            return $jobOrder;
+        });
+
+        $jobOrder->load(['customer:id,name', 'service']);
+
+        // The customer lands in the shop's Client Book (never detached from the others).
+        $store->customers()->syncWithoutDetaching([$customerId]);
+
+        // The customer typed these measurements themselves — the profile they become is marked
+        // theirs. An explicitly linked saved profile is kept as-is, never re-versioned behind
+        // the customer's back.
+        if (! $measurementId) {
+            JobMeasurementSync::syncForJob($store, $jobOrder, 'customer');
+        }
+
+        $storeOwner = $store->owner;
+        if ($storeOwner) {
+            $storeOwner->notify(new NewJobOrderNotification($jobOrder));
+        }
+        $this->notifyManagersOfOnlineOrder($store, $jobOrder);
+
+        return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    }
+
+    /**
+     * Branch managers see an order a customer placed online (the owner and the floor staff are told elsewhere): the
+     * order's branch's managers, or every manager when it has no branch. One notice each, never doubled with "New order".
+     */
+    private function notifyManagersOfOnlineOrder(Store $store, JobOrder $jobOrder): void
+    {
         User::whereHas('staffProfile', fn ($q) => $q->where('store_id', $store->id)->where('is_branch_manager', true)
-            ->when($branch, fn ($q2) => $q2->where('store_branch_id', $branch->id)))
+            ->when($jobOrder->store_branch_id, fn ($q2) => $q2->where('store_branch_id', $jobOrder->store_branch_id)))
             ->get()
             ->each(fn (User $m) => SafeNotify::send($m, new StoreActivityNotification(
                 'job_new_request', 'New online request',
                 "{$jobOrder->order_number} from {$jobOrder->customer?->name} is waiting for your review.",
                 '/dashboard/jobs/'.$jobOrder->id, ['job_order_id' => $jobOrder->id],
             )));
+    }
 
-        return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    /**
+     * What the signed-in customer's online order will actually be asked to pay up front,
+     * for the "Online Order" wizard's payment step: the same effective policy
+     * customerServiceOrder() applies (trusted customers owe no deposit), so the wizard
+     * never has to re-derive — or see — the trust flag itself. Read-only, no rules change.
+     */
+    public function customerServiceOrderPaymentPolicy(Store $store, Request $request): JsonResponse
+    {
+        $request->validate(['service_id' => ['required', 'integer', Rule::exists('services', 'id')->where('store_id', $store->id)]]);
+        $service = $store->services()->find($request->input('service_id'));
+
+        $requirements = OrderRequirements::forCustomer($store, [$service], $request->user()->id);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'payment_policy' => $requirements['payment_policy'],
+                'payment_policy_percent' => $requirements['payment_policy_percent'],
+            ],
+        ]);
     }
 
     public function index(Store $store, Request $request): JsonResponse
@@ -693,6 +1073,9 @@ class JobOrderController extends Controller
             });
         }
 
+        // Plain staff get the list without any amounts (the totals above are owner / branch manager figures on the dashboard, not here).
+        $page->getCollection()->each(fn (JobOrder $j) => $j->seenBy($request->user()));
+
         return response()->json([
             'success' => true,
             'data' => $page,
@@ -730,6 +1113,29 @@ class JobOrderController extends Controller
         // checks these, but a client can't be trusted for money/liability-sensitive
         // rules like minimum order quantity or damage-waiver logging.
         $service = Service::find($validated['service_id']);
+
+        // The option this order is made from: its label, what it covers and what one ordered unit is are written here, from the
+        // option itself, and never taken from the client. Whatever the client put under those keys is discarded.
+        foreach (['option', 'option_covers', 'option_sold_as'] as $key) {
+            unset($validated['custom_order_data'][$key]);
+        }
+        $pricingId = $validated['pricing_id'] ?? null;
+        unset($validated['pricing_id']);
+        if ($service && $pricingId) {
+            $option = ServicePricing::where('id', $pricingId)->where('service_id', $service->id)->first();
+            if (! $option) {
+                return response()->json(['success' => false, 'message' => 'That option is not offered by this service.', 'errors' => ['pricing_id' => ['Choose one of this service\'s options.']]], 422);
+            }
+            $validated['custom_order_data'] = array_merge($validated['custom_order_data'] ?? [], $option->snapshot());
+            // An option that covers something decides it: the one wearer, and every person on a team list, get that coverage.
+            if (in_array($option->covers, ServicePricing::COVERS, true)) {
+                $validated['custom_order_data']['measure_area'] = $option->covers;
+                if (is_array($validated['custom_order_data']['team_roster'] ?? null)) {
+                    $validated['custom_order_data']['team_roster'] = array_map(fn ($row) => is_array($row) ? [...$row, 'measure_area' => $option->covers] : $row, $validated['custom_order_data']['team_roster']);
+                }
+            }
+        }
+
         if ($service) {
             // A bulk order's quantity comes from whichever shape it took —
             // a personalized team_roster (one row per piece), OR a plain
@@ -738,14 +1144,13 @@ class JobOrderController extends Controller
             // here would wrongly reject a perfectly valid size-breakdown
             // order against this service's minimum.
             $roster = $validated['custom_order_data']['team_roster'] ?? null;
-            $bulkQty = is_array($roster) ? count($roster) : 0;
-            // From now on a group order counts its people (handover, tracker); the marker keeps older orders as they were.
-            if ($bulkQty > 0) {
-                $validated['custom_order_data']['people_count'] = $bulkQty;
+            $people = is_array($roster) ? count($roster) : 0;
+            // From now on a group order counts its people (tracker); the marker keeps older orders as they were.
+            if ($people > 0) {
+                $validated['custom_order_data']['people_count'] = $people;
             }
-            if ($bulkQty === 0) {
-                $bulkQty = (int) ($validated['custom_order_data']['total_quantity'] ?? 0);
-            }
+            // The usual minimum is in pieces, not wearers: 5 people with 2 polos each is 10 pieces.
+            $bulkQty = $people > 0 ? JobOrder::rosterPieces($roster) : (int) ($validated['custom_order_data']['total_quantity'] ?? 0);
 
             // `quantity` (several identical pieces for one person) is a
             // different concept from a bulk order's roster (different
@@ -957,7 +1362,21 @@ class JobOrderController extends Controller
             $validated['store_branch_id'] = (int) $pinned;
         }
 
+        // A wearer may only be linked to a profile that belongs to this customer in this shop: no one else's measurements.
+        $linked = collect($validated['custom_order_data']['team_roster'] ?? [])->pluck('measurement_id')->filter()->map(fn ($id) => (int) $id)->unique();
+        if ($linked->isNotEmpty() && Measurement::where('store_id', $store->id)->where('customer_id', $validated['customer_id'])->whereIn('id', $linked)->count() !== $linked->count()) {
+            return response()->json(['success' => false, 'message' => 'A person on the team list is linked to measurements that do not belong to this customer.'], 422);
+        }
+
         $jobOrder = $store->jobOrders()->create($validated);
+
+        // Auto-record the order's measurements (custom_order_data) as a versioned
+        // measurement profile for the customer and link the job to it.
+        // Shop-entered data keeps the default 'store_owner' source; a future
+        // customer-self-service endpoint would pass 'customer' explicitly.
+        JobMeasurementSync::syncForJob($store, $jobOrder);
+        // A team order's Custom Fit wearers each get their own profile, linked from their row.
+        JobMeasurementSync::syncRoster($store, $jobOrder);
 
         // Link back to the appointment now that the job exists
         if ($appointment) {
@@ -1003,6 +1422,16 @@ class JobOrderController extends Controller
         if ($storeOwner) {
             $storeOwner->notify(new NewJobOrderNotification($jobOrder));
         }
+        // The customer hears it was written up, with the code to follow it (their extra orders are listed on the same page).
+        $more = count($extraOrders);
+        SafeNotify::send($jobOrder->customer()->first(), new \App\Notifications\OrderUpdateNotification(
+            $jobOrder,
+            'created',
+            'Order received',
+            "Your order {$jobOrder->order_number} at {$store->name} has been written up".($more > 0 ? " (with {$more} more linked ".($more === 1 ? 'order' : 'orders').')' : '')
+                .". Follow it under My Orders or with the tracking code {$jobOrder->tracking_code}.",
+            $request->user(),
+        ));
 
         return response()->json([
             'success' => true,
@@ -1061,6 +1490,7 @@ class JobOrderController extends Controller
         $seesMoney = $request->user()->hasRole('store_owner') || $request->user()->hasRole('branch_manager');
         $jobOrder->setAttribute('batch', \App\Support\OrderBatches::summary($jobOrder, $seesMoney));
         $jobOrder->setAttribute('can_split', $seesMoney && \App\Support\OrderBatches::canSplit($jobOrder));
+        $jobOrder->seenBy($request->user());
 
         return response()->json([
             'success' => true,
@@ -1144,6 +1574,10 @@ class JobOrderController extends Controller
             // deposit; starting work needs materials, measurements and a tailor. Same rules as the
             // dashboard checklist (App\Support\OrderReadiness) -- orders without the flow are skipped.
             if ($gate = OrderReadiness::transitionError($jobOrder, $oldStatus, $newStatus)) {
+                if (isset($gate['message'])) {
+                    $gate['message'] = JobOrder::withoutAmounts($gate['message'], $request->user());
+                }
+
                 return response()->json(['success' => false] + $gate, 422);
             }
 
@@ -1271,10 +1705,41 @@ class JobOrderController extends Controller
 
         if (array_key_exists('custom_order_data', $validated)) {
             $existingData = $jobOrder->custom_order_data ?? [];
-            $validated['custom_order_data'] = array_merge($existingData, $validated['custom_order_data'] ?? []);
+            // What the order was made from (option, coverage, unit) was fixed when it was created: an edit cannot change it.
+            $incoming = $validated['custom_order_data'] ?? [];
+            foreach (['option', 'option_covers', 'option_sold_as'] as $key) {
+                unset($incoming[$key]);
+            }
+            $validated['custom_order_data'] = array_merge($existingData, $incoming);
+
+            // A group order's team list edited on the order page: the people count follows the list, and the number of
+            // people or pieces (what the price, deposit and handover rest on) can only change while it is still a request.
+            $newRoster = $validated['custom_order_data']['team_roster'] ?? null;
+            $oldRoster = $existingData['team_roster'] ?? null;
+            if ((int) ($existingData['people_count'] ?? 0) > 0 && is_array($newRoster) && count($newRoster) > 0) {
+                $changed = count($newRoster) !== count((array) $oldRoster)
+                    || JobOrder::rosterPieces($newRoster) !== JobOrder::rosterPieces(is_array($oldRoster) ? $oldRoster : []);
+                if ($changed && $oldStatus !== 'pending') {
+                    return response()->json(['success' => false, 'message' => 'People and pieces on the team list can only change before the order is confirmed.'], 422);
+                }
+                $validated['custom_order_data']['people_count'] = count($newRoster);
+            }
+
+            // A wearer may only be linked to a profile of this order's customer in this shop, same as when the order is made.
+            $linked = collect($newRoster ?? [])->pluck('measurement_id')->filter()->map(fn ($id) => (int) $id)->unique();
+            if ($linked->isNotEmpty() && Measurement::where('store_id', $store->id)->where('customer_id', $jobOrder->customer_id)->whereIn('id', $linked)->count() !== $linked->count()) {
+                return response()->json(['success' => false, 'message' => 'A person on the team list is linked to measurements that do not belong to this customer.'], 422);
+            }
         }
 
         $jobOrder->update($validated);
+
+        // Re-sync the measurement profile when the measurements or the linked
+        // profile can have changed — superseding the old version rather than
+        // overwriting it.
+        if (array_key_exists('custom_order_data', $validated) || array_key_exists('measurement_id', $validated)) {
+            JobMeasurementSync::syncForJob($store, $jobOrder);
+        }
 
         // Ordering flow milestones, stamped by the server from the transition itself.
         if ($newStatus && $newStatus !== $oldStatus && $jobOrder->uses_confirmation_flow) {
@@ -1467,7 +1932,7 @@ class JobOrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $jobOrder,
+            'data' => $jobOrder->seenBy($request->user()),
         ]);
     }
 
@@ -2058,12 +2523,12 @@ class JobOrderController extends Controller
             'rejection_reason' => $validated['reason'],
         ]);
 
-        $jobOrder->customer->notify(new JobStatusUpdatedNotification($jobOrder, 'rejected', $request->user()));
+        SafeNotify::send($jobOrder->customer, new JobStatusUpdatedNotification($jobOrder, 'rejected', $request->user()));
 
         return response()->json([
             'success' => true,
             'message' => 'Job order rejected.',
-            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])->seenBy($request->user()),
         ]);
     }
 
@@ -2140,7 +2605,7 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Progress photo added.',
-            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])->seenBy($request->user()),
         ]);
     }
 
@@ -2168,7 +2633,7 @@ class JobOrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Progress photo removed.',
-            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])->seenBy($request->user()),
         ]);
     }
 
@@ -2206,7 +2671,7 @@ class JobOrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff']),
+            'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff'])->seenBy($request->user()),
         ]);
     }
 

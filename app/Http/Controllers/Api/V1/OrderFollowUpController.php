@@ -50,7 +50,7 @@ class OrderFollowUpController extends Controller
         if ($description === '') {
             return response()->json(['success' => false, 'message' => 'Tell us what needs fixing.', 'errors' => ['description' => ['Required.']]], 422);
         }
-        $pieces = (int) ($v['pieces'] ?? $jobOrder->garmentCount());
+        $pieces = (int) ($v['pieces'] ?? $jobOrder->orderedQuantity());
         $user = $request->user();
         $note = "Free fix for {$jobOrder->order_number}: {$description}";
 

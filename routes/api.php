@@ -154,6 +154,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/stores/{store:slug}/made-to-order', [JobOrderController::class, 'customerMadeToOrder']);
         // A general request for a made-to-measure garment or service, with no appointment and no catalog design.
         Route::post('/stores/{store:slug}/order-requests', [JobOrderController::class, 'customerOrderRequest'])->middleware('throttle:sensitive-writes');
+        // An online order of a store service from the service detail page (the page's "Online Order" button):
+        // up-front GCash payment included, and the shop runs it through the normal confirm/quote/verify pipeline.
+        Route::post('/stores/{store:slug}/service-orders', [JobOrderController::class, 'customerServiceOrder'])->middleware('throttle:sensitive-writes');
+        // The customer's own effective payment policy for that wizard's payment step — the server-side
+        // trusted-customer waiver is applied here, so the client never learns the trust flag itself.
+        Route::get('/stores/{store:slug}/service-order/payment-policy', [JobOrderController::class, 'customerServiceOrderPaymentPolicy']);
 
         // My Orders / My Appointments — cross-store, for whoever is logged
         // in (Objective 5: "customers monitor their order progress from
@@ -294,6 +300,9 @@ Route::prefix('v1')->group(function () {
                 // staff for every method here, so the route gate must match it.
                 Route::get('/customers', [CustomerController::class, 'index']);
                 Route::get(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'show']);
+                // One customer's measurement history for the Client Book detail screen; first backfills
+                // the customer's own job orders that still carry measurements without a linked profile.
+                Route::get('/customers/{customer}/measurements', [CustomerController::class, 'measurements']);
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::put(CUSTOMER_DETAIL_ROUTE, [CustomerController::class, 'update']);
                 Route::put('/customers/{customer}/trusted', [CustomerController::class, 'setTrusted']);
@@ -337,6 +346,8 @@ Route::prefix('v1')->group(function () {
                 // Order set-up sign-offs: details approval, measurements, the customer's own fabric, materials, in-person approval.
                 Route::post('/jobs/{jobOrder}/specs/approve', [OrderFlowController::class, 'approveSpecs']);
                 Route::post('/jobs/{jobOrder}/measurements/verify', [OrderFlowController::class, 'verifyMeasurements']);
+                // Undo of a mis-click: reopens "Details & sizes" while the customer has not answered the price yet.
+                Route::delete('/jobs/{jobOrder}/details-approval', [OrderFlowController::class, 'reopenDetails']);
                 Route::post('/jobs/{jobOrder}/quotation/approve', [OrderFlowController::class, 'approveInPerson']);
                 // Materials are a yes/no sign-off (ready / waiting) plus an assessment of the customer's own
                 // fabric -- never a stock, supplier or purchase record (thesis Limitations).

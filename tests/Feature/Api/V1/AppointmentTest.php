@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api\V1;
 
 use App\Models\Appointment;
+use App\Models\JobOrder;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\StaffProfile;
@@ -169,7 +170,7 @@ class AppointmentTest extends TestCase
     public function test_online_booking_uses_the_account_takes_no_payment_and_uses_the_server_duration()
     {
         $res = $this->actingAs($this->customer)->postJson("/api/v1/catalog/{$this->store->slug}/book", $this->onlinePayload([
-            'appointment_type' => 'measurement',
+            'appointment_type' => 'consultation',
             'duration_minutes' => 15,
             'name' => 'Someone Else', 'email' => 'other@example.com',
             'payment_method' => 'gcash', 'payment_reference' => 'X1', 'payment_receipt_path' => 'r.png',
@@ -181,7 +182,7 @@ class AppointmentTest extends TestCase
         $this->assertSame('pending', $a->status);
         $this->assertSame('online', $a->intake_channel);
         $this->assertSame('shop', $a->kind);
-        $this->assertSame(Appointment::TYPE_DEFAULT_DURATIONS['measurement'], $a->duration_minutes);
+        $this->assertSame(Appointment::TYPE_DEFAULT_DURATIONS['consultation'], $a->duration_minutes);
         $this->assertNull($a->payment_method);
         $this->assertNull($a->payment_receipt_path);
         $this->assertDatabaseMissing('users', ['email' => 'other@example.com']);
@@ -546,6 +547,214 @@ class AppointmentTest extends TestCase
                 return $notification->statusType === 'shared';
             }
         );
+    }
+
+    public function test_staff_cannot_replace_a_named_customer_through_generic_update()
+    {
+        $staff = $this->staffUser('staff', $this->branch->id);
+        $replacement = User::factory()->create();
+        $replacement->roles()->attach(Role::where('name', 'customer')->first());
+        $appointment = $this->pendingAt(now()->addDay(), [
+            'store_branch_id' => $this->branch->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->actingAs($staff)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            ['customer_id' => $replacement->id]
+        )->assertStatus(403);
+
+        $this->assertSame($this->customer->id, $appointment->fresh()->customer_id);
+    }
+
+    public function test_staff_cannot_change_schedule_or_duration_through_generic_update()
+    {
+        $staff = $this->staffUser('staff', $this->branch->id);
+        $appointment = $this->pendingAt(now()->addDay(), [
+            'store_branch_id' => $this->branch->id,
+            'status' => 'confirmed',
+            'duration_minutes' => 30,
+        ]);
+
+        $this->actingAs($staff)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            [
+                'scheduled_at' => now()->addDays(2)->format('Y-m-d H:i:s'),
+                'duration_minutes' => 60,
+            ]
+        )->assertStatus(403);
+
+        $this->assertSame(30, $appointment->fresh()->duration_minutes);
+    }
+
+    public function test_staff_cannot_modify_shared_customer_content()
+    {
+        $staff = $this->staffUser('staff', $this->branch->id);
+        $appointment = $this->pendingAt(now()->addDay(), [
+            'store_branch_id' => $this->branch->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->actingAs($staff)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            [
+                'shared_notes' => 'Internal attempt',
+                'shared_links' => ['https://example.com/design'],
+                'shared_images' => ['stores/1/reference.jpg'],
+            ]
+        )->assertOk();
+
+        $fresh = $appointment->fresh();
+        $this->assertNull($fresh->shared_notes);
+        $this->assertNull($fresh->shared_links);
+        $this->assertNull($fresh->shared_images);
+        $this->assertNull($fresh->shared_link);
+    }
+
+    public function test_branch_manager_cannot_clear_or_move_appointment_branch()
+    {
+        $manager = $this->staffUser('branch_manager', $this->branch->id, true);
+        $otherBranch = StoreBranch::create([
+            'store_id' => $this->store->id,
+            'name' => 'Other',
+            'address' => 'B St',
+            'city' => 'Davao',
+            'status' => 'active',
+            'verification_status' => 'verified',
+        ]);
+        $appointment = $this->pendingAt(now()->addDay(), [
+            'store_branch_id' => $this->branch->id,
+            'status' => 'confirmed',
+        ]);
+        $url = "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}";
+
+        $this->actingAs($manager)->putJson($url, ['store_branch_id' => $otherBranch->id])->assertStatus(403);
+        $this->actingAs($manager)->putJson($url, ['store_branch_id' => null])->assertStatus(403);
+        $this->assertSame($this->branch->id, $appointment->fresh()->store_branch_id);
+    }
+
+    public function test_duration_only_update_respects_scheduling_conflicts()
+    {
+        $at = now()->addDays(2)->setTime(10, 0);
+        Appointment::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'appointment_type' => 'consultation',
+            'scheduled_at' => $at,
+            'duration_minutes' => 30,
+            'status' => 'confirmed',
+        ]);
+        $appointment = $this->pendingAt($at->copy()->addMinutes(15), [
+            'store_branch_id' => $this->branch->id,
+            'duration_minutes' => 15,
+            'status' => 'confirmed',
+        ]);
+
+        $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            ['duration_minutes' => 60]
+        )->assertStatus(409);
+
+        $this->assertSame(15, $appointment->fresh()->duration_minutes);
+    }
+
+    public function test_generic_outcome_writes_must_use_a_dedicated_action()
+    {
+        $appointment = $this->pendingAt(now()->addDay(), ['status' => 'confirmed']);
+
+        $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            ['outcome' => 'completed']
+        )->assertStatus(422);
+
+        $this->assertNull($appointment->fresh()->outcome);
+    }
+
+    public function test_job_order_link_requires_the_same_customer_and_branch()
+    {
+        $otherCustomer = User::factory()->create();
+        $otherCustomer->roles()->attach(Role::where('name', 'customer')->first());
+        $job = JobOrder::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branch->id,
+            'customer_id' => $otherCustomer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-'.random_int(10000, 99999),
+            'total_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'cutting',
+        ]);
+        $appointment = $this->pendingAt(now()->addDay(), [
+            'store_branch_id' => $this->branch->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            ['job_order_id' => $job->id]
+        )->assertStatus(422);
+
+        $this->assertNull($appointment->fresh()->job_order_id);
+    }
+
+    public function test_job_order_link_rejects_a_different_branch()
+    {
+        $otherBranch = StoreBranch::create([
+            'store_id' => $this->store->id,
+            'name' => 'Other',
+            'address' => 'B St',
+            'city' => 'Davao',
+            'status' => 'active',
+            'verification_status' => 'verified',
+        ]);
+        $job = JobOrder::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $otherBranch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-'.random_int(10000, 99999),
+            'total_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'cutting',
+        ]);
+        $appointment = $this->pendingAt(now()->addDay(), [
+            'store_branch_id' => $this->branch->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            ['job_order_id' => $job->id]
+        )->assertStatus(422);
+
+        $this->assertNull($appointment->fresh()->job_order_id);
+    }
+
+    public function test_valid_same_customer_same_branch_job_order_link_is_preserved()
+    {
+        $job = JobOrder::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $this->branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-'.random_int(10000, 99999),
+            'total_amount' => 5000,
+            'balance' => 5000,
+            'status' => 'cutting',
+        ]);
+        $appointment = $this->pendingAt(now()->addDay(), [
+            'store_branch_id' => $this->branch->id,
+            'status' => 'confirmed',
+        ]);
+
+        $this->actingAs($this->user)->putJson(
+            "/api/v1/stores/{$this->store->id}/appointments/{$appointment->id}",
+            ['job_order_id' => $job->id]
+        )->assertOk();
+
+        $this->assertSame($job->id, $appointment->fresh()->job_order_id);
     }
 
     public function test_measurements_can_be_associated_with_appointment()

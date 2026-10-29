@@ -58,7 +58,19 @@ final class OrderReadiness
         $roster = $data['team_roster'] ?? null;
         if (is_array($roster) && count($roster) > 0) {
             foreach ($roster as $row) {
-                if (trim((string) ($row['size'] ?? '')) === '') {
+                $size = trim((string) ($row['size'] ?? ''));
+                if ($size === '') {
+                    return false;
+                }
+                // A person who gets a top and a bottom has a size for each (the second one is `bottom_size`).
+                $bottom = trim((string) ($row['bottom_size'] ?? ''));
+                $both = ($row['measure_area'] ?? null) === 'both';
+                if ($both && $bottom === '') {
+                    return false;
+                }
+                // "Custom Fit" on either part is a promise to measure that person: it counts once their measurements (or a saved profile) are on the row.
+                $custom = $size === JobOrder::CUSTOM_SIZE || ($both && $bottom === JobOrder::CUSTOM_SIZE);
+                if ($custom && empty($row['measurement_id']) && trim((string) ($row['fit'] ?? '')) === '') {
                     return false;
                 }
             }
