@@ -129,13 +129,44 @@ class SupportTicketController extends Controller
     }
 
     /**
+     * File a general ticket from the account section ("My Support Tickets")
+     * — the counterpart to store() above for accounts without a store
+     * context: it's a message to the SUTURA team, so store_id stays null
+     * and it reaches /admin/tickets like everything else. product_report
+     * rows arrive separately via CatalogInteractionController::report()
+     * and never through this path.
+     */
+    public function storeMine(Request $request)
+    {
+        $validated = $request->validate([
+            'subject' => 'required|string|max:255',
+            'message' => 'required|string',
+            'type' => 'required|in:problem,general,billing',
+        ]);
+
+        $ticket = SupportTicket::create([
+            ...$validated,
+            'user_id' => Auth::id(),
+            'priority' => 'medium',
+            'status' => 'open',
+        ]);
+
+        $ticket->load('replies');
+
+        return response()->json([
+            'success' => true,
+            'data' => $ticket,
+        ], 201);
+    }
+
+    /**
      * Cross-store "My Support Tickets" for whoever is logged in — the
      * customer-facing counterpart to index() above, which is store-scoped
      * and store-owner only. Same no-role-gate, filter-by-own-id pattern as
-     * /my-orders/my-appointments. Currently the only way a customer gets a
-     * row here is via CatalogInteractionController::report() ("Report This
-     * Product") — there's no general "file a ticket" form yet, so this is
-     * a view(+reply) list, not a ticket-creation surface.
+     * /my-orders/my-appointments. Rows reach this list two ways: filed
+     * here via storeMine() ("+ New Ticket", no store context) or as
+     * product_report rows via CatalogInteractionController::report()
+     * ("Report This Product" on a catalog item's detail page).
      */
     public function myTickets(Request $request)
     {
