@@ -7,6 +7,7 @@ use App\Http\Requests\Auth\ForgotPasswordRequest;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\ResetPasswordRequest;
+use App\Models\PendingOwnerSignup;
 use App\Models\Role;
 use App\Models\User;
 use App\Notifications\CustomerWelcomeNotification;
@@ -16,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -97,6 +99,19 @@ class AuthController extends Controller
     public function login(LoginRequest $request): JsonResponse
     {
         $user = User::where('email', $request->email)->first();
+
+        // A shop owner who signed up but has not opened the emailed link has no account yet. If they know the
+        // password they chose, say so, instead of the generic "incorrect" that makes them doubt their password.
+        if (! $user) {
+            $pending = PendingOwnerSignup::where('email', Str::lower(trim($request->email)))->whereNull('verified_at')->first();
+            if ($pending && Hash::check($request->password, $pending->password)) {
+                return response()->json([
+                    'success' => false,
+                    'code' => 'email_unconfirmed',
+                    'message' => 'Please confirm your email first. Open the link we sent to '.$pending->email.' (check spam), or sign up again to get a new link.',
+                ], 403);
+            }
+        }
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
             return response()->json([

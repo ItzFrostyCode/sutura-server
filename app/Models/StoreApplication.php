@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StoreApplication extends Model
 {
+    /** Length of the free trial that starts when the application is approved. */
+    public const TRIAL_DAYS = 14;
+
     /** Document fields an admin can open, keyed by the URL segment. */
     public const DOCUMENTS = [
         'landmark' => 'landmark_image_path',

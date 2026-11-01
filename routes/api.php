@@ -82,6 +82,12 @@ Route::prefix('v1')->group(function () {
     // "Open a shop" application: creates the owner's login + a pending
     // store + the verification packet. Multipart uploads, so rate-limited.
     Route::post('/store-applications', [StoreApplicationController::class, 'store'])->middleware('throttle:5,1,store-application');
+
+    // Shop-owner sign-up, email first: the account exists only once the emailed link is opened.
+    Route::post('/owner-signups', [\App\Http\Controllers\Api\V1\OwnerSignupController::class, 'store'])->middleware('throttle:6,1,owner-signup');
+    Route::post('/owner-signups/verify', [\App\Http\Controllers\Api\V1\OwnerSignupController::class, 'verify'])->middleware('throttle:20,1,owner-signup-verify');
+    Route::get('/owner-signups/{pollToken}', [\App\Http\Controllers\Api\V1\OwnerSignupController::class, 'status'])->middleware('throttle:60,1,owner-signup-status');
+    Route::post('/owner-signups/{pollToken}/resend', [\App\Http\Controllers\Api\V1\OwnerSignupController::class, 'resend'])->middleware('throttle:6,1,owner-signup-resend');
     Route::get('/store-applications/status', [StoreApplicationController::class, 'status']);
     Route::get('/public/subscription-plans', [StoreApplicationController::class, 'plans']);
 
@@ -103,6 +109,11 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'throttle:authed'])->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
+
+        // A signed-in owner (account made through /owner-signups) submits their shop for review: identity,
+        // business documents and plan. Not store-scoped: the shop does not exist yet.
+        Route::post('/owner/store-application', [StoreApplicationController::class, 'storeForOwner'])
+            ->middleware(['role:store_owner', 'throttle:5,1,owner-store-application']);
 
         // System News — real commit history from both repos, not a
         // hardcoded changelog (see SystemNewsController for why).

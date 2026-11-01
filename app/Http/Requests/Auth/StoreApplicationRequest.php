@@ -64,9 +64,10 @@ class StoreApplicationRequest extends FormRequest
 
             // Plan + payment
             'plan_id' => ['required', Rule::exists('subscription_plans', 'id')->where('is_active', true)],
-            'billing_cycle' => ['required', Rule::in(['monthly', 'yearly'])],
-            'payment_method' => ['required', Rule::in(['gcash', 'bank_transfer'])],
-            'payment_receipt' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            // 'trial' = the free 14 days on Basic: nothing to pay, so no payment method or receipt.
+            'billing_cycle' => ['required', Rule::in(['monthly', 'yearly', 'trial'])],
+            'payment_method' => ['required_unless:billing_cycle,trial', 'nullable', Rule::in(['gcash', 'bank_transfer'])],
+            'payment_receipt' => ['required_unless:billing_cycle,trial', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ];
     }
 
