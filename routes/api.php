@@ -71,6 +71,7 @@ Route::prefix('v1')->group(function () {
     // throttle argument is a key prefix; giving each route its own makes the
     // buckets genuinely independent.
     Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:6,1,register');
+    Route::post('/auth/check-email', [AuthController::class, 'checkEmail'])->middleware('throttle:15,1,check-email');
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:6,1,login')->name('login');
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:6,1,forgot-password');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:6,1,reset-password');

@@ -12,6 +12,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Notifications\CustomerWelcomeNotification;
 use App\Support\ActivityRecorder;
+use App\Support\EmailAvailability;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -94,6 +95,18 @@ class AuthController extends Controller
                 'token' => $token,
             ],
         ], 201);
+    }
+
+    /**
+     * "Can this email still sign up?" asked by the sign-up forms before they ask for a password. Same rule the
+     * sign-ups themselves enforce (EmailAvailability). Throttled hard in routes/api.php: it does say whether an email has
+     * an account, as the sign-up error always did, so it must not be usable to sweep a list of addresses.
+     */
+    public function checkEmail(Request $request): JsonResponse
+    {
+        $email = Str::lower(trim((string) $request->validate(['email' => ['required', 'string', 'email:rfc', 'max:191']])['email']));
+
+        return response()->json(['success' => true, 'data' => ['available' => ! EmailAvailability::taken($email)]]);
     }
 
     public function login(LoginRequest $request): JsonResponse

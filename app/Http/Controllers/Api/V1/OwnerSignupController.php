@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Notifications\ConfirmOwnerEmailNotification;
 use App\Support\ActivityRecorder;
+use App\Support\EmailAvailability;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -140,16 +141,9 @@ class OwnerSignupController extends Controller
         return response()->json(['success' => true, 'data' => ['email' => $signup->email]]);
     }
 
-    /** A real account (a password set, or any shop/admin role) owns this email. A passwordless guest "shadow" does not. */
     private function emailTaken(string $email): bool
     {
-        $user = User::where('email', $email)->first();
-        if (! $user) {
-            return false;
-        }
-
-        return $user->password_set_at !== null
-            || $user->roles()->whereIn('name', ['store_owner', 'branch_manager', 'staff', 'admin'])->exists();
+        return EmailAvailability::taken($email);
     }
 
     /** @return array{0: PendingOwnerSignup, 1: string} the row and the plain emailed token */
