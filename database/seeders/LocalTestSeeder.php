@@ -1493,6 +1493,44 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
+        // Staff-filed ticket: proves the dashboard support page's non-owner
+        // scoping (the staff account sees only this row, never the owner's
+        // two) and gives the admin ticket list a "Staff" label to show.
+        SupportTicket::updateOrCreate(
+            ['store_id' => $store->id, 'subject' => 'Progress photos keep timing out at the branch'],
+            [
+                'user_id' => $staff->id,
+                'message' => "Every time I upload a progress photo from the branch phone the upload times out and I have to re-take the shot. It's slowing down the QC step — can someone check?",
+                'type' => 'problem',
+                'priority' => 'medium',
+                'status' => 'in_progress',
+                'assigned_to' => $admin->id,
+            ]
+        );
+
+        // Customer "Report This Product" — lands exactly like a live report
+        // (CatalogInteractionController::report()), so the reporting
+        // customer's My Support Tickets list isn't empty on a fresh seed
+        // and the admin queue shows a Customer row.
+        $reportTicket = SupportTicket::updateOrCreate(
+            ['store_id' => $store->id, 'subject' => 'Product Report: '.$item1->name],
+            [
+                'user_id' => $customers[0]->id,
+                'message' => "Reason: Copyright\n\nThis design looks exactly like one I've seen from another brand — please check.",
+                'type' => 'product_report',
+                'catalog_item_id' => $item1->id,
+                'priority' => 'medium',
+                'status' => 'open',
+            ]
+        );
+        SupportTicketReply::updateOrCreate(
+            ['ticket_id' => $reportTicket->id, 'message' => 'Thanks — we\'ve received your report and will look into it.'],
+            [
+                'user_id' => $admin->id,
+                'is_admin_reply' => true,
+            ]
+        );
+
         // 20. Seed Notifications — a store this active (11 job orders, 40
         // staff stage assignments, 8 appointments, 4 payments) would
         // generate a real stream of in-app notifications, but every one of

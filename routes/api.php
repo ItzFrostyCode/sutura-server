@@ -194,6 +194,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/my-recently-viewed', [RecentlyViewedController::class, 'index']);
         Route::post('/recently-viewed', [RecentlyViewedController::class, 'store']);
         Route::get('/my-tickets', [SupportTicketController::class, 'myTickets']);
+        Route::post('/my-tickets', [SupportTicketController::class, 'storeMine'])->middleware('throttle:sensitive-writes');
         Route::get('/my-tickets/{ticket}', [SupportTicketController::class, 'myTicketShow']);
         Route::post('/my-tickets/{ticket}/reply', [SupportTicketController::class, 'myTicketReply']);
 
