@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Store;
+use App\Models\StoreApplication;
 use App\Models\StoreSubscription;
+use App\Models\SubscriptionPlan;
 use App\Notifications\ShopLoginIssuedNotification;
 use App\Notifications\StoreApplicationStatusNotification;
 use App\Support\AdminAudit;
@@ -78,6 +80,8 @@ class StoreApplicationController extends Controller
                     ? $login
                     : ShopLogin::suggest($store->name, $store->owner_id),
                 'login_domain' => ShopLogin::domain(),
+                // False when the owner signed up with their own confirmed email: approving issues no login.
+                'issues_login' => $store->owner?->email_verified_at === null,
             ],
         ]);
     }
@@ -103,7 +107,9 @@ class StoreApplicationController extends Controller
         $owner = $store->owner;
         // Stores created before applications existed already have a working
         // owner login; credentials are only issued to applicants.
-        $issue = $owner && $store->application;
+        // An owner who signed up with their own email (confirmed through the emailed link) already has a login;
+        // only applicants made by the older form get an admin-issued shop login.
+        $issue = $owner && $store->application && $owner->email_verified_at === null;
         $loginEmail = null;
         $temporaryPassword = null;
 
@@ -153,13 +159,18 @@ class StoreApplicationController extends Controller
 
                 if ($application->requested_plan_id) {
                     $plan = SubscriptionPlan::find($application->requested_plan_id);
+                    $trial = $application->billing_cycle === 'trial';
                     StoreSubscription::create([
                         'store_id' => $store->id,
                         'plan_id' => $application->requested_plan_id,
-                        'status' => 'active',
-                        'billing_cycle' => $application->billing_cycle === 'yearly' ? 'yearly' : 'monthly',
+                        'status' => $trial ? 'trial' : 'active',
+                        // A trial has no cycle yet; it ends on its own and the owner picks a plan then.
+                        'billing_cycle' => $trial ? null : ($application->billing_cycle === 'yearly' ? 'yearly' : 'monthly'),
                         'starts_at' => now(),
-                        'ends_at' => $application->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
+                        'ends_at' => $trial
+                            ? now()->addDays(StoreApplication::TRIAL_DAYS)
+                            : ($application->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth()),
+                        'trial_ends_at' => $trial ? now()->addDays(StoreApplication::TRIAL_DAYS) : null,
                     ]);
                     if ($plan && in_array('Featured Store Visibility (Top Placement)', $plan->features ?? [], true)) {
                         $store->update(['is_featured' => true]);

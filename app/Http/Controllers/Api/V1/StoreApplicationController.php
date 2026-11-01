@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\OwnerStoreApplicationRequest;
 use App\Http\Requests\Auth\StoreApplicationRequest;
 use App\Models\Role;
 use App\Models\Store;
@@ -86,12 +87,39 @@ class StoreApplicationController extends Controller
 
     public function store(StoreApplicationRequest $request): JsonResponse
     {
+        return $this->submit($request, null);
+    }
+
+    /**
+     * The signed-in owner (account made through OwnerSignupController) submits their shop. The account's own email
+     * is the login, so nothing is issued on approval. One shop per owner account.
+     */
+    public function storeForOwner(OwnerStoreApplicationRequest $request): JsonResponse
+    {
+        $owner = $request->user();
+        if ($owner->stores()->exists()) {
+            return response()->json(['success' => false, 'message' => 'You have already submitted a shop for review.'], 422);
+        }
+
+        return $this->submit($request, $owner);
+    }
+
+    private function submit(StoreApplicationRequest $request, ?User $owner): JsonResponse
+    {
         $plan = SubscriptionPlan::findOrFail($request->plan_id);
+        // The free trial is Basic's features for StoreApplication::TRIAL_DAYS days — no other plan.
+        if ($request->billing_cycle === 'trial' && $plan->slug !== 'basic') {
+            return response()->json([
+                'success' => false,
+                'message' => 'The free trial is on the Basic plan.',
+                'errors' => ['plan_id' => ['The free trial is on the Basic plan.']],
+            ], 422);
+        }
         $paths = $this->storeDocuments($request);
 
         $store = null;
         try {
-            $store = $this->createApplication($request, $paths, $plan);
+            $store = $this->createApplication($request, $paths, $plan, $owner);
         } catch (\Throwable $e) {
             // Don't leave orphaned government IDs on disk for a rolled-back row.
             Storage::disk(self::privateDisk())->delete(collect($paths)->flatten()->filter()->all());
@@ -100,9 +128,11 @@ class StoreApplicationController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Application submitted. We will email your shop login once it is approved.',
+            'message' => $owner
+                ? 'Application submitted. We will email you when it has been reviewed.'
+                : 'Application submitted. We will email your shop login once it is approved.',
             'data' => [
-                'contact_email' => $request->email,
+                'contact_email' => $owner?->email ?? $request->email,
                 'store_id' => $store?->id,
                 'store_name' => $store?->name,
                 'status' => $store?->status ?? 'pending',
@@ -110,9 +140,9 @@ class StoreApplicationController extends Controller
         ], 201);
     }
 
-    private function createApplication(StoreApplicationRequest $request, array $paths, SubscriptionPlan $plan): Store
+    private function createApplication(StoreApplicationRequest $request, array $paths, SubscriptionPlan $plan, ?User $existingOwner = null): Store
     {
-        return DB::transaction(function () use ($request, $paths, $plan) {
+        return DB::transaction(function () use ($request, $paths, $plan, $existingOwner) {
             $fullName = trim((string) ($request->full_name ?? ''));
             if ($fullName !== '') {
                 $parts = preg_split('/\s+/', $fullName);
@@ -141,19 +171,29 @@ class StoreApplicationController extends Controller
                 $name = trim(preg_replace('/\s+/', ' ', "{$firstName} {$middleName} {$lastName} {$suffix}"));
             }
 
-            $user = User::create([
-                'name' => $name,
-                'email' => ShopLogin::suggest($request->store_name),
-                'contact_email' => $request->email,
-                'phone' => $request->contact_number,
-                'gender' => $request->gender,
-                // Never communicated to anyone — the account is unusable
-                // until approval issues a real temporary password.
-                'password' => Hash::make(Str::random(64)),
-            ]);
+            if ($existingOwner) {
+                // Their own sign-up email stays their login; only the identity details are filled in.
+                $existingOwner->update([
+                    'name' => $name,
+                    'phone' => $request->contact_number,
+                    'gender' => $request->gender,
+                ]);
+                $user = $existingOwner;
+            } else {
+                $user = User::create([
+                    'name' => $name,
+                    'email' => ShopLogin::suggest($request->store_name),
+                    'contact_email' => $request->email,
+                    'phone' => $request->contact_number,
+                    'gender' => $request->gender,
+                    // Never communicated to anyone — the account is unusable
+                    // until approval issues a real temporary password.
+                    'password' => Hash::make(Str::random(64)),
+                ]);
 
-            $role = Role::where('name', 'store_owner')->firstOrFail();
-            $user->roles()->syncWithoutDetaching([$role->id]);
+                $role = Role::where('name', 'store_owner')->firstOrFail();
+                $user->roles()->syncWithoutDetaching([$role->id]);
+            }
 
             $store = Store::create([
                 'owner_id' => $user->id,
@@ -163,7 +203,7 @@ class StoreApplicationController extends Controller
                 'city' => $request->city,
                 'province' => $request->province,
                 'phone' => $request->contact_number,
-                'email' => $request->email,
+                'email' => $request->email ?? $user->email,
                 'latitude' => $request->latitude,
                 'longitude' => $request->longitude,
                 'specializations' => array_values(array_unique($request->specializations)),
@@ -202,8 +242,12 @@ class StoreApplicationController extends Controller
                 'contact_number' => $request->contact_number,
                 'requested_plan_id' => $plan->id,
                 'billing_cycle' => $request->billing_cycle,
-                'quoted_price' => $request->billing_cycle === 'yearly' ? $plan->price_yearly : $plan->price_monthly,
-                'payment_method' => $request->payment_method,
+                'quoted_price' => match ($request->billing_cycle) {
+                    'trial' => 0,
+                    'yearly' => $plan->price_yearly,
+                    default => $plan->price_monthly,
+                },
+                'payment_method' => $request->billing_cycle === 'trial' ? null : $request->payment_method,
                 'government_id_type' => $request->government_id_type,
                 ...$paths,
             ]);
@@ -223,7 +267,8 @@ class StoreApplicationController extends Controller
             'tin_id_path' => $put($request->file('tin_id'), 'tin'),
             'brgy_clearance_path' => $put($request->file('brgy_clearance'), 'barangay'),
             'government_id_path' => $put($request->file('government_id'), 'government-id'),
-            'payment_receipt_path' => $put($request->file('payment_receipt'), 'receipts'),
+            // A free trial has no receipt.
+            'payment_receipt_path' => $request->hasFile('payment_receipt') ? $put($request->file('payment_receipt'), 'receipts') : null,
             'business_permit_paths' => collect($request->file('business_permits', []))
                 ->map(fn (UploadedFile $file) => $put($file, 'permits'))
                 ->values()

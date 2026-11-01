@@ -38,7 +38,7 @@ class StoreApplicationStatusNotification extends Notification implements ShouldQ
 
     public function toMail(object $notifiable): MailMessage
     {
-        $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
+        $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
 
         if ($this->decision === 'approved') {
             return (new MailMessage)
