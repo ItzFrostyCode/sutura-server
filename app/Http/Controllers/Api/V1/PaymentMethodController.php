@@ -39,12 +39,23 @@ class PaymentMethodController extends Controller
             'kind' => ['required', Rule::in(PaymentMethod::KINDS)],
             'name' => ['required', 'string', 'max:80'],
             'account_name' => ['required', 'string', 'max:120'],
-            'account_number' => ['required', 'string', 'max:80'],
-            'qr_path' => ['nullable', 'string', 'max:2048'],
+            // A number, a QR code, or both: a shop that only has a QR (any QR Ph code) can still be paid.
+            'account_number' => ['nullable', 'string', 'max:80', 'required_without:qr_path'],
+            'qr_path' => ['nullable', 'string', 'max:2048', 'required_without:account_number'],
             'instructions' => ['nullable', 'string', 'max:1000'],
             'is_active' => ['sometimes', 'boolean'],
             'store_branch_id' => ['nullable', 'integer', Rule::exists('store_branches', 'id')->where('store_id', $store->id)],
         ];
+    }
+
+    /** The column is NOT NULL: a QR-only method keeps an empty number, which the customer's pay screen simply hides. */
+    private function withNumber(array $data): array
+    {
+        if (array_key_exists('account_number', $data)) {
+            $data['account_number'] = trim((string) $data['account_number']);
+        }
+
+        return $data;
     }
 
     public function index(Request $request, Store $store): JsonResponse
@@ -69,7 +80,7 @@ class PaymentMethodController extends Controller
         if ($branch !== null) {
             $data['store_branch_id'] = $branch;
         }
-        $method = $store->paymentMethods()->create($data);
+        $method = $store->paymentMethods()->create($this->withNumber($data));
 
         return response()->json(['success' => true, 'data' => $method], 201);
     }
@@ -84,7 +95,7 @@ class PaymentMethodController extends Controller
             unset($rules['store_branch_id']);
         }
         $data = $request->validate($rules);
-        $paymentMethod->update($data);
+        $paymentMethod->update($this->withNumber($data));
 
         return response()->json(['success' => true, 'data' => $paymentMethod->fresh()]);
     }
