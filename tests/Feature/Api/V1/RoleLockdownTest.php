@@ -154,6 +154,7 @@ class RoleLockdownTest extends TestCase
     public function test_staff_can_move_an_order_of_their_own_branch_with_production_next(): void
     {
         $job = $this->job($this->branchA, 'cutting');
+        $job->update(['balance' => 2500, 'payment_status' => 'partial']); // collect the 50% deposit so production may start
 
         $this->actingAs($this->staffA)->postJson($this->url("/jobs/{$job->id}/production/next"))->assertOk();
 
@@ -202,7 +203,7 @@ class RoleLockdownTest extends TestCase
 
     public function test_branch_manager_cannot_create_a_branch_manager(): void
     {
-        $body = ['name' => 'New Hire', 'email' => 'hire@example.com', 'password' => 'secret123', 'role' => 'tailor'];
+        $body = ['name' => 'New Hire', 'email' => 'hire@example.com', 'password' => 'Secret123!', 'password_confirmation' => 'Secret123!', 'role' => 'tailor'];
 
         $this->actingAs($this->manager)->postJson($this->url('/staff'), $body + ['is_branch_manager' => true])->assertStatus(403);
         $this->assertNull(User::where('email', 'hire@example.com')->first());
@@ -215,7 +216,7 @@ class RoleLockdownTest extends TestCase
     {
         $profile = StaffProfile::where('user_id', $this->staffA->id)->first();
 
-        $this->actingAs($this->manager)->putJson($this->url("/staff/{$profile->id}"), ['is_branch_manager' => true])->assertStatus(403);
+        $this->actingAs($this->manager)->putJson($this->url("/staff/{$profile->id}"), ['is_branch_manager' => true, 'store_branch_id' => $this->branchA->id])->assertStatus(403);
         $this->actingAs($this->manager)->putJson($this->url("/staff/{$profile->id}"), ['store_branch_id' => $this->branchB->id])->assertStatus(403);
 
         $this->assertFalse((bool) $profile->fresh()->is_branch_manager);

@@ -13,6 +13,7 @@ use App\Models\StoreSubscription;
 use App\Models\SubscriptionPlan;
 use App\Support\CanonicalTaxonomy;
 use App\Support\DesignPricing;
+use App\Support\PlanGate;
 use App\Support\SearchIntent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -140,6 +141,9 @@ class StoreController extends Controller
         $this->applyOpenNowFilter($query, $request);
         $this->applyPriceFilter($query, $request);
         $this->applyAggregatesAndSearchCount($query, $request);
+        // Premium right now (Store::scopeWithPremiumNow) — the one answer for the badge, the Featured section and the
+        // top placement, instead of the stored is_featured copy that can go stale.
+        $query->withPremiumNow();
         $this->applyDistanceFilter($query, $request);
         $this->applySorting($query, $request);
 
@@ -182,8 +186,8 @@ class StoreController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->whereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.$search.'%'])
                     ->orWhereRaw('LOWER(specializations) LIKE ?', ['%'.$search.'%'])
-                    // "Ubalde" finds shops in that barangay; "Jasmin" finds the street.
-                    ->orWhereHas('branches', fn ($bq) => $bq->whereRaw('LOWER(barangay) LIKE ?', ['%'.$search.'%'])->orWhereRaw('LOWER(address) LIKE ?', ['%'.$search.'%']))
+                    // The search box looks at the shop, its services and its designs only — never the address or
+                    // barangay ("Barang" was matching "Barangay 39-D"). Places are narrowed with the District filter.
                     ->orWhereHas('services', function ($sq) use ($search) {
                         $sq->whereRaw(self::SQL_LOWER_CATEGORY_LIKE, ['%'.$search.'%'])
                             ->orWhereRaw(self::SQL_LOWER_NAME_LIKE, ['%'.$search.'%']);
@@ -413,15 +417,7 @@ class StoreController extends Controller
                 $query->orderBy('distance_km');
             } else {
                 // Scenario 1: No location set -> show premium stores first, then highest ratings & reviews count
-                $query->orderByDesc('is_featured')
-                    ->orderByDesc(
-                        StoreSubscription::select('store_subscriptions.id')
-                            ->join('subscription_plans', 'subscription_plans.id', '=', 'store_subscriptions.plan_id')
-                            ->whereColumn('store_subscriptions.store_id', 'stores.id')
-                            ->where('store_subscriptions.status', 'active')
-                            ->where('subscription_plans.slug', 'premium')
-                            ->limit(1)
-                    )
+                $query->orderByDesc('is_premium')
                     ->orderByDesc('reviews_avg_rating')
                     ->orderByDesc('reviews_count')
                     ->orderByDesc('created_at');
@@ -437,7 +433,7 @@ class StoreController extends Controller
                         ->where('is_active', true)
                 ),
                 'newest' => $query->orderByDesc('created_at'),
-                default => $query->orderByDesc('is_featured')->orderByDesc('created_at'),
+                default => $query->orderByDesc('is_premium')->orderByDesc('created_at'),
             };
         }
     }
@@ -522,6 +518,11 @@ class StoreController extends Controller
                 ? round((float) $store->reviews_avg_rating, 1)
                 : null;
 
+            // What the app shows as "Premium" / "Featured" is the live plan (withPremiumNow), not the stored flag.
+            $store->is_premium = (bool) ($store->is_premium ?? false);
+            $store->is_featured = $store->is_premium;
+            $store->subscription_plan = $store->is_premium ? 'premium' : null;
+
             if ($store->relationLoaded('services')) {
                 $store->services->each(function ($svc) {
                     $svc->reviews_avg_rating = $svc->reviews_avg_rating !== null
@@ -560,6 +561,11 @@ class StoreController extends Controller
         $store->loadCount('reviews');
         $store->loadAvg('reviews', 'rating');
         $store->reviews_avg_rating = round($store->reviews_avg_rating, 1);
+
+        // The same live answer as the shop list (Store::scopeWithPremiumNow): PlanGate counts only a subscription that
+        // has not ended, so the shop page's Premium mark always matches the Map and Discover.
+        $store->is_premium = PlanGate::tier($store) === 'premium';
+        $store->is_featured = $store->is_premium;
 
         if ($viewer) {
             $store->my_review = StoreReview::where('store_id', $store->id)

@@ -92,6 +92,7 @@ class UserGenderTest extends TestCase
             'name' => 'Alex Tailor',
             'email' => 'alex.tailor@example.com',
             'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
             'phone' => '09112223333',
             'gender' => 'male',
             'role' => 'tailor',

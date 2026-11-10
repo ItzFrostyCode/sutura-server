@@ -86,6 +86,7 @@ class CustomerTest extends TestCase
             'name' => 'Ana Reyes',
             'phone' => '09170001111',
             'notes' => 'Repeat suki, always pays in full upfront.',
+            'add_to_list' => true,
         ]);
         $customerId = $create->json('data.id');
 
@@ -112,8 +113,9 @@ class CustomerTest extends TestCase
             'status' => 'pending',
         ]);
 
-        // Verify that the pending requester is NOT in the store's customer list
-        $resBefore = $this->actingAs($this->user)->getJson("/api/v1/stores/{$this->store->id}/customers");
+        // A booking alone does not put a customer on the default list; only the picker list (?all=1) does, and a PENDING
+        // request is not in it yet.
+        $resBefore = $this->actingAs($this->user)->getJson("/api/v1/stores/{$this->store->id}/customers?all=1");
         $resBefore->assertStatus(200);
         $this->assertNull(collect($resBefore->json('data'))->firstWhere('id', $onlineCustomer->id));
 
@@ -123,8 +125,8 @@ class CustomerTest extends TestCase
         ]);
         $confirmRes->assertStatus(200);
 
-        // Verify that the customer is now officially in the store's customer list
-        $resAfter = $this->actingAs($this->user)->getJson("/api/v1/stores/{$this->store->id}/customers");
+        // Once confirmed, the customer is in the picker list.
+        $resAfter = $this->actingAs($this->user)->getJson("/api/v1/stores/{$this->store->id}/customers?all=1");
         $resAfter->assertStatus(200);
         $this->assertNotNull(collect($resAfter->json('data'))->firstWhere('id', $onlineCustomer->id));
     }

@@ -13,7 +13,7 @@ class PendingOwnerSignup extends Model
     public const RESEND_SECONDS = 60;
 
     /** The version of the Terms of Service the owner agreed to (the "Last updated" date). */
-    public const TERMS_VERSION = '2026-11-02';
+    public const TERMS_VERSION = '2026-11-10';
 
     protected $fillable = [
         'email', 'password', 'token_hash', 'poll_token', 'terms_accepted_at', 'terms_version',

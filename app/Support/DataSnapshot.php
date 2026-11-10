@@ -99,9 +99,16 @@ class DataSnapshot
         $driver = DB::connection()->getDriverName();
         $rows = 0;
         $skipped = [];
-        Schema::disableForeignKeyConstraints();
+        // Postgres enforces FKs at insert time (no FOREIGN_KEY_CHECKS switch), so for the load
+        // we drop every public FK constraint and re-add it afterwards; the other drivers just
+        // disable checks for the session.
+        $restoreFks = $driver === 'pgsql' ? self::dropPostgresForeignKeys() : null;
+        if ($restoreFks === null) {
+            Schema::disableForeignKeyConstraints();
+        }
+
         try {
-            foreach (array_keys($manifest['tables']) as $table) {
+            foreach (self::importOrder($manifest['tables']) as $table) {
                 if (! Schema::hasTable($table)) {
                     $skipped[] = $table;
 
@@ -116,12 +123,22 @@ class DataSnapshot
                     $rows += count($chunk);
                 }
                 // Postgres keeps its own id counters: move them past the loaded rows so new records do not collide.
+                // Only integer serial PKs have a sequence — a UUID primary key (e.g. `notifications`) has none, and
+                // MAX() over a uuid column does not exist on Postgres, so skip the bump when there is no sequence.
                 if ($driver === 'pgsql' && isset($columns['id']) && count($data) > 0) {
-                    DB::statement("SELECT setval(pg_get_serial_sequence('\"{$table}\"', 'id'), (SELECT COALESCE(MAX(id), 1) FROM \"{$table}\"))");
+                    $seq = DB::selectOne("SELECT pg_get_serial_sequence('\"{$table}\"', 'id') AS seq")->seq;
+                    if ($seq !== null) {
+                        $maxId = (int) DB::table($table)->max('id');
+                        DB::selectOne('SELECT setval(?, ?)', [$seq, max($maxId, 1)]);
+                    }
                 }
             }
         } finally {
-            Schema::enableForeignKeyConstraints();
+            if ($restoreFks !== null) {
+                self::restorePostgresForeignKeys($restoreFks);
+            } else {
+                Schema::enableForeignKeyConstraints();
+            }
         }
 
         // Uploaded files back where the links expect them, and the public/storage link that serves them.
@@ -136,6 +153,113 @@ class DataSnapshot
         }
 
         return ['rows' => $rows, 'files' => $files, 'skipped' => $skipped, 'moved_links' => $rewrite ? "{$from} → {$to}" : null];
+    }
+
+    /**
+     * The snapshot's tables in an order that is safe on every driver: a table is imported only
+     * after the tables its rows reference. MySQL and SQLite tolerate any order because the import
+     * disables FK checks; Postgres enforces them at insert time, so children must follow parents.
+     * Without this, `appointment_items` (which sorts before `appointments`) lands before its parent
+     * and Postgres rejects it with a foreign-key violation.
+     *
+     * @param array<string, int> $tables  table name => row count, from the manifest
+     * @return string[]
+     */
+    private static function importOrder(array $tables): array
+    {
+        $want = array_flip(array_keys($tables));
+        $deps = [];
+        foreach (array_keys($tables) as $table) {
+            $parents = [];
+            if (Schema::hasTable($table)) {
+                try {
+                    foreach (Schema::getForeignKeys($table) as $fk) {
+                        $parent = $fk['foreign_table'] ?? null;
+                        if ($parent !== null && $parent !== $table && isset($want[$parent])) {
+                            $parents[] = $parent;
+                        }
+                    }
+                } catch (\Throwable) {
+                    // This driver does not expose FK metadata; the table just keeps no known order.
+                }
+            }
+            $deps[$table] = array_values(array_unique($parents));
+        }
+
+        return self::topologicalOrder(array_keys($tables), $deps);
+    }
+
+    /**
+     * Parents-before-children ordering. Any table left unplaced (a cycle, or FKs pointing at a
+     * table that is not part of this snapshot) is appended alphabetically so no table is dropped.
+     *
+     * @param string[]       $tables
+     * @param array<string, string[]> $deps  table => parent tables it references
+     * @return string[]
+     */
+    private static function topologicalOrder(array $tables, array $deps): array
+    {
+        $pending = [];
+        $children = [];
+        foreach ($tables as $table) {
+            $parents = $deps[$table] ?? [];
+            $pending[$table] = count($parents);
+            foreach ($parents as $parent) {
+                $children[$parent][] = $table;
+            }
+        }
+
+        $queue = array_values(array_filter($tables, fn (string $t) => ($pending[$t] ?? 0) === 0));
+        $order = [];
+        while ($queue !== []) {
+            $current = array_shift($queue);
+            $order[] = $current;
+            foreach ($children[$current] ?? [] as $child) {
+                if (isset($pending[$child]) && --$pending[$child] === 0) {
+                    $queue[] = $child;
+                }
+            }
+        }
+
+        $leftover = array_values(array_diff($tables, $order));
+        sort($leftover);
+
+        return array_merge($order, $leftover);
+    }
+
+    /**
+     * Drop every FK in the public schema and return the DDL to re-add each one. `pg_get_constraintdef`
+     * omits the constraint name, so we capture `conname` separately and re-add as
+     * `ADD CONSTRAINT <name> <def>`. The schema must already match (migrations ran first);
+     * re-adding also validates the loaded rows against the constraints, so a corrupt snapshot fails
+     * loudly here instead of leaving orphaned rows behind.
+     *
+     * @return string[]
+     */
+    private static function dropPostgresForeignKeys(): array
+    {
+        $restore = [];
+        $rows = DB::select(
+            "SELECT format('%I.%I', n.nspname, t.relname) AS tbl, c.conname, pg_get_constraintdef(c.oid) AS def
+               FROM pg_constraint c
+               JOIN pg_namespace n ON n.oid = c.connamespace
+               JOIN pg_class t ON t.oid = c.conrelid
+              WHERE c.contype = 'f' AND n.nspname = 'public'"
+        );
+        foreach ($rows as $row) {
+            DB::statement("ALTER TABLE {$row->tbl} DROP CONSTRAINT \"{$row->conname}\"");
+            $restore[] = "ALTER TABLE {$row->tbl} ADD CONSTRAINT \"{$row->conname}\" {$row->def}";
+        }
+
+        return $restore;
+    }
+
+    /** Re-add the FKs that {@see dropPostgresForeignKeys()} removed. */
+    private static function restorePostgresForeignKeys(array $restore): void
+    {
+        foreach ($restore as $ddl) {
+            DB::statement($ddl);
+        }
     }
 
     /** Keeps only the columns this database has (an older or newer migration is not fatal) and moves links to this APP_URL. */

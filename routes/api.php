@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\AppointmentController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\GoogleAuthController;
 use App\Http\Controllers\Api\V1\CatalogController;
 use App\Http\Controllers\Api\V1\CatalogInteractionController;
 use App\Http\Controllers\Api\V1\CustomerController;
@@ -75,6 +76,12 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:6,1,login')->name('login');
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:6,1,forgot-password');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:6,1,reset-password');
+    // "Continue with Google" (customers only): browser goes to /redirect,
+    // Google returns to /callback, and the SPA trades the one-time code for
+    // a token at /exchange. See GoogleAuthController.
+    Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect'])->middleware('throttle:20,1,google-redirect');
+    Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->middleware('throttle:20,1,google-callback');
+    Route::post('/auth/google/exchange', [GoogleAuthController::class, 'exchange'])->middleware('throttle:10,1,google-exchange');
 
     // System Admin portal sign-in — separate from the public form (which
     // refuses admin accounts) and throttled tighter. See AdminAuthController.
@@ -367,34 +374,34 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/materials', [OrderFlowController::class, 'setMaterials']);
                 Route::post('/jobs/{jobOrder}/customer-items', [OrderFlowController::class, 'assessCustomerItems']);
                 Route::post('/jobs/{jobOrder}/pay', [JobOrderController::class, 'pay']);
-                Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount']);
-                Route::delete('/jobs/{jobOrder}/discount', [JobOrderController::class, 'removeDiscount']);
+                Route::post('/jobs/{jobOrder}/discount', [JobOrderController::class, 'applyDiscount'])->middleware('branch.permission:discount');
+                Route::delete('/jobs/{jobOrder}/discount', [JobOrderController::class, 'removeDiscount'])->middleware('branch.permission:discount');
                 // "No downpayment for this order" (a customer the shop knows) — owner/manager only, audit-logged.
-                Route::post('/jobs/{jobOrder}/deposit-waiver', [JobOrderController::class, 'depositWaiver']);
+                Route::post('/jobs/{jobOrder}/deposit-waiver', [JobOrderController::class, 'depositWaiver'])->middleware('branch.permission:deposit_waiver');
                 // The service's rules are the order's starting values: the owner / manager can change them for one order, with a reason.
                 Route::put('/jobs/{jobOrder}/rules', [\App\Http\Controllers\Api\V1\OrderRulesController::class, 'update']);
                 // A group order whose people pay at different times is split into linked orders (batches).
                 Route::post('/jobs/{jobOrder}/split', [\App\Http\Controllers\Api\V1\OrderBatchController::class, 'split'])->middleware('throttle:sensitive-writes');
-                Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment']);
-                Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment']);
+                Route::post('/jobs/{jobOrder}/payments/{payment}/reject', [JobOrderController::class, 'rejectPayment'])->middleware('branch.permission:payment_verification');
+                Route::post('/jobs/{jobOrder}/payments/{payment}/verify', [JobOrderController::class, 'verifyPayment'])->middleware('branch.permission:payment_verification');
                 Route::post('/jobs/{jobOrder}/reject', [JobOrderController::class, 'rejectOrder']);
                 // The only way to cancel: reason + how the customer agreed. The generic status update refuses 'cancelled'.
                 Route::post('/jobs/{jobOrder}/cancel', [\App\Http\Controllers\Api\V1\OrderCancelController::class, 'cancel']);
                 // The shop's mistake on a completed order: a linked follow-up order that starts in Confirmed at P0.
-                Route::post('/jobs/{jobOrder}/free-fix', [\App\Http\Controllers\Api\V1\OrderFollowUpController::class, 'freeFix'])->middleware('throttle:sensitive-writes');
-                Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment']);
+                Route::post('/jobs/{jobOrder}/free-fix', [\App\Http\Controllers\Api\V1\OrderFollowUpController::class, 'freeFix'])->middleware(['throttle:sensitive-writes', 'branch.permission:workmanship']);
+                Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment'])->middleware('branch.permission:payment_correction');
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
 
                 // Ordering flow: price the order, plan tailors, confirm it, and record a cancellation refund.
-                Route::post('/jobs/{jobOrder}/accept-request', [OrderFlowController::class, 'acceptRequest']);
-                Route::put('/jobs/{jobOrder}/quotation', [OrderFlowController::class, 'saveQuotation']);
-                Route::put('/jobs/{jobOrder}/assignees', [OrderFlowController::class, 'syncAssignees']);
-                Route::post('/jobs/{jobOrder}/confirm', [OrderFlowController::class, 'confirm']);
+                Route::post('/jobs/{jobOrder}/accept-request', [OrderFlowController::class, 'acceptRequest'])->middleware('branch.permission:prepare_quotations');
+                Route::put('/jobs/{jobOrder}/quotation', [OrderFlowController::class, 'saveQuotation'])->middleware('branch.permission:prepare_quotations');
+                Route::put('/jobs/{jobOrder}/assignees', [OrderFlowController::class, 'syncAssignees'])->middleware('branch.permission:production_authorization');
+                Route::post('/jobs/{jobOrder}/confirm', [OrderFlowController::class, 'confirm'])->middleware('branch.permission:production_authorization');
                 Route::post('/jobs/{jobOrder}/corrections/{correction}/approve', [OrderDeliveryController::class, 'approveChange']);
                 Route::post('/jobs/{jobOrder}/corrections/{correction}/cancel', [OrderDeliveryController::class, 'cancelCorrection']);
                 Route::get('/jobs/{jobOrder}/refund-suggestion', [OrderRefundController::class, 'suggestion']);
-                Route::post('/jobs/{jobOrder}/refunds', [OrderRefundController::class, 'record'])->middleware('throttle:sensitive-writes');
-                Route::post('/jobs/{jobOrder}/refunds/{refund}/mark-refunded', [OrderRefundController::class, 'markRefunded'])->middleware('throttle:sensitive-writes');
+                Route::post('/jobs/{jobOrder}/refunds', [OrderRefundController::class, 'record'])->middleware(['throttle:sensitive-writes', 'branch.permission:refund_approval']);
+                Route::post('/jobs/{jobOrder}/refunds/{refund}/mark-refunded', [OrderRefundController::class, 'markRefunded'])->middleware(['throttle:sensitive-writes', 'branch.permission:refund_approval']);
                 Route::post('/jobs/{jobOrderId}/restore', [JobOrderController::class, 'restore'])->whereNumber('jobOrderId');
                 Route::delete('/jobs/{jobOrderId}/permanent', [JobOrderController::class, 'destroyPermanently'])->whereNumber('jobOrderId');
                 Route::delete(JOB_DETAIL_ROUTE, [JobOrderController::class, 'destroy']);
@@ -480,6 +487,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/services', [ServiceController::class, 'store']);
                 Route::put('/services/{service}', [ServiceController::class, 'update']);
                 Route::delete('/services/{service}', [ServiceController::class, 'destroy']);
+                Route::post('/services/{service}/restore', [ServiceController::class, 'restore'])->whereNumber('service');
                 Route::post('/catalog', [CatalogController::class, 'store']);
                 Route::put('/catalog/{catalog}', [CatalogController::class, 'update']);
                 Route::delete('/catalog/{catalog}', [CatalogController::class, 'destroy']);

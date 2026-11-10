@@ -71,6 +71,35 @@ class PreProductionFlowTest extends TestCase
         ]);
     }
 
+    /** DSD-02 WD-03 / B6-O03: the shop cannot record the customer's acceptance; only the customer accepts. */
+    public function test_the_shop_cannot_record_acceptance_for_the_customer(): void
+    {
+        $job = $this->order();
+        $this->quote($job)->assertOk();
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/quotation/approve", ['accepted_terms' => true])
+            ->assertForbidden()->assertJsonPath('code', 'customer_must_accept');
+        $this->assertNull($job->fresh()->customer_approved_at);
+        $this->actingAs($this->customer)->postJson("/api/v1/my-orders/{$job->id}/decision", ['decision' => 'accept', 'accepted_terms' => true])->assertOk();
+        $this->assertSame('online', $job->fresh()->customer_approval_channel);
+    }
+
+    /**
+     * DSD-02 WD-06 / B6-O12: no universal 50%. The quotation the customer accepts carries its own condition (none, full,
+     * or any deposit percentage) and the production gate follows exactly that condition.
+     */
+    public function test_the_accepted_quotation_sets_the_payment_condition(): void
+    {
+        $job = $this->order();
+        $this->quote($job, ['payment_policy' => 'deposit', 'payment_policy_percent' => 30])->assertOk();
+        $this->assertSame(1500.0, \App\Support\OrderReadiness::requiredDeposit($job->fresh()), '30% of 5000, not 50%');
+
+        $this->quote($job, ['payment_policy' => 'none', 'reason' => 'Regular client'])->assertOk();
+        $fresh = $job->fresh();
+        $this->assertSame('none', $fresh->payment_policy);
+        $this->assertSame(0.0, \App\Support\OrderReadiness::requiredDeposit($fresh));
+        $this->assertFalse($fresh->requiresDownpaymentFor('cutting'), 'no deposit agreed: production is not held for one');
+    }
+
     public function test_sending_a_price_records_a_version_and_tells_the_customer(): void
     {
         Notification::fake();
@@ -172,9 +201,11 @@ class PreProductionFlowTest extends TestCase
         $job = $this->order();
 
         $this->actingAs($this->staff)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}", ['status' => 'confirmed'])->assertStatus(403);
-        $this->actingAs($this->staff)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}", ['status' => 'cancelled', 'cancellation_reason' => 'other'])->assertStatus(403);
+        $cancelBody = ['reason' => 'customer_request', 'agreed_via' => 'in_person', 'customer_agreed' => true];
 
-        $this->actingAs($this->owner)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}", ['status' => 'cancelled', 'cancellation_reason' => 'other'])->assertOk();
+        // Cancellation is the dedicated endpoint only; the generic status update refuses 'cancelled'.
+        $this->actingAs($this->staff)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/cancel", $cancelBody)->assertStatus(403);
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/cancel", $cancelBody)->assertOk();
         $this->actingAs($this->owner)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}", ['status' => 'confirmed'])->assertStatus(422);
     }
 
@@ -248,7 +279,8 @@ class PreProductionFlowTest extends TestCase
         $this->assertNull(OrderProgress::for($job->fresh(), forGuest: true)['action']);
 
         $code = $job->fresh()->tracking_code;
-        $this->getJson("/api/v1/track/{$code}")->assertOk()->assertJsonPath('data.progress.current', 'request');
+        // DSD-02 WD-20 (2026-11-05): a request not yet authorized for production has no public tracking answer.
+        $this->getJson("/api/v1/track/{$code}")->assertNotFound();
     }
 
     public function test_online_order_request_waits_for_the_shop_and_starts_nothing(): void

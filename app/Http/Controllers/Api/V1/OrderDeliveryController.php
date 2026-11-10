@@ -250,9 +250,10 @@ class OrderDeliveryController extends Controller
             if (! $release) {
                 return $this->fail('Collect the remaining balance of ₱'.number_format($balance, 2).' first. The order stays Ready for Collection until it is paid.');
             }
-            // The garments leave before they are paid: only the owner or a branch manager decides that.
-            if (! $request->user()->hasRole('store_owner') && ! $request->user()->hasRole('branch_manager')) {
-                return $this->fail('Only the owner or a branch manager can release garments with a balance due.', 403);
+            // Permission 13 (W-F03): the Owner, or a Branch Manager the Owner delegated it to for this branch. Staff may
+            // record a handover but never authorize an unpaid release on their own.
+            if (! \App\Support\BranchPermissions::allows($request->user(), $store, $jobOrder->store_branch_id ? (int) $jobOrder->store_branch_id : null, 'release_with_balance')) {
+                return $this->fail('Releasing garments with a balance due needs the owner, or a branch manager with the owner\'s permission.', 403);
             }
         }
         $v = $request->validate([
@@ -261,7 +262,12 @@ class OrderDeliveryController extends Controller
             'note' => 'nullable|string|max:500',
             // Garments that leave before they are paid need a date by which the balance will be paid.
             'pay_by' => [$release && $balance > 0.005 ? 'required' : 'nullable', 'date', 'after_or_equal:today'],
-        ], ['pay_by.required' => 'Choose the date the customer will pay the balance by.']);
+            // W-F03: the customer acknowledges the remaining balance and its due date before the garments leave.
+            'customer_acknowledged' => [$release && $balance > 0.005 ? 'accepted' : 'nullable'],
+        ], [
+            'pay_by.required' => 'Choose the date the customer will pay the balance by.',
+            'customer_acknowledged.accepted' => 'The customer must acknowledge the remaining balance and its due date.',
+        ]);
 
         $remaining = $jobOrder->garmentCount() - OrderReadiness::handedOver($jobOrder);
         if ($v['quantity'] > $remaining) {
@@ -279,10 +285,11 @@ class OrderDeliveryController extends Controller
                 'released_with_balance_at' => $jobOrder->released_with_balance_at ?? now(),
                 'released_with_balance_by' => $request->user()->id,
                 'balance_due_by' => $v['pay_by'] ?? $jobOrder->balance_due_by,
+                'balance_acknowledged_at' => now(),
             ])->save();
             $this->logOrderAction($request, $store, $jobOrder, 'handover_released_with_balance', [
                 'quantity' => $v['quantity'], 'balance' => $balance, 'pay_by' => $v['pay_by'] ?? null,
-                'received_by' => $v['received_by'] ?? null, 'note' => $v['note'] ?? null,
+                'received_by' => $v['received_by'] ?? null, 'note' => $v['note'] ?? null, 'customer_acknowledged' => true,
             ]);
         }
 

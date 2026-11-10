@@ -1630,7 +1630,8 @@ class JobOrderController extends Controller
                 ], 422);
             }
 
-            if ($newStatus === 'completed' && (float) $jobOrder->balance > 0) {
+            // W-F01 / WD-16: an authorized, acknowledged release lets a handed-over order complete with its balance still owed.
+            if ($newStatus === 'completed' && (float) $jobOrder->balance > 0 && (! $jobOrder->released_with_balance_at || ! $jobOrder->balance_acknowledged_at)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'The remaining balance must be paid before this job can be marked completed.',

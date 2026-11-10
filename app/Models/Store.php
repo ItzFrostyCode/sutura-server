@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -148,6 +150,29 @@ class Store extends Model
     public function subscription(): HasOne
     {
         return $this->hasOne(StoreSubscription::class)->latestOfMany();
+    }
+
+    /**
+     * Adds `is_premium` (0/1): the shop is on Premium RIGHT NOW — an active or trial Premium subscription that has not
+     * ended. Computed from the subscriptions themselves on every read, instead of trusting the stored `is_featured`
+     * copy, which went stale both ways: a Premium shop whose plan was set by a path that skipped the sync showed no
+     * badge and no top placement, while a shop whose trial had ended stayed "featured" until the daily expiry job ran.
+     */
+    public function scopeWithPremiumNow(Builder $query): Builder
+    {
+        $premium = DB::table('store_subscriptions')
+            ->join('subscription_plans', 'subscription_plans.id', '=', 'store_subscriptions.plan_id')
+            ->whereColumn('store_subscriptions.store_id', 'stores.id')
+            ->whereIn('store_subscriptions.status', ['active', 'trial'])
+            ->where(fn ($q) => $q->whereNull('store_subscriptions.ends_at')->orWhere('store_subscriptions.ends_at', '>=', now()))
+            ->where('subscription_plans.slug', 'premium')
+            ->selectRaw('1');
+
+        if ($query->getQuery()->columns === null) {
+            $query->select('stores.*');
+        }
+
+        return $query->selectRaw('(CASE WHEN EXISTS ('.$premium->toSql().') THEN 1 ELSE 0 END) as is_premium', $premium->getBindings());
     }
 
     public function catalogItems(): HasMany

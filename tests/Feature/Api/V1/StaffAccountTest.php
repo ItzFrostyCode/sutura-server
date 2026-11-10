@@ -111,9 +111,12 @@ class StaffAccountTest extends TestCase
         [$owner, $store, $branch] = $this->ownerWithBranch();
         $manager = $this->makeManager($store, $branch);
 
-        $this->actingAs($manager)
-            ->postJson("/api/v1/stores/{$store->id}/staff", $this->staffPayload())
-            ->assertStatus(201);
+        // A store with no subscription defaults to a 1-staff limit (the manager already counts); attach an
+        // unlimited plan so the plan gate does not mask the branch-scoping that this test is about.
+        $plan = \App\Models\SubscriptionPlan::create(['name' => 'Premium', 'slug' => 'premium-sat', 'price_monthly' => 0, 'max_staff' => -1, 'max_services' => -1, 'max_branches' => -1, 'is_active' => true]);
+        \App\Models\StoreSubscription::create(['store_id' => $store->id, 'plan_id' => $plan->id, 'status' => 'active', 'starts_at' => now()->subDay()]);
+
+        $this->actingAs($manager)->postJson("/api/v1/stores/{$store->id}/staff", $this->staffPayload())->assertStatus(201);
 
         $newProfile = StaffProfile::where('store_id', $store->id)
             ->where('is_branch_manager', false)

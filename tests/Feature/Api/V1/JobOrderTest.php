@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api\V1;
 
 use App\Models\Appointment;
+use App\Models\BranchPermissionGrant;
 use App\Models\JobOrder;
 use App\Models\Measurement;
 use App\Models\Payment;
@@ -457,6 +458,15 @@ class JobOrderTest extends TestCase
             'role' => 'head_tailor',
             'is_branch_manager' => true,
         ]);
+        // The reject route is gated by the delegable `payment_verification` permission (DSD-02 Annex B, B8-O01 #3);
+        // a Branch Manager only has it with an active grant, so the owner grants it here.
+        BranchPermissionGrant::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $branch->id,
+            'user_id' => $manager->id,
+            'permission' => 'payment_verification',
+            'granted_by' => $this->user->id,
+        ]);
 
         $jobOrder = JobOrder::create([
             'store_id' => $this->store->id,
@@ -481,6 +491,48 @@ class JobOrderTest extends TestCase
 
         $response->assertStatus(200);
         Notification::assertSentTo($this->user, PaymentRejectedNotification::class);
+    }
+
+    public function test_branch_manager_without_a_payment_verification_grant_cannot_reject_a_payment()
+    {
+        $branch = StoreBranch::create([
+            'store_id' => $this->store->id,
+            'name' => 'Matina Branch',
+            'address' => 'Matina, Davao City',
+            'city' => 'Davao City',
+        ]);
+        $managerRole = Role::firstOrCreate(['name' => 'branch_manager'], ['description' => 'Branch Manager']);
+        $manager = User::factory()->create();
+        $manager->roles()->attach($managerRole);
+        StaffProfile::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $branch->id,
+            'user_id' => $manager->id,
+            'role' => 'head_tailor',
+            'is_branch_manager' => true,
+        ]);
+
+        $jobOrder = JobOrder::create([
+            'store_id' => $this->store->id,
+            'store_branch_id' => $branch->id,
+            'customer_id' => $this->customer->id,
+            'service_id' => $this->service->id,
+            'order_number' => 'JO-2026-9016',
+            'total_amount' => 5000,
+            'balance' => 3000,
+            'status' => 'cutting',
+        ]);
+        $payment = $jobOrder->payments()->create([
+            'amount' => 2000,
+            'payment_method' => 'cash',
+            'recorded_by' => $manager->id,
+        ]);
+
+        // No BranchPermissionGrant created: the gate denies by default.
+        $this->actingAs($manager)->postJson(
+            "/api/v1/stores/{$this->store->id}/jobs/{$jobOrder->id}/payments/{$payment->id}/reject",
+            ['reason' => 'Cash count came up short at closing.']
+        )->assertStatus(403);
     }
 
     public function test_owner_can_reject_a_pending_job_order()

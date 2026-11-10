@@ -30,3 +30,4 @@ Thumbs.db
 *.sql
 *.sqlite*
 /sutura
+/sutura.bak*

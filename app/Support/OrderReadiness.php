@@ -335,9 +335,11 @@ final class OrderReadiness
                 if ($open > 0) {
                     return $err($openMsg);
                 }
-                // Garments may leave with a balance due (released by the owner or a manager), but the order only closes once it is paid.
-                if ((float) $job->balance > 0.005) {
-                    return $err('The balance of ₱'.number_format((float) $job->balance, 2).' is still to be paid. The order stays open until it is settled.');
+                // W-F01 (DSD-02 WF-7, WD-16): Completed means handed over, not paid. With a balance due it can complete only
+                // when the release was authorized and the customer acknowledged the balance; the balance stays owed
+                // (Financially Settled is a separate state, read from the balance itself).
+                if ((float) $job->balance > 0.005 && (! $job->released_with_balance_at || ! $job->balance_acknowledged_at)) {
+                    return $err('The balance of ₱'.number_format((float) $job->balance, 2).' is still to be paid. Collect it, or release the garments with the balance (authorized, with the customer\'s acknowledgment) to complete the order.');
                 }
                 $given = self::handedOver($job);
                 if ($given < $job->garmentCount()) {

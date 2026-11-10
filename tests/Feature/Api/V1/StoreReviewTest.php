@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Api\V1;
 
+use App\Models\JobOrder;
 use App\Models\Role;
 use App\Models\StaffProfile;
+use App\Models\Service;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,6 +45,14 @@ class StoreReviewTest extends TestCase
 
         $customer = User::factory()->create();
         $customer->roles()->attach(Role::where('name', 'customer')->first());
+
+        // Reviews are gated on a real relationship with the shop: the customer must have a completed
+        // job (or appointment) here first. Seed a completed order so the new-review gate passes.
+        $service = Service::create(['store_id' => $store->id, 'name' => 'Suit']);
+        JobOrder::create([
+            'store_id' => $store->id, 'customer_id' => $customer->id, 'service_id' => $service->id,
+            'order_number' => 'JR-'.uniqid(), 'status' => 'completed', 'total_amount' => 5000, 'balance' => 0,
+        ]);
 
         $response = $this->actingAs($customer, 'sanctum')
             ->postJson("/api/v1/stores/{$store->id}/reviews", [
