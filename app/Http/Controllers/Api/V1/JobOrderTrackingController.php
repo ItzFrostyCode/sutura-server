@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\JobOrder;
 use App\Support\OrderProgress;
+use App\Support\PublicStage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -46,7 +47,8 @@ class JobOrderTrackingController extends Controller
         $jobOrders->getCollection()->transform(fn (JobOrder $jobOrder) => [
             'id' => $jobOrder->id,
             'order_number' => $jobOrder->order_number,
-            'tracking_code' => $jobOrder->tracking_code,
+            // WD-20: the public code exists for the customer only once production is authorized.
+            'tracking_code' => PublicStage::of($jobOrder) !== null ? $jobOrder->tracking_code : null,
             'status' => $jobOrder->status,
             'progress' => OrderProgress::for($jobOrder),
             'garment_category' => $jobOrder->garment_category,
@@ -110,7 +112,7 @@ class JobOrderTrackingController extends Controller
             'data' => [
                 'id' => $jobOrder->id,
                 'order_number' => $jobOrder->order_number,
-                'tracking_code' => $jobOrder->tracking_code,
+                'tracking_code' => PublicStage::of($jobOrder) !== null ? $jobOrder->tracking_code : null,
                 'status' => $jobOrder->status,
                 'progress' => OrderProgress::for($jobOrder),
                 // The other parts of a split order, with the overall figures (the customer pays them all).
@@ -144,6 +146,7 @@ class JobOrderTrackingController extends Controller
                 'progress_photos' => $jobOrder->progress_photos,
                 'stage_timestamps' => $this->buildStageTimestamps($jobOrder),
                 'appointments' => $this->buildCustomerSafeAppointments($jobOrder),
+                'payments' => $this->buildCustomerSafePayments($jobOrder),
                 'store' => $jobOrder->store ? [
                     'name' => $jobOrder->store->name,
                     'slug' => $jobOrder->store->slug,
@@ -151,6 +154,32 @@ class JobOrderTrackingController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * Every payment on this order and what the shop decided about it, so the customer sees "Pending", "Approved" or
+     * "Rejected" (with the shop's reason) — the other side of the shop's Collect Payments verify / reject.
+     * Customer-safe: no staff names, no internal notes.
+     */
+    private function buildCustomerSafePayments(JobOrder $jobOrder): array
+    {
+        return \App\Models\Payment::where('job_order_id', $jobOrder->id)
+            ->with('method:id,name')
+            ->latest()
+            ->get()
+            ->map(fn ($p) => [
+                'id' => $p->id,
+                'amount' => (float) $p->amount,
+                'method' => $p->method?->name ?? $p->payment_method,
+                'reference' => $p->reference,
+                'source' => $p->source,
+                'paid_at' => $p->created_at,
+                'status' => $p->status,
+                'decided_at' => $p->rejected_at ?? $p->verified_at,
+                'rejected_reason' => $p->rejected_at ? $p->rejected_reason : null,
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -200,7 +229,7 @@ class JobOrderTrackingController extends Controller
     private function buildCustomerSafeAppointments(JobOrder $jobOrder): array
     {
         return $jobOrder->appointments()
-            ->with(['service:id,name,service_types', 'branch:id,name,address,city'])
+            ->with(['service:id,name,service_types', 'branch:id,name,address,city,is_main'])
             ->orderByDesc('scheduled_at')
             ->get()
             ->map(fn ($appointment) => [
@@ -216,6 +245,7 @@ class JobOrderTrackingController extends Controller
                     'name' => $appointment->branch->name,
                     'address' => $appointment->branch->address,
                     'city' => $appointment->branch->city,
+                    'is_main' => (bool) $appointment->branch->is_main,
                 ] : null,
             ])
             ->values()
@@ -260,6 +290,12 @@ class JobOrderTrackingController extends Controller
         ];
     }
 
+    /**
+     * Public tracker (DSD-02 WF-8, WD-11, WD-20). Answers with ONLY the customer-visible stage and the date it was
+     * last updated: never the customer, amounts, balance, payment status, notes, photos or appointments (those are in
+     * the signed-in account view). An unknown code, a malformed one and an order not yet authorized for production all
+     * get the same response, which never repeats the code that was sent.
+     */
     public function show(string $trackingCode): JsonResponse
     {
         $raw = strtoupper(trim($trackingCode));
@@ -267,53 +303,23 @@ class JobOrderTrackingController extends Controller
 
         // The random tracking code only. The order number (ORD-0001, 0002, …) is sequential and
         // repeats per shop, so accepting it would let anyone walk through other customers' orders.
-        $jobOrder = JobOrder::where('tracking_code', $raw)
+        $jobOrder = $normalized === '' || strlen($normalized) > 40 ? null : JobOrder::where('tracking_code', $raw)
             ->orWhereRaw("REPLACE(REPLACE(tracking_code, '-', ''), ' ', '') = ?", [$normalized])
-            ->with(['store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name', 'staffStages'])
             ->first();
 
-        if (! $jobOrder) {
+        $stage = $jobOrder ? PublicStage::of($jobOrder) : null;
+        if ($stage === null) {
             return response()->json([
                 'success' => false,
-                'message' => 'No order found for that tracking code. Double-check the code and try again.',
+                'message' => 'We could not find an order for that code. Check the code and try again.',
             ], 404);
         }
 
         return response()->json([
             'success' => true,
             'data' => [
-                'order_number' => $jobOrder->order_number,
-                'tracking_code' => $jobOrder->tracking_code,
-                'status' => $jobOrder->status,
-                'progress' => OrderProgress::for($jobOrder, forGuest: true),
-                // A guest with a tracking code sees which batch this is, never the other parts' amounts.
-                'batch' => \App\Support\OrderBatches::summary($jobOrder, false, true),
-                'garment_category' => $jobOrder->garment_category,
-                'catalog_item_name' => $jobOrder->catalogItem?->name,
-                'service_name' => $jobOrder->service?->name,
-                'is_rush' => (bool) $jobOrder->is_rush,
-                'due_date' => $jobOrder->due_date,
-                'estimated_ready_at' => $jobOrder->estimated_ready_at,
-                'pipeline' => $this->pipelineFor($jobOrder),
-                'quantity' => $jobOrder->orderedQuantity(),
-            'garments' => $jobOrder->garmentCount(),
-            'sold_as' => $jobOrder->soldAsSet() ? 'set' : 'garment',
-                'people_count' => $jobOrder->custom_order_data['people_count'] ?? null,
-                'total_amount' => (float) $jobOrder->total_amount,
-                'balance' => (float) $jobOrder->balance,
-                'payment_status' => $jobOrder->payment_status,
-                'created_at' => $jobOrder->created_at,
-                'updated_at' => $jobOrder->updated_at,
-                'repair_note' => $jobOrder->custom_order_data['repair_note'] ?? null,
-                'customer_material_status' => $jobOrder->customer_material_status,
-                'progress_photos' => $jobOrder->progress_photos,
-                'stage_timestamps' => $this->buildStageTimestamps($jobOrder),
-                'appointments' => $this->buildCustomerSafeAppointments($jobOrder),
-                'store' => $jobOrder->store ? [
-                    'name' => $jobOrder->store->name,
-                    'slug' => $jobOrder->store->slug,
-                    'logo_path' => $jobOrder->store->logo_path,
-                ] : null,
+                'stage' => $stage,
+                'updated_on' => $jobOrder->updated_at?->timezone('Asia/Manila')->toDateString(),
             ],
         ]);
     }

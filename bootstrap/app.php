@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => CheckRole::class,
+            'branch.permission' => \App\Http\Middleware\RequireBranchPermission::class,
             'last.seen' => UpdateLastSeenAt::class,
         ]);
 

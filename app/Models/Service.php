@@ -31,7 +31,28 @@ class Service extends Model
         self::TYPE_ALTERATION_REPAIR,
     ];
 
+    /** Service lifecycle (decision S2). Only Published services are visible and bookable. */
+    public const STATUS_DRAFT = 'draft';
+
+    public const STATUS_PUBLISHED = 'published';
+
+    public const STATUS_UNPUBLISHED = 'unpublished';
+
+    public const STATUS_ARCHIVED = 'archived';
+
+    public const STATUSES = [self::STATUS_DRAFT, self::STATUS_PUBLISHED, self::STATUS_UNPUBLISHED, self::STATUS_ARCHIVED];
+
+    /** One customer-facing price presentation (B6-O11): no range option. */
+    public const PRICE_FIXED = 'fixed';
+
+    public const PRICE_STARTING = 'starting';
+
+    public const PRICE_QUOTATION = 'quotation';
+
+    public const PRICE_DISPLAYS = [self::PRICE_FIXED, self::PRICE_STARTING, self::PRICE_QUOTATION];
+
     protected $fillable = [
+        'status', 'price_display',
         'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
         'store_id', 'name', 'description', 'category', 'categories', 'service_type', 'service_types', 'tags',
         // service_category: one of the 4 services (App\Support\CanonicalTaxonomy::SERVICE_GROUPS), additive to
@@ -49,6 +70,7 @@ class Service extends Model
 
     protected $casts = [
         'base_price' => 'decimal:2',
+        'status' => 'string',
         'sale_price' => 'decimal:2',
         'sale_starts_at' => 'datetime',
         'sale_ends_at' => 'datetime',
@@ -66,6 +88,59 @@ class Service extends Model
         'garment_types' => 'array',
         'capabilities' => 'array',
     ];
+
+    /**
+     * is_active is no longer set on its own: it always mirrors "status is published", so the many existing
+     * `where('is_active', true)` reads (search, storefront, counts) stay correct. A row created directly with
+     * only is_active (seeders, older tests) gets the matching status.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Service $service) {
+            if (! $service->isDirty('status') && $service->isDirty('is_active') && $service->status !== self::STATUS_ARCHIVED) {
+                $service->status = $service->is_active ? self::STATUS_PUBLISHED
+                    : ($service->status === self::STATUS_DRAFT ? self::STATUS_DRAFT : self::STATUS_UNPUBLISHED);
+            }
+            $service->status ??= self::STATUS_PUBLISHED;
+            $service->is_active = $service->status === self::STATUS_PUBLISHED;
+        });
+    }
+
+    /**
+     * What stops this service from being published (decision S3, Services/11 section 2). Empty = publishable.
+     * Shop eligibility (approved, visible, a live branch) is a shop-level condition checked by public visibility,
+     * not here, because Services are shop-wide.
+     *
+     * @return array<string, string>
+     */
+    public function publishProblems(): array
+    {
+        $problems = [];
+        if (trim((string) $this->name) === '') {
+            $problems['name'] = 'Give the service a name.';
+        }
+        if (! $this->service_category) {
+            $problems['service_category'] = 'Choose which of the four services this is.';
+        }
+        if (trim((string) $this->description) === '') {
+            $problems['description'] = 'Add a short description customers will read.';
+        }
+        $hasPrice = (float) $this->base_price > 0 || $this->pricing()->where('amount', '>', 0)->exists();
+        if (in_array($this->price_display, [self::PRICE_FIXED, self::PRICE_STARTING], true) && ! $hasPrice) {
+            $problems['price_display'] = $this->price_display === self::PRICE_FIXED
+                ? 'A fixed price needs the price.'
+                : 'A starting price needs a price or a priced option. Choose "Quotation required" if the price depends on the work.';
+        }
+        foreach ((array) $this->custom_fields as $i => $field) {
+            if (trim((string) ($field['label'] ?? '')) === '') {
+                $problems["custom_fields.$i"] = 'Every booking question needs a label.';
+            } elseif (in_array($field['type'] ?? null, ['select', 'radio'], true) && count(array_filter((array) ($field['options'] ?? []), fn ($o) => trim((string) $o) !== '')) === 0) {
+                $problems["custom_fields.$i"] = 'The question "'.$field['label'].'" needs at least one choice.';
+            }
+        }
+
+        return $problems;
+    }
 
     /**
      * A service can now carry more than one functional type at once (e.g. a

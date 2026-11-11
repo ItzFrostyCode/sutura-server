@@ -83,64 +83,35 @@ class MultiItemAppointmentBookingTest extends TestCase
         ]);
     }
 
-    public function test_customer_can_submit_appointment_with_multiple_configurable_items(): void
+    public function test_a_booking_cannot_carry_more_than_one_service(): void
     {
         $scheduledAt = Carbon::now()->addDays(2)->setHour(10)->setMinute(0)->setSecond(0);
 
+        // Two needs at once used to be a single multi-item booking; a booking is now for one service
+        // (and optionally one of its designs) — a second need is a second appointment (items is capped at 1).
         $payload = [
             'kind' => 'service',
             'store_branch_id' => $this->branch->id,
             'scheduled_at' => $scheduledAt->toDateTimeString(),
-            'notes' => 'Looking forward to our appointment.',
             'items' => [
-                [
-                    'service_id' => $this->jerseyService->id,
-                    'catalog_item_id' => $this->jerseyDesign->id,
-                    'item_name' => $this->jerseyDesign->name,
-                    'quantity' => 15, // >= min 10
-                    'selected_color' => 'Green / White / Black',
-                    'selected_size' => 'M',
-                    'add_ons' => ['Full Sublimation Jersey', 'Embroidery Logo'],
-                ],
-                [
-                    'service_id' => $this->poloService->id,
-                    'item_name' => $this->poloService->name,
-                    'quantity' => 25, // >= min 20
-                    'selected_color' => 'Navy Blue',
-                    'selected_size' => 'L',
-                    'add_ons' => ['Collar Rib'],
-                ],
+                ['service_id' => $this->jerseyService->id, 'catalog_item_id' => $this->jerseyDesign->id, 'item_name' => $this->jerseyDesign->name, 'quantity' => 15, 'selected_color' => 'Green / White / Black', 'selected_size' => 'M'],
+                ['service_id' => $this->poloService->id, 'item_name' => $this->poloService->name, 'quantity' => 25, 'selected_color' => 'Navy Blue', 'selected_size' => 'L'],
             ],
         ];
 
         $response = $this->actingAs($this->customer, 'sanctum')
             ->postJson("/api/v1/catalog/{$this->store->slug}/book", $payload);
 
-        $response->assertStatus(201);
-        $response->assertJsonPath('success', true);
-
-        $appointmentId = $response->json('data.id');
-        $this->assertNotNull($appointmentId);
-
-        $appointment = Appointment::with('items')->find($appointmentId);
-        $this->assertCount(2, $appointment->items);
-
-        $firstItem = $appointment->items->firstWhere('catalog_item_id', $this->jerseyDesign->id);
-        $this->assertNotNull($firstItem);
-        $this->assertEquals(15, $firstItem->quantity);
-        $this->assertEquals('Green / White / Black', $firstItem->selected_color);
-        $this->assertEquals(['Full Sublimation Jersey', 'Embroidery Logo'], $firstItem->add_ons);
-
-        $secondItem = $appointment->items->firstWhere('service_id', $this->poloService->id);
-        $this->assertNotNull($secondItem);
-        $this->assertEquals(25, $secondItem->quantity);
-        $this->assertEquals('Navy Blue', $secondItem->selected_color);
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['items']);
     }
 
-    public function test_booking_fails_when_item_quantity_is_below_service_minimum(): void
+    public function test_booking_item_quantity_must_be_at_least_one(): void
     {
         $scheduledAt = Carbon::now()->addDays(2)->setHour(14)->setMinute(0)->setSecond(0);
 
+        // There is no per-service minimum on a booking anymore — a single item just needs a quantity of at
+        // least one. Guard that floor: a zero-quantity line is rejected.
         $payload = [
             'kind' => 'service',
             'store_branch_id' => $this->branch->id,
@@ -149,7 +120,7 @@ class MultiItemAppointmentBookingTest extends TestCase
                 [
                     'service_id' => $this->jerseyService->id,
                     'item_name' => $this->jerseyService->name,
-                    'quantity' => 5, // Service min is 10!
+                    'quantity' => 0,
                 ],
             ],
         ];

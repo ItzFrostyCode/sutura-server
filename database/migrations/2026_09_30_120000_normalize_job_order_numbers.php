@@ -12,16 +12,23 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $stores = DB::table('job_orders')->whereRaw("order_number REGEXP '^JO-1[0-9]{3}$'")->distinct()->pluck('store_id');
+        // Postgres has no REGEXP operator — it uses '~' (case-sensitive regex match); MySQL and
+        // SQLite use 'REGEXP'. The statement is built driver-aware so it is valid on every one.
+        $re = '^JO-1[0-9]{3}$';
+        $pg = DB::connection()->getDriverName() === 'pgsql';
+        $match = $pg ? "order_number ~ '{$re}'" : "order_number REGEXP '{$re}'";
+        $order = $pg ? "(order_number ~ '{$re}') DESC" : "order_number REGEXP '{$re}' DESC";
+
+        $stores = DB::table('job_orders')->whereRaw($match)->distinct()->pluck('store_id');
 
         foreach ($stores as $storeId) {
-            DB::transaction(function () use ($storeId) {
+            DB::transaction(function () use ($storeId, $match, $order) {
                 $rows = DB::table('job_orders')
                     ->where('store_id', $storeId)
-                    ->where(function ($q) {
-                        $q->whereRaw("order_number REGEXP '^JO-1[0-9]{3}$'")->orWhere('order_number', 'like', 'JO-2026-%');
+                    ->where(function ($q) use ($match) {
+                        $q->whereRaw($match)->orWhere('order_number', 'like', 'JO-2026-%');
                     })
-                    ->orderByRaw("order_number REGEXP '^JO-1[0-9]{3}$' DESC") // demo orders first
+                    ->orderByRaw($order) // demo orders first
                     ->orderBy('id')
                     ->get(['id']);
 

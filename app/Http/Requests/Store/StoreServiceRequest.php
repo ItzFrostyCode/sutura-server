@@ -78,6 +78,9 @@ class StoreServiceRequest extends FormRequest
             'pricing_tiers.*.covers' => ['nullable', Rule::in(ServicePricing::COVERS)],
             'pricing_tiers.*.sold_as' => ['nullable', Rule::in(ServicePricing::SOLD_AS)],
             'is_active' => ['sometimes', 'boolean'],
+            // Lifecycle (S2): archiving is DELETE, restoring is POST .../restore, so they are not set here.
+            'status' => ['sometimes', Rule::in([Service::STATUS_DRAFT, Service::STATUS_PUBLISHED, Service::STATUS_UNPUBLISHED])],
+            'price_display' => ['sometimes', Rule::in(Service::PRICE_DISPLAYS)],
             'image_url' => ['nullable', 'string', 'max:2048'],
             'size_chart_image_url' => ['nullable', 'string', 'max:2048'],
             'size_chart_columns' => ['nullable', 'array'],

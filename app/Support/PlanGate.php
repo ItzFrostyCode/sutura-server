@@ -16,7 +16,12 @@ class PlanGate
 
     public static function tier(Store $store): string
     {
-        $slug = $store->subscription()->whereIn('status', ['active', 'trial'])->with('plan')->first()?->plan?->slug ?? 'basic';
+        // A subscription whose end date has passed no longer counts, even before the daily app:expire-subscriptions
+        // job marks it expired (same rule as Store::scopeWithPremiumNow, so the badge and the unlocked features agree).
+        $slug = $store->subscription()
+            ->whereIn('status', ['active', 'trial'])
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
+            ->with('plan')->first()?->plan?->slug ?? 'basic';
         $slug = strtolower((string) $slug);
 
         return str_contains($slug, 'premium') ? 'premium' : (str_contains($slug, 'pro') ? 'pro' : 'basic');

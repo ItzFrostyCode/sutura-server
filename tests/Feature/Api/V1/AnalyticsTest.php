@@ -51,6 +51,14 @@ class AnalyticsTest extends TestCase
 
         $this->branchA = StoreBranch::create(['store_id' => $this->store->id, 'name' => 'Branch A', 'address' => 'A St', 'city' => 'Davao']);
         $this->branchB = StoreBranch::create(['store_id' => $this->store->id, 'name' => 'Branch B', 'address' => 'B St', 'city' => 'Davao']);
+
+        // Branch comparison is a Premium feature; give the store an active Premium subscription so the
+        // analytics branch-comparison endpoint resolves the plan gate instead of 403-ing.
+        $plan = \App\Models\SubscriptionPlan::create([
+            'name' => 'Premium', 'slug' => 'premium-analytics', 'price_monthly' => 0,
+            'max_staff' => -1, 'max_services' => -1, 'max_branches' => -1, 'is_active' => true,
+        ]);
+        \App\Models\StoreSubscription::create(['store_id' => $this->store->id, 'plan_id' => $plan->id, 'status' => 'active', 'starts_at' => now()->subDay()]);
     }
 
     private function makeOverdueJob(?int $branchId): JobOrder

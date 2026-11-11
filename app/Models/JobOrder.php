@@ -187,6 +187,7 @@ class JobOrder extends Model
         'customer_decided_at' => 'datetime',
         'payment_terms_locked_at' => 'datetime',
         'released_with_balance_at' => 'datetime',
+        'balance_acknowledged_at' => 'datetime',
         'balance_due_by' => 'date',
         'production_authorized_at' => 'datetime',
     ];

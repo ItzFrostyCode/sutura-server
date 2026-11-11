@@ -187,6 +187,8 @@ class ServiceCrudTest extends TestCase
                 ['size' => 'S', 'values' => ['36', '26']],
                 ['size' => 'M', 'values' => ['38', '27']],
             ],
+            // A customer-facing description is required to publish (Services decision S3, 2026-11-04).
+            'description' => 'Full sublimation team jerseys.',
             'is_active' => true,
         ];
 
@@ -210,6 +212,8 @@ class ServiceCrudTest extends TestCase
             'estimated_days' => null,
             'estimated_days_max' => null,
             'base_price' => null,
+            // Required to publish (S3); with no price the service is shown as "Quotation required" (B6-O11).
+            'description' => 'Restoration of heirloom bridal gowns.',
             'is_active' => true,
         ];
 

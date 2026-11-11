@@ -469,10 +469,18 @@ class CatalogController extends Controller
             }
         }
 
+        // A published design needs its picture (Services/11 section 2): one created without a photo is saved but
+        // kept off the shop page, and the owner is told why.
+        $notice = null;
+        if ($item->is_active && $item->images()->count() === 0) {
+            $item->update(['is_active' => false]);
+            $notice = 'Saved but not shown to customers yet: add at least one photo, then show the design.';
+        }
+
         $item->load(['images', 'recommendations']);
         DesignPricing::attach([$item]);
 
-        return response()->json(['success' => true, 'data' => $item], 201);
+        return response()->json(['success' => true, 'data' => $item, 'notice' => $notice], 201);
     }
 
     /**
@@ -644,6 +652,18 @@ class CatalogController extends Controller
         }
 
         $validated = $this->withCanonicalGarment($validated);
+
+        // Showing a hidden design needs a photo (Services/11 section 2). Only the move from hidden to shown is
+        // checked, so designs listed before this rule can still be edited.
+        $becomesActive = ($validated['is_active'] ?? false) === true && ! $catalog->is_active;
+        $imagesAfter = isset($validated['images']) ? count($validated['images']) : $catalog->images()->count();
+        if ($becomesActive && $imagesAfter === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Add at least one photo before showing this design to customers.',
+                'errors' => ['images' => ['Add at least one photo before showing this design to customers.']],
+            ], 422);
+        }
 
         $catalog->update([
             'custom_apparel_type_id' => array_key_exists('garment_type', $validated)

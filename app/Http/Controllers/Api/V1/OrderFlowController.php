@@ -211,15 +211,17 @@ class OrderFlowController extends Controller
         return $this->respond($request, $jobOrder, 'Request accepted.');
     }
 
-    /** The customer approves at the counter -- staff or the owner records it. */
+    /**
+     * Retired (DSD-02 WD-03, B6-O03): the Account Holder accepts the quotation PERSONALLY in their own verified account,
+     * on their phone or on a shop device where they sign in themselves. Shop users can no longer record it for them.
+     */
     public function approveInPerson(Request $request, Store $store, JobOrder $jobOrder): JsonResponse
     {
-        if ($denied = $this->orderAccessDenied($request, $store, $jobOrder) ?? $this->flowOnly($jobOrder)) {
-            return $denied;
-        }
-        $request->validate(['accepted_terms' => 'accepted']);
-
-        return $this->recordApproval($request, $jobOrder, 'in_person', $store);
+        return response()->json([
+            'success' => false,
+            'message' => 'Only the customer can accept the quotation, in their own account. Ask them to open the order and accept it.',
+            'code' => 'customer_must_accept',
+        ], 403);
     }
 
     /** The customer approves from My Orders. Kept for older clients; the same as deciding "accept". */

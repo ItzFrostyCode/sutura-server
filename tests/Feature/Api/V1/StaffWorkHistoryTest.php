@@ -48,10 +48,15 @@ class StaffWorkHistoryTest extends TestCase
             DB::table('job_order_staff')->where('job_order_id', $job->id)->value('completed_at')
         );
 
-        // The OWNER marks the job completed.
-        $this->actingAs($owner)
-            ->putJson("/api/v1/stores/{$store->id}/jobs/{$job->id}", ['status' => 'completed'])
-            ->assertStatus(200);
+        // The OWNER marks the job completed. Completion goes through the production flow (a generic status PUT to
+        // 'completed' is refused with "Use Next or Back"): sewing -> QC/ironing -> quality-check pass -> ready for
+        // pick-up -> completed.
+        $job->forceFill(['fitting_requirement' => 'none', 'payment_policy' => 'none', 'payment_policy_percent' => 0])->save();
+        $base = "/api/v1/stores/{$store->id}/jobs/{$job->id}";
+        $this->actingAs($owner)->postJson("$base/production/next")->assertOk();
+        $this->actingAs($owner)->postJson("$base/production/next")->assertOk();
+        $this->actingAs($owner)->postJson("$base/production/next")->assertOk();
+        $this->assertSame('completed', $job->fresh()->status);
 
         // Completion is now stamped on the staff pivot.
         $this->assertNotNull(

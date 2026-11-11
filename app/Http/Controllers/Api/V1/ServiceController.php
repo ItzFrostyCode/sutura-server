@@ -13,13 +13,16 @@ use App\Support\OrderRequirements;
 use App\Support\SearchIntent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 
 class ServiceController extends Controller
 {
     public function index(Request $request, Store $store): JsonResponse
     {
-        $query = $store->services()->with([
+        // Archived services are soft-deleted; the owner sees them only when asking for them (to restore one).
+        $query = ($request->boolean('include_archived') ? $store->services()->withTrashed() : $store->services())->with([
             'pricing',
             'catalogItems' => fn ($q) => $q->with('images')
                 ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
@@ -192,7 +195,7 @@ class ServiceController extends Controller
             ->get([
                 'id', 'store_id', 'name', 'description', 'categories', 'service_types', 'service_category',
                 'garment_types', 'capabilities', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
-                'estimated_days', 'estimated_days_max', 'is_active', 'image_url', 'custom_fields', 'roster_fields',
+                'estimated_days', 'estimated_days_max', 'is_active', 'status', 'price_display', 'image_url', 'custom_fields', 'roster_fields',
                 'min_order_qty', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
                 'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
             ])
@@ -257,16 +260,79 @@ class ServiceController extends Controller
         $tiers = $validated['pricing_tiers'] ?? [];
         unset($validated['pricing_tiers']);
 
+        // Plan entitlement (S18): the Admin sets max_services; archived services do not count.
+        $limit = $this->serviceLimit($store);
+        if ($limit !== null && $store->services()->count() >= $limit) {
+            return response()->json([
+                'success' => false,
+                'message' => "Your plan allows {$limit} services. Archive one or upgrade your plan to add another.",
+                'code' => 'plan_limit_reached',
+            ], 403);
+        }
+
         // tags stays a denormalized mirror of the tier labels so existing
         // displays (service cards, job-order service picker) keep working
         // without having to join against pricing on every read.
         $validated['tags'] = array_column($tiers, 'label');
         $validated = $this->withTaxonomy($validated, null, $store);
+        $target = $this->requestedStatus($validated, Service::STATUS_DRAFT);
+        $validated['price_display'] ??= ((float) ($validated['base_price'] ?? 0) > 0 || collect($tiers)->contains(fn ($t) => (float) ($t['amount'] ?? 0) > 0))
+            ? Service::PRICE_STARTING : Service::PRICE_QUOTATION;
+        unset($validated['is_active']);
 
-        $service = $store->services()->create($validated);
-        $this->syncPricingTiers($service, $tiers);
+        $service = DB::transaction(function () use ($store, $validated, $tiers, $target) {
+            $service = $store->services()->create(['status' => Service::STATUS_DRAFT] + $validated);
+            $this->syncPricingTiers($service, $tiers);
+            $this->moveTo($service, $target);
+
+            return $service;
+        });
 
         return response()->json(['success' => true, 'data' => $service->load('pricing')], 201);
+    }
+
+    /** The plan's service limit (S18), or null when there is none: no plan, no value, or -1 (the plans table's "unlimited"). */
+    private function serviceLimit(Store $store): ?int
+    {
+        $limit = $store->subscription?->plan?->max_services;
+
+        return $limit === null || (int) $limit < 0 ? null : (int) $limit;
+    }
+
+    /**
+     * The status the owner asked for: `status` when sent, else the older `is_active` switch (true = publish,
+     * false = take it down), else $default. Archiving and restoring have their own endpoints.
+     */
+    private function requestedStatus(array $validated, ?string $default): ?string
+    {
+        if (isset($validated['status'])) {
+            return $validated['status'];
+        }
+        if (array_key_exists('is_active', $validated)) {
+            return $validated['is_active'] ? Service::STATUS_PUBLISHED : Service::STATUS_UNPUBLISHED;
+        }
+
+        return $default;
+    }
+
+    /** Applies a lifecycle move; publishing runs the publish check (S3) and refuses with the reasons. */
+    private function moveTo(Service $service, ?string $target): void
+    {
+        if ($target === null || $target === $service->status) {
+            if ($target === Service::STATUS_PUBLISHED && ($problems = $service->publishProblems()) !== []) {
+                throw ValidationException::withMessages(array_map(fn ($m) => [$m], $problems));
+            }
+
+            return;
+        }
+        if ($target === Service::STATUS_PUBLISHED && ($problems = $service->publishProblems()) !== []) {
+            throw ValidationException::withMessages(array_map(fn ($m) => [$m], $problems));
+        }
+        // A draft that was never published stays a draft when it is "taken down".
+        if ($target === Service::STATUS_UNPUBLISHED && $service->status === Service::STATUS_DRAFT) {
+            return;
+        }
+        $service->update(['status' => $target]);
     }
 
     public function update(StoreServiceRequest $request, Store $store, Service $service): JsonResponse
@@ -285,8 +351,20 @@ class ServiceController extends Controller
             unset($validated['pricing_tiers']);
         }
         $validated = $this->withTaxonomy($validated, $service, $store);
+        $target = $this->requestedStatus($validated, null);
+        unset($validated['status'], $validated['is_active']);
 
-        $service->update($validated);
+        DB::transaction(function () use ($service, $validated, $hasTiers, &$tiers, $target) {
+            $service->update($validated);
+            if ($hasTiers) {
+                $this->syncPricingTiers($service, $tiers);
+            }
+            // The publish check runs when a service MOVES to Published. Editing one that is already published
+            // does not re-check it, so shops whose older services predate the rule can still edit their prices.
+            $fresh = $service->fresh();
+            $this->moveTo($fresh, $target === $fresh->status ? null : $target);
+        });
+        $service->refresh();
 
         // The main edit form doesn't touch sale_price at all (that's
         // the old sale endpoint's job (now removed)
@@ -300,10 +378,6 @@ class ServiceController extends Controller
         // it here so the data itself stays consistent, not just its display.
         if ($service->sale_price !== null && (float) $service->sale_price >= (float) $service->base_price) {
             $service->update(['sale_price' => null, 'sale_starts_at' => null, 'sale_ends_at' => null]);
-        }
-
-        if ($hasTiers) {
-            $this->syncPricingTiers($service, $tiers);
         }
 
         return response()->json(['success' => true, 'data' => $service->fresh(['pricing', 'reviews'])]);
@@ -380,20 +454,38 @@ class ServiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        // Same accountability gap job_order_deleted/staff_removed already
-        // closed — deleting a service definition previously left no trace
-        // in the Audit Log at all.
+        // "Delete" archives (S2): the service leaves every list and can be restored. Archiving never cancels
+        // existing appointments, quotations or Job Orders (they keep their own snapshot of the service).
         $store->auditLogs()->create([
             'user_id' => $request->user()->id,
-            'action' => 'service_deleted',
+            'action' => 'service_archived',
             'model_type' => Service::class,
             'model_id' => $service->id,
-            'payload' => ['name' => $service->name],
+            'payload' => ['name' => $service->name, 'was' => $service->status],
             'ip_address' => $request->ip(),
         ]);
 
+        $service->update(['status' => Service::STATUS_ARCHIVED]);
         $service->delete();
 
         return response()->json(['success' => true]);
+    }
+
+    /** Restoring an archived service returns it to Unpublished (S2); the owner publishes it again when ready. */
+    public function restore(Request $request, Store $store, int $service): JsonResponse
+    {
+        $model = Service::onlyTrashed()->where('store_id', $store->id)->findOrFail($service);
+        $limit = $this->serviceLimit($store);
+        if ($limit !== null && $store->services()->count() >= $limit) {
+            return response()->json(['success' => false, 'message' => "Your plan allows {$limit} services.", 'code' => 'plan_limit_reached'], 403);
+        }
+        $model->restore();
+        $model->update(['status' => Service::STATUS_UNPUBLISHED]);
+        $store->auditLogs()->create([
+            'user_id' => $request->user()->id, 'action' => 'service_restored', 'model_type' => Service::class,
+            'model_id' => $model->id, 'payload' => ['name' => $model->name], 'ip_address' => $request->ip(),
+        ]);
+
+        return response()->json(['success' => true, 'data' => $model->fresh('pricing')]);
     }
 }

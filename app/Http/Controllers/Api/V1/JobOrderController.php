@@ -32,6 +32,7 @@ use App\Notifications\JobStatusUpdatedNotification;
 use App\Notifications\NewJobOrderNotification;
 use App\Notifications\OrderReadyNotification;
 use App\Notifications\PaymentReceivedNotification;
+use App\Notifications\CustomerPaymentConfirmedNotification;
 use App\Notifications\PaymentRejectedNotification;
 use App\Notifications\StoreActivityNotification;
 use Illuminate\Http\JsonResponse;
@@ -1630,7 +1631,8 @@ class JobOrderController extends Controller
                 ], 422);
             }
 
-            if ($newStatus === 'completed' && (float) $jobOrder->balance > 0) {
+            // W-F01 / WD-16: an authorized, acknowledged release lets a handed-over order complete with its balance still owed.
+            if ($newStatus === 'completed' && (float) $jobOrder->balance > 0 && (! $jobOrder->released_with_balance_at || ! $jobOrder->balance_acknowledged_at)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'The remaining balance must be paid before this job can be marked completed.',
@@ -2060,6 +2062,11 @@ class JobOrderController extends Controller
         if ($storeOwner) {
             $storeOwner->notify(new PaymentReceivedNotification($jobOrder, $paymentAmount, ! $isCash));
         }
+        // The customer's own order changed too: a cash payment at the counter counts at once, so tell them. A GCash/Maya
+        // one logged here waits for verification and is announced when it is approved (verifyPayment()).
+        if ($isCash && $jobOrder->customer) {
+            $jobOrder->customer->notify(new CustomerPaymentConfirmedNotification($jobOrder->fresh('store'), (float) $paymentAmount, true));
+        }
 
         return response()->json([
             'success' => true,
@@ -2119,6 +2126,10 @@ class JobOrderController extends Controller
         } catch (\RuntimeException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
         }
+
+        // The customer sees the payment counted (and the new balance) without having to ask the shop.
+        $verified = $jobOrder->fresh(['store', 'customer']);
+        $verified->customer?->notify(new CustomerPaymentConfirmedNotification($verified, (float) $payment->amount, false));
 
         return response()->json([
             'success' => true,

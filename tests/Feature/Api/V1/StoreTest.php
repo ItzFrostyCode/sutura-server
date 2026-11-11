@@ -40,7 +40,7 @@ class StoreTest extends TestCase
     public function test_owner_can_set_store_specializations()
     {
         $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}", [
-            'specializations' => ['barong', 'gown'],
+            'specializations' => ['custom_tailoring', 'formal'],
         ]);
 
         $response->assertStatus(200);
@@ -48,7 +48,7 @@ class StoreTest extends TestCase
             'id' => $this->store->id,
         ]);
         $this->store->refresh();
-        $this->assertEquals(['barong', 'gown'], $this->store->specializations);
+        $this->assertEquals(['custom_tailoring', 'formal'], $this->store->specializations);
     }
 
     public function test_store_specializations_rejects_an_invalid_value()
@@ -62,13 +62,14 @@ class StoreTest extends TestCase
 
     public function test_store_without_a_qualifying_plan_cannot_turn_on_featured()
     {
-        // No subscription at all — plan/features resolve to empty, so this
-        // should be rejected the same way as a Basic/Pro store would be.
+        // No subscription at all — plan/features resolve to empty. The owner can no longer flip is_featured on
+        // their own (the field is not owner-writable; the system keeps it in sync with a Premium plan), so the
+        // update simply leaves the store un-featured.
         $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}", [
             'is_featured' => true,
         ]);
 
-        $response->assertStatus(422);
+        $response->assertStatus(200);
         $this->assertDatabaseHas('stores', [
             'id' => $this->store->id,
             'is_featured' => false,
@@ -89,21 +90,11 @@ class StoreTest extends TestCase
             'is_active' => true,
         ]);
 
-        StoreSubscription::create([
-            'store_id' => $this->store->id,
-            'plan_id' => $plan->id,
-            'status' => 'active',
-            'starts_at' => now()->subDay(),
-        ]);
+        // is_featured is a system-managed Premium perk, not an owner toggle: subscribing to a plan that carries the
+        // "Featured Store Visibility" feature switches it on via the subscription switcher (the owner's own PUT no
+        // longer sets the column).
+        \App\Support\SubscriptionSwitcher::apply($this->store, $plan, 'monthly', $this->user->id);
 
-        $response = $this->actingAs($this->user)->putJson("/api/v1/stores/{$this->store->id}", [
-            'is_featured' => true,
-        ]);
-
-        $response->assertStatus(200);
-        $this->assertDatabaseHas('stores', [
-            'id' => $this->store->id,
-            'is_featured' => true,
-        ]);
+        $this->assertTrue((bool) $this->store->fresh()->is_featured);
     }
 }
