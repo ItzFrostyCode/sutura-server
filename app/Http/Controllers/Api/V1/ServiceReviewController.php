@@ -187,4 +187,37 @@ class ServiceReviewController extends Controller
 
         return response()->json(['success' => true, 'data' => $review]);
     }
+
+    /** My Ratings > Services: the services this customer rated (star-only), same card shape as mySavedServices. */
+    public function myReviews(Request $request): JsonResponse
+    {
+        $reviews = \App\Models\ServiceReview::where('user_id', $request->user()->id)
+            ->with(['service.store:id,name,slug'])
+            ->latest('updated_at')
+            ->get()
+            ->filter(fn ($r) => $r->service !== null)
+            ->map(function ($r) {
+                $service = $r->service;
+                $service->loadCount('reviews');
+                $service->loadAvg('reviews', 'rating');
+
+                return [
+                    'rating' => $r->rating,
+                    'rated_at' => $r->updated_at,
+                    'id' => $service->id,
+                    'name' => $service->name,
+                    'description' => $service->description,
+                    'base_price' => $service->base_price,
+                    'estimated_days' => $service->estimated_days,
+                    'estimated_days_max' => $service->estimated_days_max,
+                    'image_url' => $service->image_url,
+                    'reviews_count' => $service->reviews_count,
+                    'reviews_avg_rating' => $service->reviews_avg_rating !== null ? round((float) $service->reviews_avg_rating, 1) : null,
+                    'store' => $service->store ? ['id' => $service->store->id, 'name' => $service->store->name, 'slug' => $service->store->slug] : null,
+                ];
+            })
+            ->values();
+
+        return response()->json(['success' => true, 'data' => $reviews]);
+    }
 }

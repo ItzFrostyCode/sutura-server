@@ -146,6 +146,7 @@ class JobOrderTrackingController extends Controller
                 'progress_photos' => $jobOrder->progress_photos,
                 'stage_timestamps' => $this->buildStageTimestamps($jobOrder),
                 'appointments' => $this->buildCustomerSafeAppointments($jobOrder),
+                'payments' => $this->buildCustomerSafePayments($jobOrder),
                 'store' => $jobOrder->store ? [
                     'name' => $jobOrder->store->name,
                     'slug' => $jobOrder->store->slug,
@@ -153,6 +154,32 @@ class JobOrderTrackingController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * Every payment on this order and what the shop decided about it, so the customer sees "Pending", "Approved" or
+     * "Rejected" (with the shop's reason) — the other side of the shop's Collect Payments verify / reject.
+     * Customer-safe: no staff names, no internal notes.
+     */
+    private function buildCustomerSafePayments(JobOrder $jobOrder): array
+    {
+        return \App\Models\Payment::where('job_order_id', $jobOrder->id)
+            ->with('method:id,name')
+            ->latest()
+            ->get()
+            ->map(fn ($p) => [
+                'id' => $p->id,
+                'amount' => (float) $p->amount,
+                'method' => $p->method?->name ?? $p->payment_method,
+                'reference' => $p->reference,
+                'source' => $p->source,
+                'paid_at' => $p->created_at,
+                'status' => $p->status,
+                'decided_at' => $p->rejected_at ?? $p->verified_at,
+                'rejected_reason' => $p->rejected_at ? $p->rejected_reason : null,
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -202,7 +229,7 @@ class JobOrderTrackingController extends Controller
     private function buildCustomerSafeAppointments(JobOrder $jobOrder): array
     {
         return $jobOrder->appointments()
-            ->with(['service:id,name,service_types', 'branch:id,name,address,city'])
+            ->with(['service:id,name,service_types', 'branch:id,name,address,city,is_main'])
             ->orderByDesc('scheduled_at')
             ->get()
             ->map(fn ($appointment) => [
@@ -218,6 +245,7 @@ class JobOrderTrackingController extends Controller
                     'name' => $appointment->branch->name,
                     'address' => $appointment->branch->address,
                     'city' => $appointment->branch->city,
+                    'is_main' => (bool) $appointment->branch->is_main,
                 ] : null,
             ])
             ->values()

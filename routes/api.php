@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\V1\StoreBranchController;
 use App\Http\Controllers\Api\V1\StoreController;
 use App\Http\Controllers\Api\V1\StorePostController;
 use App\Http\Controllers\Api\V1\StoreReviewController;
+use App\Http\Controllers\Api\V1\StoreSaveController;
 use App\Http\Controllers\Api\V1\StoreSpecialHourController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\SubscriptionUpgradeRequestController;
@@ -163,6 +164,9 @@ Route::prefix('v1')->group(function () {
 
         // Store Interactions (Any authenticated user)
         Route::get('/stores/{store:slug}/my-review', [StoreReviewController::class, 'myRating']);
+        // Save (heart) a whole shop, the same as designs and services; listed in My Saved > Shops.
+        Route::post('/stores/{store:slug}/save', [StoreSaveController::class, 'toggle']);
+        Route::get('/stores/{store:slug}/my-save', [StoreSaveController::class, 'mySave']);
         Route::get('/stores/{store}/my-review', [StoreReviewController::class, 'myRating']);
         Route::post('/stores/{store:slug}/reviews', [StoreReviewController::class, 'store']);
         Route::post('/stores/{store}/reviews', [StoreReviewController::class, 'store']);
@@ -210,6 +214,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/my-store-reviews', [StoreReviewController::class, 'myReviews']);
         Route::get('/my-saved-catalog-items', [CatalogInteractionController::class, 'mySavedItems']);
         Route::get('/my-saved-services', [ServiceReviewController::class, 'mySavedServices']);
+        Route::get('/my-saved-stores', [StoreSaveController::class, 'mySavedStores']);
+        Route::get('/my-service-reviews', [ServiceReviewController::class, 'myReviews']);
         Route::get('/my-recently-viewed', [RecentlyViewedController::class, 'index']);
         Route::post('/recently-viewed', [RecentlyViewedController::class, 'store']);
         Route::get('/my-tickets', [SupportTicketController::class, 'myTickets']);
