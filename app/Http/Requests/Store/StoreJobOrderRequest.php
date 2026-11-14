@@ -144,7 +144,7 @@ class StoreJobOrderRequest extends FormRequest
             'extra_services.*.total_amount' => ['nullable', 'numeric', 'min:0'],
             'extra_services.*.notes' => ['nullable', 'string', 'max:1000'],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
-            'garment_category' => ['nullable', 'string', 'in:barong,gown,suit,filipiniana,uniform,lab_gown,scrub_suit,corporate_wear,alteration_repair'],
+            'garment_category' => ['nullable', 'string', \Illuminate\Validation\Rule::in(\App\Support\GarmentCategory::all())],
             'is_rush' => ['nullable', 'boolean'],
             'rush_fee' => ['nullable', 'numeric', 'min:0'],
             'catalog_item_id' => [

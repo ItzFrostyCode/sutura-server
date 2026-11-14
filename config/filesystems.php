@@ -15,8 +15,7 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'local'),
 
-    // Where uploads live. The defaults are this server's own disk — fine on a laptop, but a host like Railway wipes
-    // the disk on every redeploy. In production point both at an off-server disk (Cloudflare R2 = the 's3' disk):
+    // Where uploads live (this server's own disk by default):
     //   UPLOAD_DISK  public files: design / profile / receipt / reference photos (need a publicly readable bucket)
     //   PRIVATE_DISK private files: shop application documents and subscription payment receipts (keep this bucket private)
     'upload_disk' => env('UPLOAD_DISK', 'public'),

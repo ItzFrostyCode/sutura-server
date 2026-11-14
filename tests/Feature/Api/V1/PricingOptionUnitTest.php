@@ -139,13 +139,17 @@ class PricingOptionUnitTest extends TestCase
         $this->assertArrayNotHasKey('option_sold_as', $job->custom_order_data);
     }
 
-    public function test_the_minimum_is_in_the_unit_of_the_chosen_option(): void
+    public function test_the_group_minimum_counts_people_in_the_unit_of_the_chosen_option(): void
     {
-        $this->service->update(['min_order_qty' => 3]);
-        $this->order(['pricing_id' => $this->set->id, 'quantity' => 2])->assertStatus(422);
-        $ok = $this->order(['pricing_id' => $this->set->id, 'quantity' => 3, 'size' => 'M', 'size_bottom' => 'L'])->assertStatus(201);
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 3]);
+        $person = fn ($i) => ['player_name' => "P{$i}", 'size' => 'M', 'bottom_size' => 'L'];
+        // One person has no minimum.
+        $this->order(['pricing_id' => $this->set->id, 'quantity' => 2, 'size' => 'M', 'size_bottom' => 'L'])->assertStatus(201);
+        // A group needs the shop's minimum of people.
+        $this->order(['pricing_id' => $this->set->id, 'order_mode' => 'bulk', 'roster' => array_map($person, [1, 2])])->assertStatus(422);
+        $ok = $this->order(['pricing_id' => $this->set->id, 'order_mode' => 'bulk', 'roster' => array_map($person, [1, 2, 3])])->assertStatus(201);
         $job = JobOrder::findOrFail($ok->json('data.id'));
-        $this->assertSame([3, 6], [$job->orderedQuantity(), $job->garmentCount()], '3 sets meet the minimum of 3 even though they are 6 garments');
+        $this->assertSame([3, 6], [$job->orderedQuantity(), $job->garmentCount()], '3 people in sets meet the minimum of 3 even though they are 6 garments');
     }
 
     // The shop's New Job Order ─────────────────────────────────────────────────────────────────────

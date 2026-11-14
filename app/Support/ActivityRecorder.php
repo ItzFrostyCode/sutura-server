@@ -100,8 +100,6 @@ class ActivityRecorder
 
         // Job orders & payments
         'POST stores/{store}/jobs' => ['job_order_created', 'Created a job order'],
-        'POST stores/{store}/bulk-orders' => ['bulk_order_created', 'Created a bulk order'],
-        'POST stores/{store}/made-to-order' => ['made_to_order_created', 'Placed a made-to-order request'],
         'POST stores/{store}/repair-requests' => ['repair_request_created', 'Sent a repair request'],
         'PUT stores/{store}/jobs/{jobOrder}' => ['job_order_updated', 'Updated a job order'],
         'DELETE stores/{store}/jobs/{jobOrder}' => ['job_order_archived', 'Archived a job order'],

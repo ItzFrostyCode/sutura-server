@@ -7,9 +7,14 @@ use App\Models\Store;
 use App\Models\StoreApplication;
 use App\Models\StoreSubscription;
 use App\Models\SubscriptionPlan;
+use App\Models\SubscriptionUpgradeRequest;
 use App\Notifications\ShopLoginIssuedNotification;
+use App\Notifications\StoreApplicationChangesRequestedNotification;
 use App\Notifications\StoreApplicationStatusNotification;
 use App\Support\AdminAudit;
+use App\Support\OnlinePlanPayments;
+use App\Support\PlatformPayments;
+use App\Services\Sms\PlatformSms;
 use App\Support\ShopLogin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +22,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -33,11 +41,17 @@ class StoreApplicationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $status = $request->input('status', 'pending');
+        // Pending sorts by when they applied (oldest first: the queue); decided ones by when
+        // they were decided (newest first). ?dir=asc|desc flips it.
+        $dir = in_array($request->input('dir'), ['asc', 'desc'], true)
+            ? $request->input('dir')
+            : ($status === 'pending' ? 'asc' : 'desc');
 
         $query = Store::query()
             ->with(['owner:id,name,email,contact_email', 'application.requestedPlan:id,name'])
             ->where('status', $status)
-            ->orderBy($status === 'pending' ? 'created_at' : 'updated_at', $status === 'pending' ? 'asc' : 'desc');
+            ->orderBy($status === 'pending' ? 'created_at' : 'updated_at', $dir)
+            ->orderBy('id', $dir);
 
         if ($search = trim((string) $request->input('search'))) {
             $term = '%'.strtolower($search).'%';
@@ -69,12 +83,17 @@ class StoreApplicationController extends Controller
         ]);
 
         $login = $store->owner?->email;
+        $store->application?->load('changeRequester:id,name');
 
         return response()->json([
             'success' => true,
             'data' => [
                 'store' => $store,
+                // The checklist the Request Changes dialog shows.
+                'change_items' => collect(StoreApplication::CHANGE_ITEMS)->map(fn ($label, $key) => ['key' => $key, 'label' => $label])->values(),
                 'documents' => $store->application?->documentList() ?? [],
+                // Recommended documents the owner skipped (the admin can ask for them).
+                'missing_documents' => $store->application?->missingRecommended() ?? [],
                 // What the approve form pre-fills; the admin can edit it.
                 'suggested_login' => $login && preg_match(ShopLogin::pattern(), $login)
                     ? $login
@@ -82,14 +101,43 @@ class StoreApplicationController extends Controller
                 'login_domain' => ShopLogin::domain(),
                 // False when the owner signed up with their own confirmed email: approving issues no login.
                 'issues_login' => $store->owner?->email_verified_at === null,
+                'plan_payment' => $this->planPayment($store),
             ],
         ]);
     }
 
-    /** Streams one private verification document; admin-only via route middleware. */
-    public function document(Store $store, string $document): Response
+    /** The application's plan payment: a receipt to check, or GCash paid online (refundable). */
+    private function planPayment(Store $store): ?array
     {
-        $path = $store->application?->pathFor($document);
+        $payment = $store->application
+            ? SubscriptionUpgradeRequest::where('store_application_id', $store->application->id)->where('status', '!=', 'cancelled')->latest('id')->first()
+            : null;
+        if (! $payment) {
+            return null;
+        }
+
+        return [
+            'id' => $payment->id,
+            'channel' => $payment->channel,
+            'amount' => (float) $payment->quoted_price,
+            'paid' => $payment->isOnline() ? $payment->gateway_status === 'paid' : null,
+            'paid_at' => $payment->gateway_paid_at?->toISOString(),
+            'reference' => $payment->payment_reference,
+            'refundable' => $payment->refundable(),
+            'refund_status' => $payment->refund_status,
+            'refund_amount' => $payment->refund_amount !== null ? (float) $payment->refund_amount : null,
+        ];
+    }
+
+    /**
+     * Streams one private verification document; admin-only via route
+     * middleware. ?version=previous streams the file a re-upload replaced.
+     */
+    public function document(Request $request, Store $store, string $document): Response
+    {
+        $path = $request->query('version') === 'previous'
+            ? $store->application?->previousPathFor($document)
+            : $store->application?->pathFor($document);
 
         if (! $path || ! Storage::disk(config('filesystems.private_disk', 'local'))->exists($path)) {
             return response()->json(['success' => false, 'message' => 'Document not found.'], 404);
@@ -102,6 +150,12 @@ class StoreApplicationController extends Controller
     {
         if ($store->status !== 'pending') {
             return response()->json(['success' => false, 'message' => 'This application has already been reviewed.'], 422);
+        }
+
+        // Paying with GCash online: approving marks the plan as paid, so the money must be in.
+        $payment = $store->application ? $this->planPayment($store) : null;
+        if ($payment && $payment['channel'] === 'online' && ! $payment['paid']) {
+            return response()->json(['success' => false, 'message' => 'This shop has not finished paying with GCash yet. Approve it once the payment shows as paid, or reject it.'], 422);
         }
 
         $owner = $store->owner;
@@ -150,6 +204,8 @@ class StoreApplicationController extends Controller
                 'approved_by' => $request->user()->id,
                 'rejection_reason' => null,
             ]);
+            // An open "update your application" link stops working once decided.
+            $store->application?->update(['review_state' => null, 'update_token_hash' => null, 'update_token_expires_at' => null]);
         // The admin looked at the pinned location while reviewing — the shop's branches go live with it.
         $store->branches()->where('verification_status', 'pending')->update(['verification_status' => 'verified', 'verified_at' => now(), 'verified_by' => $request->user()->id]);
 
@@ -157,24 +213,32 @@ class StoreApplicationController extends Controller
             if ($application) {
                 $application->update(['reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
 
-                if ($application->requested_plan_id) {
-                    $plan = SubscriptionPlan::find($application->requested_plan_id);
-                    $trial = $application->billing_cycle === 'trial';
+                // A free trial (free_trial, or billing_cycle "trial" from applications sent before 2026-11-14): the
+                // picked plan for StoreApplication::FREE_TRIAL_DAYS days, nothing to pay yet. When it runs out unpaid,
+                // app:expire-subscriptions pauses the shop (hidden, records kept).
+                $trial = $application->free_trial || $application->billing_cycle === 'trial';
+                if ($application->requested_plan_id && $trial) {
+                    $trialEnd = now()->addDays(StoreApplication::FREE_TRIAL_DAYS);
                     StoreSubscription::create([
                         'store_id' => $store->id,
                         'plan_id' => $application->requested_plan_id,
-                        'status' => $trial ? 'trial' : 'active',
-                        // A trial has no cycle yet; it ends on its own and the owner picks a plan then.
-                        'billing_cycle' => $trial ? null : ($application->billing_cycle === 'yearly' ? 'yearly' : 'monthly'),
+                        'status' => 'trial',
+                        'billing_cycle' => null,
                         'starts_at' => now(),
-                        'ends_at' => $trial
-                            ? now()->addDays(StoreApplication::TRIAL_DAYS)
-                            : ($application->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth()),
-                        'trial_ends_at' => $trial ? now()->addDays(StoreApplication::TRIAL_DAYS) : null,
+                        'trial_ends_at' => $trialEnd,
+                        'ends_at' => $trialEnd,
                     ]);
-                    if ($plan && in_array('Featured Store Visibility (Top Placement)', $plan->features ?? [], true)) {
-                        $store->update(['is_featured' => true]);
-                    }
+                } elseif ($application->requested_plan_id) {
+                    $subscription = StoreSubscription::create([
+                        'store_id' => $store->id,
+                        'plan_id' => $application->requested_plan_id,
+                        'status' => 'active',
+                        'billing_cycle' => $application->billing_cycle === 'yearly' ? 'yearly' : 'monthly',
+                        'starts_at' => now(),
+                        'ends_at' => $application->billing_cycle === 'yearly' ? now()->addYear() : now()->addMonth(),
+                    ]);
+                    // Its plan payment (Admin → Payments) is paid along with the approval.
+                    PlatformPayments::decideWithApplication($application->id, 'approved', $request->user()->id, null, $subscription->starts_at, $subscription->ends_at);
                 }
             }
 
@@ -189,6 +253,7 @@ class StoreApplicationController extends Controller
             // The admin still sees the credentials below and can hand them over.
             Log::warning("Store {$store->id} approval email failed: {$e->getMessage()}");
         }
+        PlatformSms::shopDecision($store->fresh(), 'approved');
 
         return response()->json([
             'success' => true,
@@ -205,7 +270,7 @@ class StoreApplicationController extends Controller
 
     public function reject(Request $request, Store $store): JsonResponse
     {
-        $validated = $request->validate(['reason' => 'required|string|max:1000']);
+        $validated = $request->validate(['reason' => 'required|string|max:1000', 'refund' => 'sometimes|boolean']);
 
         if ($store->status !== 'pending') {
             return response()->json(['success' => false, 'message' => 'This application has already been reviewed.'], 422);
@@ -213,13 +278,92 @@ class StoreApplicationController extends Controller
 
         DB::transaction(function () use ($request, $store, $validated) {
             $store->update(['status' => 'rejected', 'rejection_reason' => $validated['reason']]);
-            $store->application?->update(['reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
+            $store->application?->update([
+                'reviewed_by' => $request->user()->id, 'reviewed_at' => now(),
+                'review_state' => null, 'update_token_hash' => null, 'update_token_expires_at' => null,
+            ]);
+            if ($store->application) {
+                PlatformPayments::decideWithApplication($store->application->id, 'rejected', $request->user()->id, $validated['reason']);
+            }
             AdminAudit::record($request, 'store_application_rejected', Store::class, $store->id, $store->name, $store->id, $validated['reason']);
         });
 
         $this->notifyOwner($store, 'rejected');
 
-        return response()->json(['success' => true, 'message' => 'Application rejected. The owner has been notified.', 'data' => $store->fresh()]);
+        // A GCash payment made online goes back to the applicant's GCash (full amount).
+        $message = 'Application rejected. The owner has been notified.';
+        $payment = $store->application
+            ? SubscriptionUpgradeRequest::where('store_application_id', $store->application->id)->where('channel', 'online')->latest('id')->first()
+            : null;
+        if ($payment?->refundable() && $request->boolean('refund', true)) {
+            try {
+                $payment = OnlinePlanPayments::refund($request, $payment, (float) ($payment->amount_sent ?? $payment->quoted_price), 'CANCELLATION', 'Shop application rejected.');
+                $message .= $payment->refund_status === 'succeeded'
+                    ? ' Their GCash payment was refunded.'
+                    : ' Their GCash refund is being processed.';
+            } catch (ValidationException $e) {
+                $message .= ' The GCash refund did not go through — try again from Payments.';
+            }
+        }
+
+        return response()->json(['success' => true, 'message' => $message, 'data' => $store->fresh()]);
+    }
+
+    /**
+     * "Request Changes": the store stays pending (hidden) while the owner fixes
+     * the ticked items through a private emailed link — they can't sign in yet.
+     * Asking again replaces the previous link; Approve/Reject still work.
+     */
+    public function requestChanges(Request $request, Store $store): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*' => ['string', 'distinct', Rule::in(array_keys(StoreApplication::CHANGE_ITEMS))],
+            'note' => ['required', 'string', 'min:5', 'max:1000'],
+        ]);
+
+        $application = $store->application;
+        if ($store->status !== 'pending' || ! $application) {
+            return response()->json(['success' => false, 'message' => 'Only a pending shop application can be sent back for changes.'], 422);
+        }
+
+        $token = Str::random(64);
+        $expires = now()->addDays(StoreApplication::UPDATE_LINK_DAYS);
+
+        DB::transaction(function () use ($request, $store, $application, $validated, $token, $expires) {
+            $application->update([
+                'review_state' => 'changes_requested',
+                'change_request_items' => array_values($validated['items']),
+                'change_request_note' => trim($validated['note']),
+                'change_requested_at' => now(),
+                'change_requested_by' => $request->user()->id,
+                'update_token_hash' => hash('sha256', $token),
+                'update_token_expires_at' => $expires,
+            ]);
+            AdminAudit::record($request, 'store_application_changes_requested', Store::class, $store->id, $store->name, $store->id, trim($validated['note']));
+        });
+
+        $updateUrl = rtrim((string) config('app.frontend_url'), '/').'/register/store/update?token='.$token;
+        $sentTo = $store->owner?->contact_email ?: $store->owner?->email;
+        $emailed = false;
+        try {
+            $store->owner?->notify(new StoreApplicationChangesRequestedNotification(
+                $store->fresh(), $application->fresh()->requestedItems(), trim($validated['note']), $updateUrl, $expires->format('F j, Y'),
+            ));
+            $emailed = (bool) $store->owner;
+        } catch (\Throwable $e) {
+            Log::warning("Store application change-request email failed for store {$store->id}: {$e->getMessage()}");
+        }
+        PlatformSms::shopDecision($store->fresh(), 'changes_requested');
+
+        return response()->json([
+            'success' => true,
+            'message' => $emailed
+                ? "Change request sent to {$sentTo}."
+                : 'Change request saved, but the email could not be sent. Copy the link below and send it to the owner yourself.',
+            // Only when the email failed, so the admin can still pass the link on.
+            'update_url' => $emailed ? null : $updateUrl,
+        ]);
     }
 
     /**
@@ -279,5 +423,6 @@ class StoreApplicationController extends Controller
         } catch (\Throwable $e) {
             Log::warning("Store application {$decision} email failed for store {$store->id}: {$e->getMessage()}");
         }
+        PlatformSms::shopDecision($store->fresh(), $decision);
     }
 }

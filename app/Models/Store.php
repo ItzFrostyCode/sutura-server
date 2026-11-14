@@ -22,9 +22,9 @@ class Store extends Model
         'logo_path', 'banner_path', 'gallery_images', 'status', 'rejection_reason', 'approved_at', 'approved_by',
         'booking_policy', 'booking_questions', 'max_appointments_per_day', 'latitude', 'longitude', 'social_links',
         'business_type', 'operating_hours',
-        'fitting_fee', 'fitting_limit', 'fitting_limit_policy', 'repair_requires_downpayment',
+        'fitting_fee', 'fitting_limit', 'fitting_limit_policy', 'repair_requires_downpayment', 'rush_available', 'rush_fee_mode', 'rush_fee_percent', 'rush_fee_per_piece',
         'sms_mode', 'sms_events', 'default_measurement_requirement', 'default_measurement_unit', 'default_fitting_requirement', 'default_payment_policy', 'default_payment_percent',
-        'specializations', 'is_featured', 'is_hidden',
+        'specializations', 'custom_services', 'declared_branches', 'is_featured', 'is_hidden',
         'gcash_number', 'gcash_account_name', 'bank_name', 'bank_account_number', 'bank_account_name',
         'gcash_qr_path', 'bank_qr_path',
         'cancellation_policy',
@@ -73,10 +73,15 @@ class Store extends Model
         'gallery_images' => 'array',
         'operating_hours' => 'array',
         'specializations' => 'array',
+        'custom_services' => 'array',
+        'declared_branches' => 'array',
         'is_featured' => 'boolean',
         'is_hidden' => 'boolean',
         'fitting_fee' => 'float',
         'repair_requires_downpayment' => 'boolean',
+        'rush_available' => 'boolean',
+        'rush_fee_percent' => 'float',
+        'rush_fee_per_piece' => 'float',
         'sms_events' => 'array',
         'max_appointments_per_day' => 'integer',
     ];
@@ -173,6 +178,20 @@ class Store extends Model
         }
 
         return $query->selectRaw('(CASE WHEN EXISTS ('.$premium->toSql().') THEN 1 ELSE 0 END) as is_premium', $premium->getBindings());
+    }
+
+    /**
+     * Stores currently on a paid-up Premium plan: an active or trial Premium
+     * subscription that hasn't run out. ends_at is checked too, because a
+     * lapsed row keeps its status until the ExpireSubscriptions command runs.
+     */
+    public function scopePremiumActive($query)
+    {
+        return $query->whereHas('subscriptions', function ($sq) {
+            $sq->whereIn('status', ['active', 'trial'])
+                ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
+                ->whereHas('plan', fn ($pq) => $pq->where('slug', 'premium'));
+        });
     }
 
     public function catalogItems(): HasMany

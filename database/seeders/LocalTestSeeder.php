@@ -147,16 +147,18 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // Assign Trial Subscription to Store (Default to Premium plan)
+        // Active Premium (yearly) — a paid-up Premium shop is what the landing
+        // page's "Featured & Recommended" spotlight shows (Store::scopePremiumActive),
+        // so a fresh seed always has one there. (A 30-day trial used to expire.)
         $premiumPlan = SubscriptionPlan::where('slug', 'premium')->first();
         if ($premiumPlan && ! $store->subscription()->exists()) {
             StoreSubscription::create([
                 'store_id' => $store->id,
                 'plan_id' => $premiumPlan->id,
-                'status' => 'trial',
+                'status' => 'active',
+                'billing_cycle' => 'yearly',
                 'starts_at' => now(),
-                'ends_at' => now()->addDays(30),
-                'trial_ends_at' => now()->addDays(30),
+                'ends_at' => now()->addYear(),
             ]);
         }
 
@@ -233,21 +235,124 @@ class LocalTestSeeder extends Seeder
             ]);
         }
 
-        // 5. Update Store Branding (Profile Picture/Logo, Bio/Description)
-        // Was hardcoded to http://127.0.0.1:8000/... -- only ever resolved on
-        // one specific machine with `php artisan serve` running on that exact
-        // port. Storage::url() generates the correct host for wherever this
-        // actually runs (local, Postgres test, or real production), same
-        // fix as FileUploadController's UPLOAD_DISK bug.
+        // 5. Update Store Profile Details, Location, Storefront Branding & Social Links
         $store->update([
             'logo_path' => Storage::url('logos/thread_needle_logo.jpg'),
-            'banner_path' => Storage::url('banners/thread_needle_profile_banner.jpg'),
-            'description' => "Davao City's premier provider of full sublimation jerseys, corporate uniforms, and custom tailoring.",
-            // Re-applied on every run (firstOrCreate above only sets it on a
-            // brand-new store) so an existing DB picks up the canonical
-            // Men/Women/Kids + Services specializations too.
+            'banner_path' => Storage::url('banners/thread_needle_banner.jpg'),
+            'gallery_images' => [
+                Storage::url('banners/thread_needle_banner.jpg'),
+                Storage::url('banners/thread_needle_storefront.jpg'),
+                Storage::url('logos/thread_needle_logo.jpg'),
+            ],
+            'description' => "Davao City's premier bespoke tailoring atelier and sublimation production house. Specializing in custom-fit suits, traditional and modern barongs, corporate uniforms, and full-sublimation athletic jerseys with master-tailored craftsmanship.",
+            'address' => '123 Rizal Avenue, Poblacion',
+            'landmark' => 'Across Rizal Park, near San Pedro Cathedral',
+            'city' => 'Davao City',
+            'province' => 'Davao del Sur',
+            'postal_code' => '8000',
+            'phone' => '+63 917 123 4567',
+            'email' => 'hello@threadneedle.com',
+            'business_type' => 'tailoring_store',
+            'latitude' => '7.0702',
+            'longitude' => '125.6077',
+            'max_appointments_per_day' => 12,
+            'booking_policy' => 'Consultations and fittings are by appointment. Walk-ins welcome for inquiries and basic measurements.',
+            'booking_questions' => [
+                'What type of garment or uniform do you need?',
+                'Do you have your own fabric, or will you select from our in-house textiles?',
+                'Target completion or event date?',
+            ],
+            'cancellation_policy' => 'Full refund if cancelled before fabric cutting and production start. 50% refund once materials have been cut.',
+            'fitting_fee' => 0.00,
+            'fitting_limit' => 3,
+            'fitting_limit_policy' => 'fee',
+            'rush_available' => true,
+            'rush_fee_mode' => 'percent',
+            'rush_fee_percent' => 20.0,
+            'rush_fee_per_piece' => 0.0,
+            'repair_requires_downpayment' => true,
+            'default_measurement_requirement' => 'shop',
+            'default_measurement_unit' => 'in',
+            'default_fitting_requirement' => 'optional',
+            'default_payment_policy' => 'deposit',
+            'default_payment_percent' => 50,
+            'is_featured' => true,
+            'is_hidden' => false,
+            'gcash_number' => '0917 123 4567',
+            'gcash_account_name' => 'Thread & Needle Tailoring',
+            'bank_name' => 'BDO Unibank',
+            'bank_account_name' => 'Thread & Needle Tailoring Inc.',
+            'bank_account_number' => '0012 3456 7890',
+            'operating_hours' => [
+                'monday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'tuesday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'wednesday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'thursday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'friday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'saturday' => ['is_open' => true, 'open' => '09:00', 'close' => '17:00'],
+                'sunday' => ['is_open' => false, 'open' => '09:00', 'close' => '17:00'],
+            ],
+            'social_links' => [
+                ['label' => 'Facebook', 'url' => 'https://facebook.com/threadandneedledavao'],
+                ['label' => 'Instagram', 'url' => 'https://instagram.com/threadneedledavao'],
+                ['label' => 'TikTok', 'url' => 'https://tiktok.com/@threadneedledavao'],
+                ['label' => 'YouTube', 'url' => 'https://youtube.com/@threadneedledavao'],
+                ['label' => 'Threads', 'url' => 'https://threads.net/@threadneedledavao'],
+                ['label' => 'Pinterest', 'url' => 'https://pinterest.com/threadneedledavao'],
+                ['label' => 'LinkedIn', 'url' => 'https://linkedin.com/company/thread-needle-tailoring'],
+                ['label' => 'Official Website', 'url' => 'https://threadneedle.ph'],
+            ],
             'specializations' => CanonicalTaxonomy::storeSpecializations(),
         ]);
+
+        // Keep Main Branch details and coordinates fully synced
+        $mainBranch->update([
+            'address' => '123 Rizal Avenue, Poblacion',
+            'street' => 'Rizal Avenue',
+            'landmark' => 'Across Rizal Park, near San Pedro Cathedral',
+            'barangay' => 'Barangay 2-A',
+            'city' => 'Davao City',
+            'district' => 'Poblacion',
+            'province' => 'Davao del Sur',
+            'latitude' => 7.0702,
+            'longitude' => 125.6077,
+            'contact_number' => '+63 917 123 4567',
+            'guide_image_url' => Storage::url('banners/thread_needle_banner.jpg'),
+            'landmark_image_url' => Storage::url('banners/thread_needle_storefront.jpg'),
+            'status' => 'active',
+            'verification_status' => 'verified',
+            'verified_at' => now(),
+            'operating_hours' => [
+                'monday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'tuesday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'wednesday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'thursday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'friday' => ['is_open' => true, 'open' => '08:30', 'close' => '18:30'],
+                'saturday' => ['is_open' => true, 'open' => '09:00', 'close' => '17:00'],
+                'sunday' => ['is_open' => false, 'open' => '09:00', 'close' => '17:00'],
+            ],
+        ]);
+
+        // Seed initial verified customer reviews so store rating is immediately available
+        $customerRole = Role::where('name', 'customer')->first();
+        $sampleReviewers = [
+            ['email' => 'pia.santos@gmail.com', 'name' => 'Pia Santos', 'gender' => 'female', 'rating' => 5, 'comment' => 'Superb quality bespoke suits! The craftsmanship on my barong was impeccable.'],
+            ['email' => 'carlos.mendoza@gmail.com', 'name' => 'Carlos Mendoza', 'gender' => 'male', 'rating' => 5, 'comment' => 'Our company jerseys and tournament uniforms were finished ahead of schedule. Excellent sublimation print!'],
+            ['email' => 'bea.alonzo@gmail.com', 'name' => 'Bea Alonzo', 'gender' => 'female', 'rating' => 5, 'comment' => 'Very accommodating staff and head tailor. Precise measurements and very clean stitching.'],
+        ];
+        foreach ($sampleReviewers as $r) {
+            $reviewer = User::firstOrCreate(
+                ['email' => $r['email']],
+                ['name' => $r['name'], 'gender' => $r['gender'], 'password' => Hash::make('password'), 'email_verified_at' => now()]
+            );
+            if ($customerRole && ! $reviewer->roles()->where('role_id', $customerRole->id)->exists()) {
+                $reviewer->roles()->attach($customerRole->id);
+            }
+            StoreReview::updateOrCreate(
+                ['store_id' => $store->id, 'user_id' => $reviewer->id],
+                ['rating' => $r['rating'], 'comment' => $r['comment'], 'is_featured' => true]
+            );
+        }
 
         // 6. Seed separated services (Sublimation Jerseys & Bespoke Suits)
         // Service 1: Custom Sublimation Team Jerseys

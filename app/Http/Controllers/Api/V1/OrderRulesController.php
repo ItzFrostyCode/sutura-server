@@ -33,8 +33,8 @@ class OrderRulesController extends Controller
         $v = $request->validate([
             'measurement_requirement' => ['sometimes', Rule::in(OrderRequirements::MEASUREMENT)],
             'fitting_requirement' => ['sometimes', Rule::in(OrderRequirements::FITTING)],
-            'payment_policy' => ['sometimes', Rule::in(OrderRequirements::PAYMENT)],
-            'payment_policy_percent' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100'],
+            'payment_policy' => ['sometimes', Rule::in(OrderRequirements::PAYMENT_CHOICES)],
+            'payment_policy_percent' => ['sometimes', 'nullable', 'integer', 'min:'.\App\Support\OrderRequirements::MIN_DEPOSIT_PERCENT, 'max:100'],
             'reason' => ['required', 'string', 'max:500'],
         ]);
 

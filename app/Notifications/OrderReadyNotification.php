@@ -8,6 +8,7 @@ use App\Support\OrderReadiness;
 use Illuminate\Bus\Queueable;
 use App\Notifications\Channels\SmsChannel;
 use App\Services\Sms\SmsTemplates;
+use App\Support\OrderMailBox;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -36,7 +37,7 @@ class OrderReadyNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $channels = ['database'];
-        if ($notifiable->email && ! str_starts_with($notifiable->email, 'walkin_')) {
+        if ($notifiable->hasMailableEmail()) {
             $channels[] = 'mail';
         }
         $channels[] = SmsChannel::class;
@@ -93,8 +94,9 @@ class OrderReadyNotification extends Notification implements ShouldQueue
         }
 
         $mail = (new MailMessage)
-            ->subject('Your Bespoke Garment is Ready for Pickup!')
+            ->subject('Ready for Pickup — '.$this->jobOrder->order_number.' · '.($store?->name ?? 'SUTURA'))
             ->greeting('Hello '.$notifiable->name.',')
+            ->line(OrderMailBox::make($this->jobOrder->order_number, $this->jobOrder->tracking_code, $store?->name))
             ->line('Great news! Your order ('.$this->jobOrder->order_number.') from '.($store?->name ?? 'the store').' is now ready.')
             ->line('Please visit the store to fit your garment. If everything is perfect, you can pay your remaining balance of ₱'.number_format($this->jobOrder->balance, 2).' and take it home.')
             ->line('If any final adjustments are needed, our tailors will handle them on-site.');

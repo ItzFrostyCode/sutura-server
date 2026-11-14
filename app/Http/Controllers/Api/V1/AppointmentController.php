@@ -452,7 +452,7 @@ class AppointmentController extends Controller
         $roles = $user->roles->pluck('name');
 
         $query = $store->appointments()->with([
-            'customer:id,name,email,phone',
+            'customer:id,name,email,contact_email,phone',
             'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type',
             'branch:id,name',
             'assignedStaff:id,name',
@@ -666,7 +666,7 @@ class AppointmentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'The visit now belongs to '.$real->name.'.',
-            'data' => $appointment->fresh(['customer:id,name,email,phone', 'service:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->fresh(['customer:id,name,email,contact_email,phone', 'service:id,name', 'jobOrder:id,order_number']),
         ]);
     }
 
@@ -805,7 +805,7 @@ class AppointmentController extends Controller
         });
 
         $appointment->load([
-            'customer:id,name,email,phone',
+            'customer:id,name,email,contact_email,phone',
             'service:id,name,base_price,service_category',
             'catalogItem:id,name,garment_type',
             'items.service:id,name,base_price,service_category',
@@ -839,7 +839,7 @@ class AppointmentController extends Controller
                 ? "Walk-in appointment confirmed. {$preemptedCount} pending online booking(s) for this slot were notified to reschedule."
                 : 'Appointment created successfully.',
             'preempted_count' => $preemptedCount,
-            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->load(['customer:id,name,email,contact_email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
         ], 201);
     }
 
@@ -949,7 +949,7 @@ class AppointmentController extends Controller
                 ? "Follow-up appointment confirmed. {$preemptedCount} pending online booking(s) for this slot were notified to reschedule."
                 : 'Follow-up appointment created.',
             'preempted_count' => $preemptedCount,
-            'data' => $appointment->load(['customer:id,name,email,phone', 'branch:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->load(['customer:id,name,email,contact_email,phone', 'branch:id,name', 'jobOrder:id,order_number']),
         ], 201);
     }
 
@@ -1173,6 +1173,10 @@ class AppointmentController extends Controller
                         : null;
                 }
 
+                // Read before saving: after update() getOriginal() already returns the new status,
+                // which made "did the status change?" always false (no confirm notice, email or text).
+                $statusBefore = $appointment->status;
+
                 // Perform update
                 $appointment->update($data);
 
@@ -1208,7 +1212,7 @@ class AppointmentController extends Controller
                     $appointment->forceFill(['reminder_sent_at' => null])->save();
                 }
 
-                $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+                $appointment->load(['customer:id,name,email,contact_email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
                 // ── Notifications ─────────────────────────────────────────────────────
                 $customer = $appointment->customer;
@@ -1320,7 +1324,7 @@ class AppointmentController extends Controller
             'success' => true,
             'started' => $started,
             'message' => $started ? 'Visit started.' : 'Arrival recorded. Another visit is using the branch until the booked time, so the customer waits.',
-            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
+            'data' => $appointment->load(['customer:id,name,email,contact_email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']),
         ]);
     }
 
@@ -1407,7 +1411,7 @@ class AppointmentController extends Controller
                 ]);
             }
         }
-        $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+        $appointment->load(['customer:id,name,email,contact_email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
         $customer = $appointment->customer;
         $newStatus = $updateData['status'];
@@ -1479,7 +1483,7 @@ class AppointmentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return response()->json(['success' => true, 'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number'])]);
+        return response()->json(['success' => true, 'data' => $appointment->load(['customer:id,name,email,contact_email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number'])]);
     }
 
     private function validateAndEnforceRole(Appointment $appointment, bool $isStaff, ?string $newStatus): ?string
@@ -1554,7 +1558,7 @@ class AppointmentController extends Controller
                 'cancellation_reason' => $validated['reason'],
                 'rebooking_blocked' => $validated['block_rebooking'] ?? false,
             ]);
-            $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
+            $appointment->load(['customer:id,name,email,contact_email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name', 'assignedStaff:id,name', 'jobOrder:id,order_number']);
 
             $customer = $appointment->customer;
             if ($customer) {
@@ -1667,7 +1671,7 @@ class AppointmentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        $appointment->load(['store:id,name,slug,logo_path', 'customer:id,name,email,phone']);
+        $appointment->load(['store:id,name,slug,logo_path', 'customer:id,name,email,contact_email,phone']);
         try {
             $appointment->customer?->notify(new AppointmentStatusNotification($appointment, 'rejected', null, $request->user()));
         } catch (\Throwable $e) {
@@ -1730,7 +1734,7 @@ class AppointmentController extends Controller
         return response()->json([
             'success' => true,
             'message' => $staffId ? 'Staff assigned.' : 'Staff unassigned.',
-            'data' => $appointment->load(['customer:id,name,email,phone', 'assignedStaff:id,name']),
+            'data' => $appointment->load(['customer:id,name,email,contact_email,phone', 'assignedStaff:id,name']),
         ]);
     }
 
@@ -1763,7 +1767,7 @@ class AppointmentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment status updated.',
-            'data' => $appointment->load(['customer:id,name,email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name']),
+            'data' => $appointment->load(['customer:id,name,email,contact_email,phone', 'service:id,name,base_price,service_category', 'catalogItem:id,name,garment_type', 'branch:id,name']),
         ]);
     }
 }

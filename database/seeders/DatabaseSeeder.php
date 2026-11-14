@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
         $production = app()->environment('production') && ! filter_var(env('ALLOW_DEMO_SEED', false), FILTER_VALIDATE_BOOL);
         if ($fromSnapshot && ! $production) {
             $this->call(SnapshotSeeder::class);
+            $this->afterDemoData();
 
             return;
         }
@@ -41,6 +42,8 @@ class DatabaseSeeder extends Seeder
             LocalTestSeeder::class,
             // Demo data for payment methods, requirements, staff and the newer appointment/measurement states.
             StaffAndPaymentsDemoSeeder::class,
+            // Sample GCash payments for Admin → Payments (pending / paid / rejected).
+            PlatformPaymentsDemoSeeder::class,
             // 45 catalog designs for Thread & Needle Tailoring
             CatalogItemsSeeder::class,
             // Customer accounts removed per user request:
@@ -51,5 +54,18 @@ class DatabaseSeeder extends Seeder
             // force-deleted from the dev DB.
             // AdditionalStoresSeeder::class,
         ]);
+        $this->afterDemoData();
+    }
+
+    /**
+     * The snapshot was saved before the current ordering rules, so its services are brought up to them (the data
+     * migrations ran before the snapshot replaced the rows), then Thread & Needle gets its full set of services.
+     */
+    private function afterDemoData(): void
+    {
+        \App\Support\OfferingDataRepair::run();
+        if (\App\Models\Store::where('slug', 'thread-needle')->exists()) {
+            $this->call(ThreadNeedleCatalogSeeder::class);
+        }
     }
 }

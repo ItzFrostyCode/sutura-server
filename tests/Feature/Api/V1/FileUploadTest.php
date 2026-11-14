@@ -87,11 +87,12 @@ class FileUploadTest extends TestCase
         $this->assertNotDoublePrefixed($response->json('data.url'), config('app.url'));
     }
 
-    public function test_public_visitor_can_upload_receipt_with_correct_url(): void
+    public function test_a_signed_in_customer_can_upload_receipt_and_a_visitor_cannot(): void
     {
         [, $store] = $this->makeStoreOwner();
+        $this->postJson("/api/v1/public/stores/{$store->slug}/upload-receipt", ['file' => UploadedFile::fake()->image('receipt.jpg')])->assertStatus(401);
 
-        $response = $this->postJson("/api/v1/public/stores/{$store->slug}/upload-receipt", [
+        $response = $this->actingAs(\App\Models\User::factory()->create())->postJson("/api/v1/public/stores/{$store->slug}/upload-receipt", [
             'file' => UploadedFile::fake()->image('receipt.jpg'),
         ]);
 
@@ -99,11 +100,12 @@ class FileUploadTest extends TestCase
         $this->assertNotDoublePrefixed($response->json('data.url'), config('app.url'));
     }
 
-    public function test_public_visitor_can_upload_reference_image_with_correct_url(): void
+    public function test_a_signed_in_customer_can_upload_reference_image_and_a_visitor_cannot(): void
     {
         [, $store] = $this->makeStoreOwner();
+        $this->postJson("/api/v1/public/stores/{$store->slug}/upload-reference-image", ['file' => UploadedFile::fake()->image('barong-design.jpg')])->assertStatus(401);
 
-        $response = $this->postJson("/api/v1/public/stores/{$store->slug}/upload-reference-image", [
+        $response = $this->actingAs(\App\Models\User::factory()->create())->postJson("/api/v1/public/stores/{$store->slug}/upload-reference-image", [
             'file' => UploadedFile::fake()->image('barong-design.jpg'),
         ]);
 

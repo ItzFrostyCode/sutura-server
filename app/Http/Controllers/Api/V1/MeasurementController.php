@@ -93,7 +93,7 @@ class MeasurementController extends Controller
         // by profile_name and lets the store owner switch between versions
         // client-side (see MeasurementList's version selector), so history
         // has to be in this same response, not a separate endpoint.
-        $query = $store->measurements()->with(['customer:id,name,email', 'service:id,name', 'catalogItem:id,name']);
+        $query = $store->measurements()->with(['customer:id,name,email,contact_email', 'service:id,name', 'catalogItem:id,name']);
 
         if ($request->has('appointment_id')) {
             $query->where('appointment_id', $request->appointment_id);

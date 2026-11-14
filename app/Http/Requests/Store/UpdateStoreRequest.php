@@ -58,12 +58,20 @@ class UpdateStoreRequest extends FormRequest
             'fitting_limit' => ['nullable', 'integer', 'min:1'],
             'fitting_limit_policy' => ['sometimes', 'in:fee,block'],
             'repair_requires_downpayment' => ['sometimes', 'boolean'],
+            // Rush orders: whether the shop takes them, and what rush adds to the price (a repeat customer pays half).
+            'rush_available' => ['sometimes', 'boolean'],
+            'rush_fee_mode' => ['sometimes', 'in:percent,per_piece'],
+            'rush_fee_percent' => ['sometimes', 'numeric', 'min:0', 'max:200'],
+            'rush_fee_per_piece' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100000'],
             // Shown to the customer before they approve a quotation; empty = the built-in default text.
             'cancellation_policy' => ['nullable', 'string', 'max:2000'],
             'specializations' => ['nullable', 'array'],
             // Signboard-style service tags (CanonicalTaxonomy::STORE_SERVICE_TAGS) plus old tags that shops
             // saved earlier and may still send back.
             'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::selectableStoreSpecializations())],
+            // The shop's own services ("+ Add Service"), same limits as at registration.
+            'custom_services' => ['nullable', 'array', 'max:5'],
+            'custom_services.*' => ['string', 'min:2', 'max:40', 'distinct:ignore_case'],
             // is_featured is deliberately NOT owner-writable here — it's a
             // Premium-plan perk the system keeps in sync automatically
             // (see SubscriptionController::subscribe() and

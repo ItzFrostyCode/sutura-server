@@ -90,14 +90,12 @@ class PreProductionFlowTest extends TestCase
     public function test_the_accepted_quotation_sets_the_payment_condition(): void
     {
         $job = $this->order();
-        $this->quote($job, ['payment_policy' => 'deposit', 'payment_policy_percent' => 30])->assertOk();
-        $this->assertSame(1500.0, \App\Support\OrderReadiness::requiredDeposit($job->fresh()), '30% of 5000, not 50%');
+        $this->quote($job, ['payment_policy' => 'deposit', 'payment_policy_percent' => 70])->assertOk();
+        $this->assertSame(3500.0, \App\Support\OrderReadiness::requiredDeposit($job->fresh()), '70% of 5000');
 
-        $this->quote($job, ['payment_policy' => 'none', 'reason' => 'Regular client'])->assertOk();
-        $fresh = $job->fresh();
-        $this->assertSame('none', $fresh->payment_policy);
-        $this->assertSame(0.0, \App\Support\OrderReadiness::requiredDeposit($fresh));
-        $this->assertFalse($fresh->requiresDownpaymentFor('cutting'), 'no deposit agreed: production is not held for one');
+        $this->quote($job, ['payment_policy' => 'full', 'reason' => 'Customer pays in full'])->assertOk();
+        $this->assertSame(5000.0, \App\Support\OrderReadiness::requiredDeposit($job->fresh()));
+        $this->assertTrue($job->fresh()->requiresDownpaymentFor('cutting'));
     }
 
     public function test_sending_a_price_records_a_version_and_tells_the_customer(): void
@@ -143,11 +141,19 @@ class PreProductionFlowTest extends TestCase
         $this->assertSame('full', $job->fresh()->payment_policy);
     }
 
-    public function test_pay_on_pickup_needs_a_reason(): void
+    /** Shop rule: production starts only after at least half is paid, walk-in or online. */
+    public function test_production_never_starts_on_less_than_half_paid(): void
     {
         $job = $this->order();
-        $this->quote($job, ['payment_policy' => 'none'])->assertStatus(422);
-        $this->quote($job, ['payment_policy' => 'none', 'reason' => 'Regular customer'])->assertOk();
+        $this->quote($job, ['payment_policy' => 'none', 'reason' => 'Regular customer'])->assertStatus(422);
+        $this->quote($job, ['payment_policy' => 'deposit', 'payment_policy_percent' => 30])->assertStatus(422);
+
+        // An order still carrying an old "pay at pick-up" is read as the 50% minimum.
+        $job->forceFill(['payment_policy' => 'none', 'total_amount' => 5000])->save();
+        $this->assertSame(2500.0, \App\Support\OrderReadiness::requiredDeposit($job->fresh()));
+
+        // And the deposit can no longer be waived.
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/deposit-waiver", ['waive' => true, 'reason' => 'Regular'])->assertStatus(422);
     }
 
     public function test_customer_can_ask_for_changes_and_the_shop_answers_by_resending(): void
@@ -212,9 +218,10 @@ class PreProductionFlowTest extends TestCase
     public function test_confirming_records_the_authorization(): void
     {
         $job = $this->order();
-        $job->forceFill(['payment_policy' => 'none'])->save();
         $this->quote($job)->assertOk();
         $this->actingAs($this->customer)->postJson("/api/v1/my-orders/{$job->id}/decision", ['decision' => 'accept', 'accepted_terms' => true])->assertOk();
+        // The 50% deposit (2,500 of 5,000) is in before the order can be confirmed.
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/pay", ['amount' => 2500, 'payment_method' => 'cash', 'cash_tendered' => 2500])->assertStatus(200);
 
         $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/confirm")->assertOk();
 

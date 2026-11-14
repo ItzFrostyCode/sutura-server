@@ -14,6 +14,7 @@ use App\Notifications\StoreActivityNotification;
 use App\Support\OrderFlowPresenter;
 use App\Support\OrderQuotation;
 use App\Support\OrderReadiness;
+use App\Support\OrderRequirements;
 use App\Support\SafeNotify;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -127,8 +128,8 @@ class OrderFlowController extends Controller
             'due_date' => 'nullable|date',
             'status' => 'required|in:estimate,final',
             // The proposed payment terms the customer sees together with the price, before accepting.
-            'payment_policy' => 'nullable|in:none,full,deposit,custom',
-            'payment_policy_percent' => 'nullable|integer|min:1|max:100',
+            'payment_policy' => 'nullable|in:full,deposit,custom',
+            'payment_policy_percent' => 'nullable|integer|min:'.OrderRequirements::MIN_DEPOSIT_PERCENT.'|max:100',
             'valid_until' => 'nullable|date|after_or_equal:today',
             'reason' => 'nullable|string|max:255',
         ]);

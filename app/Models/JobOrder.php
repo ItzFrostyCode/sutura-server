@@ -135,7 +135,7 @@ class JobOrder extends Model
 
     protected $fillable = [
         'order_number', 'tracking_code', 'intake_channel', 'fulfillment_type', 'store_id', 'store_branch_id', 'appointment_id', 'customer_id', 'service_id',
-        'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'quantity', 'total_amount',
+        'catalog_item_id', 'assigned_staff_id', 'measurement_id', 'measurement_source', 'quantity', 'total_amount',
         'balance', 'payment_status', 'status', 'due_date', 'notes',
         'custom_order_data',
         'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
@@ -280,6 +280,31 @@ class JobOrder extends Model
         return $appointment;
     }
 
+    /** How an online customer said they'd be measured (`measurement_source`). */
+    public const MEASUREMENT_SOURCES = ['own', 'saved', 'standard', 'shop'];
+
+    /**
+     * The visit booked to measure a customer who asked the shop to measure them:
+     * the next open measurement/fitting appointment on this order, else the latest
+     * completed one. Null when nothing is booked yet (or the customer measured themselves).
+     */
+    public function measurementVisit(): ?array
+    {
+        if ($this->measurement_source !== 'shop') {
+            return null;
+        }
+        $visits = $this->appointments()->whereIn('appointment_type', ['measurement', 'fitting']);
+        $visit = (clone $visits)->whereIn('status', ['pending', 'confirmed', 'in_progress'])->orderBy('scheduled_at')->first()
+            ?? (clone $visits)->where('status', 'completed')->latest('scheduled_at')->first();
+
+        return $visit ? [
+            'id' => $visit->id,
+            'scheduled_at' => $visit->scheduled_at,
+            'status' => $visit->status,
+            'appointment_type' => $visit->appointment_type,
+        ] : null;
+    }
+
     public function assignedStaff(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_staff_id');
@@ -419,6 +444,20 @@ class JobOrder extends Model
     /** Share of the amount due that must be paid before production (snapshotted policy). */
     public function requiredDepositFraction(): float
     {
+        // Work on the customer's own garment (repair, alteration, embroidery) is paid at pick-up, unless the shop turned on
+        // "repairs need a downpayment" (stores.repair_requires_downpayment); only production has the 50% minimum.
+        if ($this->isRepairOnly()) {
+            if (! $this->store?->repair_requires_downpayment) {
+                return 0.0;
+            }
+
+            return match ($this->payment_policy ?? 'none') {
+                'full' => 1.0,
+                'deposit', 'custom' => max(0, min(100, (int) ($this->payment_policy_percent ?? 50))) / 100,
+                default => 0.0,
+            };
+        }
+
         return OrderRequirements::depositFraction($this->payment_policy ?? 'deposit', (int) ($this->payment_policy_percent ?? 50));
     }
 

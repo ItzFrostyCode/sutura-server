@@ -64,6 +64,8 @@ class Service extends Model
         'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
         'estimated_days', 'estimated_days_max', 'min_order_qty', 'is_active', 'custom_fields', 'roster_fields', 'image_url',
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
+        // Per-piece amount off when the customer brings their own fabric (null = none set).
+        'own_fabric_deduction',
     ];
 
     protected $hidden = ['department', 'service_leaf_type', 'showcase_category'];
@@ -75,9 +77,11 @@ class Service extends Model
         'sale_starts_at' => 'datetime',
         'sale_ends_at' => 'datetime',
         'min_order_qty' => 'integer',
+        'own_fabric_deduction' => 'decimal:2',
         'is_active' => 'boolean',
-        'custom_fields' => 'array',
-        'roster_fields' => 'array',
+        // One shape for every screen (App\Support\ServiceQuestions): older {name, dropdown} rows read as {id, select}.
+        'custom_fields' => \App\Casts\ServiceQuestionsCast::class,
+        'roster_fields' => \App\Casts\ServiceQuestionsCast::class.':roster',
         'tags' => 'array',
         'size_chart_columns' => 'array',
         'size_chart_rows' => 'array',
@@ -173,9 +177,15 @@ class Service extends Model
 
         return match ($group) {
             'alterations_repairs' => [self::TYPE_ALTERATION_REPAIR],
-            'uniform_production' => [in_array('bulk_orders', $capabilities, true) ? self::TYPE_BULK_SUBLIMATION : self::TYPE_CUSTOM_TAILORING],
+            // Bulk alone = group orders only. Bulk + "Individual / Custom-Measured Uniform" = both: one person, or a group.
+            'uniform_production' => match (true) {
+                in_array('bulk_orders', $capabilities, true) && in_array('custom_measured_uniform', $capabilities, true) => [self::TYPE_BULK_SUBLIMATION, self::TYPE_CUSTOM_TAILORING],
+                in_array('bulk_orders', $capabilities, true) => [self::TYPE_BULK_SUBLIMATION],
+                default => [self::TYPE_CUSTOM_TAILORING],
+            },
             'custom_tailoring' => [$bridal ? self::TYPE_FASHION_BRIDAL : self::TYPE_CUSTOM_TAILORING],
-            'garment_customization' => [self::TYPE_CUSTOM_TAILORING],
+            // Embroidery on the customer's own clothes is work on an existing garment: the short repair pipeline, paid at pick-up.
+            'garment_customization' => [self::TYPE_ALTERATION_REPAIR],
             default => null,
         };
     }

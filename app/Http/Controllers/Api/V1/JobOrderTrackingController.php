@@ -96,6 +96,18 @@ class JobOrderTrackingController extends Controller
      * need a guessable code to prove it. Ownership check replaces the
      * "the code is the credential" trust model show() above uses.
      */
+    /** Where the customer brings the garment: the order's branch (the main branch for an online request). */
+    private function dropOffFor(JobOrder $job): ?array
+    {
+        $b = $job->branch ?? $job->store?->branches()->where('is_main', true)->first();
+
+        return $b ? [
+            'name' => $b->name, 'address' => $b->address, 'landmark' => $b->landmark,
+            'operating_hours' => $b->operating_hours, 'contact_number' => $b->contact_number,
+            'latitude' => $b->latitude, 'longitude' => $b->longitude,
+        ] : null;
+    }
+
     public function myOrderDetail(Request $request, JobOrder $jobOrder): JsonResponse
     {
         if ($jobOrder->customer_id !== $request->user()->id) {
@@ -138,10 +150,16 @@ class JobOrderTrackingController extends Controller
                 'fitting_requirement' => $jobOrder->fitting_requirement,
                 'measurement_requirement' => $jobOrder->measurement_requirement,
                 'quotation_flow' => $this->quotationFlowFor($jobOrder),
+                // "Have the shop measure me" + the visit the shop booked for it (null until booked).
+                'measurement_source' => $jobOrder->measurement_source,
+                'measurement_visit' => $jobOrder->measurementVisit(),
                 'store_branch_id' => $jobOrder->store_branch_id,
                 'created_at' => $jobOrder->created_at,
                 'updated_at' => $jobOrder->updated_at,
                 'repair_note' => $jobOrder->custom_order_data['repair_note'] ?? null,
+                // Work on the customer's own garment: where to bring it, and the shop's drop-off check.
+                'garment_check' => \App\Support\GarmentCheck::forCustomer($jobOrder),
+                'drop_off' => \App\Support\GarmentCheck::applies($jobOrder) ? $this->dropOffFor($jobOrder) : null,
                 'customer_material_status' => $jobOrder->customer_material_status,
                 'progress_photos' => $jobOrder->progress_photos,
                 'stage_timestamps' => $this->buildStageTimestamps($jobOrder),

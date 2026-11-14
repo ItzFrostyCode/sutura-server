@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Auth;
 
 use App\Support\CanonicalTaxonomy;
+use App\Support\ShopContactAvailability;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -16,9 +17,31 @@ use Illuminate\Validation\Rule;
  */
 class StoreApplicationRequest extends FormRequest
 {
+    /** Letters (any language), spaces, hyphens, apostrophes, periods. */
+    public const NAME_PATTERN = "/^[\\p{L}\\s'.\\-]+$/u";
+
+    /** Trim names before validating, and send empty optional ones as null. */
+    protected function prepareForValidation(): void
+    {
+        $clean = [];
+        foreach (['full_name', 'first_name', 'middle_name', 'last_name', 'suffix'] as $field) {
+            if ($this->has($field)) {
+                $value = trim((string) $this->input($field));
+                $clean[$field] = $value === '' ? null : $value;
+            }
+        }
+        $this->merge($clean);
+    }
+
     public function authorize(): bool
     {
         return true;
+    }
+
+    /** The free trial was picked: the free_trial switch, or billing_cycle "trial" from the older form. */
+    public function wantsFreeTrial(): bool
+    {
+        return $this->boolean('free_trial') || $this->input('billing_cycle') === 'trial';
     }
 
     public function rules(): array
@@ -27,54 +50,154 @@ class StoreApplicationRequest extends FormRequest
 
         return [
             // Owner
-            'full_name' => ['sometimes', 'nullable', 'string', 'max:191'],
-            'first_name' => ['required_without:full_name', 'nullable', 'string', 'max:100'],
-            'middle_name' => ['nullable', 'string', 'max:100'],
-            'last_name' => ['required_without:full_name', 'nullable', 'string', 'max:100'],
-            'suffix' => ['nullable', 'string', 'max:20'],
+            // A full name (split into parts on save), or the parts themselves. Letters (incl. ñ, á, é…), spaces,
+            // hyphens, apostrophes and periods only; first/last must also contain a letter.
+            'full_name' => ['sometimes', 'nullable', 'string', 'max:191', 'regex:'.self::NAME_PATTERN, 'regex:/\p{L}/u'],
+            'first_name' => ['required_without:full_name', 'nullable', 'string', 'max:100', 'regex:'.self::NAME_PATTERN, 'regex:/\p{L}/u'],
+            'middle_name' => ['nullable', 'string', 'max:100', 'regex:'.self::NAME_PATTERN],
+            'last_name' => ['required_without:full_name', 'nullable', 'string', 'max:100', 'regex:'.self::NAME_PATTERN, 'regex:/\p{L}/u'],
+            'suffix' => ['nullable', 'string', 'max:20', 'regex:'.self::NAME_PATTERN],
             'birthday' => ['required', 'date', 'before:-18 years'],
             // The owner's real inbox — where the issued login is sent. Not a
-            // sign-in identifier, so it may match an existing customer account.
-            'email' => ['required', 'string', 'email', 'max:191'],
-            'contact_number' => ['required', 'string', 'max:20'],
+            // sign-in identifier, so it may match an existing customer account,
+            // but not one another shop already registered with (rejected ones don't count).
+            'email' => ['required', 'string', 'email', 'max:191', function ($attr, $value, $fail) {
+                if (ShopContactAvailability::emailTaken((string) $value)) {
+                    $fail('This email is already registered to another shop.');
+                }
+            }],
+            // Philippine mobile: 11 digits starting with 09 (e.g. 09663946888).
+            'contact_number' => ['required', 'string', 'regex:/^09\d{9}$/', function ($attr, $value, $fail) {
+                if (ShopContactAvailability::phoneTaken((string) $value)) {
+                    $fail('This contact number is already registered to another shop.');
+                }
+            }],
             'gender' => ['nullable', 'in:male,female'],
 
             // Store
             'store_name' => ['required', 'string', 'max:191'],
+            // Street line only (unit, building, street); the rest is picked from PSGC.
             'address' => ['required', 'string', 'max:255'],
-            'city' => ['required', 'string', 'max:100'],
-            'province' => ['required', 'string', 'max:100'],
-            'barangay' => ['nullable', 'string', 'max:100'],
+            // PSGC picks — only listed codes, checked as a chain in after().
+            'province_code' => ['required', 'string', 'max:10'],
+            'city_code' => ['required', 'string', 'max:10'],
+            'district_code' => ['nullable', 'string', 'max:20'],
+            'barangay_code' => ['required', 'string', 'max:10'],
+            // The map pin's district (Davao), used only when no district was picked.
             'district' => ['nullable', 'string', 'max:100'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
-            'specializations' => ['required', 'array', 'min:1'],
+            // At least one service: picked from the list, typed in, or both.
+            'specializations' => ['required_without:custom_services', 'array'],
             // New shops pick from the current list only (no retired tags).
             'specializations.*' => ['string', Rule::in(CanonicalTaxonomy::storeSpecializations())],
+            // "Add Other Service": short free-text services not in the list.
+            'custom_services' => ['required_without:specializations', 'nullable', 'array', 'max:5'],
+            'custom_services.*' => ['string', 'min:2', 'max:40', 'distinct:ignore_case'],
+            // "Branches (Optional)": other locations, display only (stores.declared_branches),
+            // allowed on any plan. Setting up a real branch stays behind the plan's limit.
+            'branches' => ['nullable', 'array', 'max:10'],
+            'branches.*.name' => ['required', 'string', 'max:191', 'distinct:ignore_case'],
+            'branches.*.address' => ['required', 'string', 'max:255'],
+            'branches.*.province_code' => ['required', 'string', 'max:10'],
+            'branches.*.city_code' => ['required', 'string', 'max:10'],
+            'branches.*.district_code' => ['nullable', 'string', 'max:20'],
+            'branches.*.barangay_code' => ['required', 'string', 'max:10'],
 
             // Documents
             'landmark_image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'dti_registration' => ['required', ...$doc],
-            'tin_id' => ['required', ...$doc],
+            // Recommended, not required (many small tailors aren't BIR-registered yet).
+            'tin_id' => ['nullable', ...$doc],
             'brgy_clearance' => ['required', ...$doc],
             'government_id' => ['required', ...$doc],
             'government_id_type' => ['required', 'string', 'max:100'],
+            // Live selfie holding the ID (camera capture, checked by the review team).
+            'selfie_with_id' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            // On-device face comparison (a hint for the review team, never trusted on its own).
+            'face_match' => ['nullable', Rule::in(\App\Models\StoreApplication::FACE_MATCH_RESULTS)],
+            'face_match_distance' => ['nullable', 'numeric', 'between:0,2'],
             'business_permits' => ['nullable', 'array', 'max:5'],
             'business_permits.*' => $doc,
 
             // Plan + payment
             'plan_id' => ['required', Rule::exists('subscription_plans', 'id')->where('is_active', true)],
-            // 'trial' = the free 14 days on Basic: nothing to pay, so no payment method or receipt.
             'billing_cycle' => ['required', Rule::in(['monthly', 'yearly', 'trial'])],
-            'payment_method' => ['required_unless:billing_cycle,trial', 'nullable', Rule::in(['gcash', 'bank_transfer'])],
-            'payment_receipt' => ['required_unless:billing_cycle,trial', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            // free_trial: a StoreApplication::FREE_TRIAL_DAYS-day trial of the picked plan instead of paying now (one
+            // per shop). billing_cycle "trial" (the older form) means the same.
+            'free_trial' => ['sometimes', 'boolean'],
+            // Plan payments are GCash only.
+            'payment_method' => [$this->wantsFreeTrial() ? 'nullable' : 'required', 'nullable', Rule::in(['gcash'])],
+            // pay_online: pay with GCash right after submitting (no receipt). Otherwise the
+            // applicant sends the fee to SUTURA's GCash first and attaches the receipt.
+            'pay_online' => ['sometimes', 'boolean'],
+            'payment_receipt' => [$this->boolean('pay_online') || $this->wantsFreeTrial() ? 'nullable' : 'required', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+
+            // Data Privacy Act (RA 10173) consent (Documents step) and the
+            // terms agreement (last step). Both must be ticked.
+            'privacy_consent' => ['accepted'],
+            'terms_accepted' => ['accepted'],
         ];
+    }
+
+    /** Resolved PSGC names, keyed 'shop' and 'branch.<i>' (filled in after()). */
+    public array $resolvedAddresses = [];
+
+    /**
+     * The province / city / district / barangay picks must exist and belong
+     * together (a barangay of another city is refused), for the shop and for
+     * each listed branch.
+     */
+    public function after(): array
+    {
+        return [function (\Illuminate\Validation\Validator $validator) {
+            // One message per field: skip a field that already failed its basic rule.
+            $add = function (string $field, string $message) use ($validator) {
+                if (! $validator->errors()->has($field)) {
+                    $validator->errors()->add($field, $message);
+                }
+            };
+
+            // Non-strings (e.g. an array posted on purpose) already failed 'string'; treat them as empty.
+            $s = fn ($v) => is_string($v) ? $v : null;
+            $shop = \App\Support\Psgc::resolve($s($this->province_code), $s($this->city_code), $s($this->district_code), $s($this->barangay_code));
+            foreach ($shop['errors'] as $field => $message) {
+                $add($field, $message);
+            }
+            $this->resolvedAddresses['shop'] = $shop['names'];
+
+            $branches = $this->input('branches', []);
+            foreach (is_array($branches) ? $branches : [] as $i => $branch) {
+                $branch = is_array($branch) ? $branch : [];
+                $r = \App\Support\Psgc::resolve($s($branch['province_code'] ?? null), $s($branch['city_code'] ?? null), $s($branch['district_code'] ?? null), $s($branch['barangay_code'] ?? null));
+                foreach ($r['errors'] as $field => $message) {
+                    $add("branches.{$i}.{$field}", 'Branch '.($i + 1).': '.$message);
+                }
+                $this->resolvedAddresses["branch.{$i}"] = $r['names'];
+            }
+        }];
     }
 
     public function messages(): array
     {
         return [
             'birthday.before' => 'The shop owner must be at least 18 years old.',
+            'province_code.required' => 'Choose your province.',
+            'city_code.required' => 'Choose your city or municipality.',
+            'barangay_code.required' => 'Choose your barangay.',
+            'branches.*.province_code.required' => 'Choose the branch’s province.',
+            'branches.*.city_code.required' => 'Choose the branch’s city or municipality.',
+            'branches.*.barangay_code.required' => 'Choose the branch’s barangay.',
+            'contact_number.regex' =>'Enter an 11-digit mobile number starting with 09, e.g. 09663946888.',
+            'first_name.regex' => 'Names can only contain letters, spaces, hyphens, apostrophes, and periods.',
+            'middle_name.regex' => 'Names can only contain letters, spaces, hyphens, apostrophes, and periods.',
+            'last_name.regex' => 'Names can only contain letters, spaces, hyphens, apostrophes, and periods.',
+            'suffix.regex' => 'Names can only contain letters, spaces, hyphens, apostrophes, and periods.',
+            'selfie_with_id.required' => 'Take a selfie holding your government ID.',
+            'selfie_with_id.image' => 'The selfie must be a photo (JPG, PNG, or WEBP).',
+            'selfie_with_id.max' => 'The selfie must be 5 MB or smaller. Please retake it.',
+            'privacy_consent.accepted' => 'Please agree to the privacy consent on the Documents step.',
+            'terms_accepted.accepted' => 'Please agree to the Terms of Service and confirm your information is true.',
         ];
     }
 }

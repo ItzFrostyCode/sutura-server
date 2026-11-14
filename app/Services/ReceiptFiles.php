@@ -32,7 +32,7 @@ class ReceiptFiles
             return ['absolute' => public_path($key), 'ext' => $ext];
         }
 
-        // Off-server upload disk (S3 / Cloudflare R2): try the key as given, then without a leading bucket name.
+        // Optional off-server upload disk (S3-compatible): try the key as given, then without a leading bucket name.
         $diskName = (string) config('filesystems.upload_disk', 'public');
         if ($diskName !== 'public' && config("filesystems.disks.{$diskName}")) {
             $bucket = (string) config("filesystems.disks.{$diskName}.bucket");

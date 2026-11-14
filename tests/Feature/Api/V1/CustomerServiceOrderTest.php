@@ -137,6 +137,149 @@ class CustomerServiceOrderTest extends TestCase
         return $this->actingAs($this->customer)->postJson("/api/v1/stores/{$this->store->slug}/service-orders", $this->payload($extra));
     }
 
+    // Online order rules (2026-11-15) ─────────────────────────────────────────────────────────────────
+
+    public function test_the_contact_number_must_be_eleven_digits_starting_with_09(): void
+    {
+        foreach (['0917123456', '9171234567', '+639171234567', '08171234567', '091712345678'] as $bad) {
+            $this->order(['contact_phone' => $bad])->assertStatus(422)->assertJsonValidationErrors('contact_phone');
+        }
+        $this->order(['contact_phone' => '09171234567'])->assertStatus(201);
+    }
+
+    public function test_rush_adds_the_shops_rush_percent_to_the_total_and_the_deposit(): void
+    {
+        $this->store->update(['rush_fee_percent' => 20]);
+        $r = $this->order(['quantity' => 2, 'rush_requested' => true])->assertStatus(201);
+        $job = JobOrder::findOrFail($r->json('data.id'));
+        $this->assertTrue($job->is_rush);
+        $this->assertSame(400.0, (float) $job->rush_fee, '20% of 2 × 1,000');
+        $this->assertSame(2400.0, (float) $job->total_amount);
+        $this->assertSame(2400.0, (float) $job->balance);
+
+        // A shop that takes no rush orders never adds a fee.
+        $this->store->update(['rush_available' => false]);
+        $plain = JobOrder::findOrFail($this->order(['rush_requested' => true])->assertStatus(201)->json('data.id'));
+        $this->assertFalse($plain->is_rush);
+        $this->assertSame(1000.0, (float) $plain->total_amount);
+    }
+
+    public function test_a_per_piece_rush_fee_is_charged_for_every_piece(): void
+    {
+        $this->store->update(['rush_fee_mode' => 'per_piece', 'rush_fee_per_piece' => 500]);
+        $job = JobOrder::findOrFail($this->order(['quantity' => 3, 'rush_requested' => true])->assertStatus(201)->json('data.id'));
+        $this->assertSame(1500.0, (float) $job->rush_fee, '₱500 × 3 pieces');
+        $this->assertSame(4500.0, (float) $job->total_amount);
+    }
+
+    public function test_a_picked_design_sets_the_price_by_its_own_pricing(): void
+    {
+        $design = \App\Models\CatalogItem::create([
+            'store_id' => $this->store->id, 'service_id' => $this->service->id, 'name' => 'Pleated front', 'price' => 0,
+            'is_active' => true, 'pricing_mode' => 'extra', 'extra_charge' => 250,
+        ]);
+        $job = JobOrder::findOrFail($this->order(['catalog_item_id' => $design->id, 'quantity' => 2])->assertStatus(201)->json('data.id'));
+        $this->assertSame(2500.0, (float) $job->total_amount, '2 × (1,000 + 250)');
+        $this->assertSame($design->id, $job->catalog_item_id);
+    }
+
+    public function test_a_service_with_a_size_chart_asks_for_a_size_even_without_body_measurements(): void
+    {
+        $this->service->update([
+            'measurement_requirement' => 'none',
+            'size_chart_columns' => ['Chest'], 'size_chart_rows' => [['size' => 'M', 'values' => ['40']]],
+        ]);
+        $this->order(['measure_area' => 'top'])->assertStatus(422)->assertJsonValidationErrors('size');
+        $job = JobOrder::findOrFail($this->order(['measure_area' => 'top', 'size' => 'M', 'individual_measurements' => ['unit' => 'in', 'chest' => 40]])->assertStatus(201)->json('data.id'));
+        $this->assertSame('M', $job->custom_order_data['standard_size']);
+        $this->assertArrayNotHasKey('individual_measurements', $job->custom_order_data, 'No body numbers for a chart-size service');
+    }
+
+    public function test_each_person_on_a_group_can_get_a_different_part_and_the_shops_columns(): void
+    {
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 3]);
+        $r = $this->order(['order_mode' => 'bulk', 'measure_area' => 'top', 'roster' => [
+            ['player_name' => 'Ana', 'size' => 'M', 'extra' => ['Jersey Number' => '7']],
+            ['player_name' => 'Ben', 'measure_area' => 'both', 'size' => 'L', 'bottom_size' => 'M'],
+            ['player_name' => 'Cy', 'measure_area' => 'bottom', 'size' => 'S'],
+        ]])->assertStatus(201);
+        $job = JobOrder::findOrFail($r->json('data.id'));
+        $rows = $job->custom_order_data['team_roster'];
+        $this->assertSame(['top', 'both', 'bottom'], array_column($rows, 'measure_area'));
+        $this->assertSame('7', $rows[0]['number'], 'Jersey Number lands in the key the team list reads');
+        $this->assertSame(['M' => 1, 'L' => 1], $job->custom_order_data['size_breakdown'], 'Tops: Ana and Ben');
+        $this->assertSame(['M' => 1, 'S' => 1], $job->custom_order_data['size_breakdown_bottom'], 'Bottoms: Ben and Cy');
+    }
+
+    public function test_a_service_sold_only_by_the_batch_takes_no_one_person_orders(): void
+    {
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 2, 'service_types' => [Service::TYPE_BULK_SUBLIMATION]]);
+        $this->order()->assertStatus(422)->assertJsonPath('message', 'This service is for group orders: list each person with their size.');
+    }
+
+    public function test_a_group_without_a_shop_chart_sends_each_persons_typed_measurements_blanks_allowed(): void
+    {
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 2]);
+        $r = $this->order(['order_mode' => 'bulk', 'measure_area' => 'both', 'roster_unit' => 'cm', 'team_name' => 'Grade 10', 'roster' => [
+            ['player_name' => 'Ana', 'measure_area' => 'top', 'size' => 'Custom Fit', 'fit_metrics' => ['Chest' => 86, 'Sleeve' => 58]],
+            ['player_name' => 'Ben', 'measure_area' => 'both', 'size' => 'To be measured', 'bottom_size' => 'To be measured'],
+        ]])->assertStatus(201);
+        $job = JobOrder::findOrFail($r->json('data.id'));
+        $rows = $job->custom_order_data['team_roster'];
+        $this->assertSame('cm', $job->custom_order_data['roster_unit']);
+        $this->assertNotEmpty($rows[0]['measurement_id'], "Ana's typed numbers become her own profile");
+        $this->assertSame('To be measured', $rows[1]['size']);
+        $this->assertTrue(Measurement::where('profile_name', 'like', 'Ana%')->exists());
+    }
+
+    public function test_the_cut_is_kept_for_one_person_and_for_each_person_on_a_group(): void
+    {
+        $one = JobOrder::findOrFail($this->order(['cut' => "Ladies'"])->assertStatus(201)->json('data.id'));
+        $this->assertSame("Ladies'", $one->custom_order_data['cut']);
+        $this->order(['cut' => 'Female'])->assertStatus(422)->assertJsonValidationErrors('cut');
+
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 2]);
+        $group = JobOrder::findOrFail($this->order(['order_mode' => 'bulk', 'roster' => [
+            ['player_name' => 'Ana', 'size' => 'M', 'extra' => ['Cut' => "Ladies'"]],
+            ['player_name' => 'Ben', 'size' => 'L'],
+        ]])->assertStatus(201)->json('data.id'));
+        $this->assertSame("Ladies'", $group->custom_order_data['team_roster'][0]['cut']);
+    }
+
+    public function test_the_payment_policy_endpoint_tells_the_customer_their_rush_percent(): void
+    {
+        $this->store->update(['rush_fee_percent' => 30]);
+        $this->actingAs($this->customer)->getJson("/api/v1/stores/{$this->store->slug}/service-order/payment-policy?service_id={$this->service->id}")
+            ->assertOk()->assertJsonPath('data.rush_available', true)->assertJsonPath('data.rush_fee_percent', 30);
+    }
+
+    public function test_own_fabric_comes_off_the_price_per_piece(): void
+    {
+        $this->service->update(['own_fabric_deduction' => 150]);
+        $job = JobOrder::findOrFail($this->order(['quantity' => 2, 'material_source' => 'customer_supplied'])->assertStatus(201)->json('data.id'));
+        $this->assertSame(1700.0, (float) $job->total_amount, '2 × (1,000 − 150)');
+        $this->assertSame('300.00', $job->custom_order_data['own_fabric_deduction']);
+    }
+
+    public function test_a_group_order_needs_a_service_that_takes_them_and_its_minimum_of_named_people(): void
+    {
+        $group = ['order_mode' => 'bulk', 'roster' => [['player_name' => 'Ana', 'size' => 'M'], ['player_name' => 'Ben', 'size' => 'L']]];
+        $this->order($group)->assertStatus(422)->assertJsonPath('message', 'This service does not take group orders online. Order for one person, or message the shop.');
+
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 3]);
+        $this->order($group)->assertStatus(422)->assertJsonPath('errors.roster.0', 'Add at least 3 people.');
+        $this->order(['order_mode' => 'bulk', 'roster' => [['player_name' => '', 'size' => 'M']]])->assertStatus(422)->assertJsonValidationErrors('roster.0.player_name');
+
+        // A Custom Fit person needs their measurements, which become their own profile.
+        $custom = ['player_name' => 'Cara', 'size' => 'Custom Fit'];
+        $this->order(['order_mode' => 'bulk', 'roster' => [...$group['roster'], $custom]])->assertStatus(422);
+        $ok = $this->order(['order_mode' => 'bulk', 'roster_unit' => 'cm', 'roster' => [...$group['roster'], $custom + ['fit_metrics' => ['Chest / Bust' => 92]]]])->assertStatus(201);
+        $job = JobOrder::findOrFail($ok->json('data.id'));
+        $this->assertSame(3, $job->quantity);
+        $this->assertNotEmpty($job->custom_order_data['team_roster'][2]['measurement_id']);
+        $this->assertTrue(Measurement::where('profile_name', 'like', 'Cara%')->exists());
+    }
+
     // Sizing, as an if / else: none → nothing asked · else Top/Bottom/Both first · then the sizes of that part.
 
     public function test_sizing_starts_with_what_the_person_gets(): void
@@ -213,16 +356,27 @@ class CustomerServiceOrderTest extends TestCase
         $this->assertSame('cm', $profile->metrics['_unit']);
     }
 
-    public function test_a_top_and_bottom_bulk_order_counts_the_same_sets_for_both(): void
+    /** A group order: one row per person; the size counts come from the rows. */
+    private function people(int $n, array $row = []): array
     {
-        $bulk = ['order_mode' => 'bulk', 'measure_area' => 'both', 'size_breakdown' => ['M' => 3, 'L' => 2]];
-        $this->order($bulk + ['size_breakdown_bottom' => ['M' => 5]])->assertStatus(201);
-        $this->order($bulk + ['size_breakdown_bottom' => ['M' => 4]])->assertStatus(422)->assertJsonPath('errors.size_breakdown_bottom.0', 'Tops and bottoms must be the same number of pieces.');
-        $this->order($bulk)->assertStatus(422);
+        return array_map(fn ($i) => $row + ['player_name' => "Player {$i}", 'size' => 'M'], range(1, $n));
+    }
+
+    public function test_a_top_and_bottom_group_order_counts_the_same_sets_for_both(): void
+    {
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 2]);
+        $roster = [...$this->people(3, ['bottom_size' => 'M']), ...$this->people(2, ['size' => 'L', 'bottom_size' => 'M'])];
+        $group = ['order_mode' => 'bulk', 'measure_area' => 'both'];
+        $this->order($group + ['roster' => $roster])->assertStatus(201);
+        // A person on a set needs a bottom size too.
+        $missing = $this->order($group + ['roster' => $this->people(2)])->assertStatus(422);
+        $this->assertSame('Choose the bottom size.', $missing->json('errors')['roster.0.bottom_size'][0]);
 
         $job = JobOrder::latest('id')->firstOrFail();
-        $this->assertSame(5, (int) $job->quantity, 'Five sets, not ten pieces');
+        $this->assertSame(5, (int) $job->quantity, 'Five sets (one per person), not ten pieces');
+        $this->assertSame(['M' => 3, 'L' => 2], $job->custom_order_data['size_breakdown']);
         $this->assertSame(['M' => 5], $job->custom_order_data['size_breakdown_bottom']);
+        $this->assertCount(5, $job->custom_order_data['team_roster']);
     }
 
     public function test_a_repair_keeps_where_and_how_much_to_change_without_any_body_sizing(): void
@@ -239,6 +393,58 @@ class CustomerServiceOrderTest extends TestCase
         $this->assertSame('Hem to 38 in', $job->custom_order_data['local_adjustment']);
         $this->assertSame(150.0, (float) $job->total_amount, 'Priced by its own line, whatever the sizing rule');
         $this->assertNull($job->measurement_id);
+    }
+
+    private function repairRequest(): JobOrder
+    {
+        $repair = Service::create(['store_id' => $this->store->id, 'name' => 'Pants hemming', 'base_price' => 100, 'service_types' => [Service::TYPE_ALTERATION_REPAIR]]);
+        $line = \App\Models\ServicePricing::create(['service_id' => $repair->id, 'label' => 'Hem', 'amount' => 150]);
+        $r = $this->actingAs($this->customer)->postJson("/api/v1/stores/{$this->store->slug}/repair-requests", [
+            'service_id' => $repair->id, 'garment_description' => 'Black slacks', 'pre_existing_damage_notes' => 'No visible damage', 'pricing_ids' => [$line->id],
+        ])->assertStatus(201);
+
+        return JobOrder::findOrFail($r->json('data.id'));
+    }
+
+    /** Online, the customer only describes the garment: no work starts until the shop has checked what it received. */
+    public function test_an_online_repair_waits_for_the_drop_off_check_and_a_match_joins_the_queue(): void
+    {
+        $job = $this->repairRequest();
+        $put = fn (string $status) => $this->actingAs($this->owner)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}", ['status' => $status]);
+
+        $put('in_repair')->assertStatus(422)->assertJsonPath('message', 'Check the garment first: confirm it matches the request, or send the customer what is different.');
+        $this->actingAs($this->customer)->getJson("/api/v1/my-orders/{$job->id}")->assertJsonPath('data.garment_check.state', 'waiting_for_garment')
+            ->assertJsonPath('data.drop_off.name', 'Main');
+
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/garment-check", ['result' => 'as_described'])->assertOk();
+        $this->assertSame('queued', $job->fresh()->status);
+        $put('in_repair')->assertOk();
+    }
+
+    public function test_a_different_garment_needs_the_customers_yes_before_work_and_a_no_closes_it_free(): void
+    {
+        $job = $this->repairRequest();
+        $check = fn (JobOrder $j) => $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$j->id}/garment-check", [
+            'result' => 'different', 'note' => 'Also a torn side seam', 'lines' => [['label' => 'Hem', 'amount' => 150], ['label' => 'Side seam repair', 'amount' => 100]],
+        ]);
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/garment-check", ['result' => 'different'])->assertStatus(422);
+        $check($job)->assertOk();
+
+        $this->assertSame('pending', $job->fresh()->status);
+        $this->actingAs($this->owner)->putJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}", ['status' => 'in_repair'])->assertStatus(422);
+        $this->actingAs($this->customer)->getJson("/api/v1/my-orders/{$job->id}")->assertJsonPath('data.garment_check.state', 'needs_answer')
+            ->assertJsonPath('data.garment_check.total', 250);
+
+        $this->actingAs($this->customer)->postJson("/api/v1/my-orders/{$job->id}/garment-check-decision", ['decision' => 'accept'])->assertOk();
+        $fresh = $job->fresh();
+        $this->assertSame('queued', $fresh->status);
+        $this->assertSame(250.0, (float) $fresh->total_amount);
+        $this->assertSame(250.0, (float) $fresh->balance);
+
+        $other = $this->repairRequest();
+        $check($other)->assertOk();
+        $this->actingAs($this->customer)->postJson("/api/v1/my-orders/{$other->id}/garment-check-decision", ['decision' => 'decline'])->assertOk();
+        $this->assertSame('cancelled', $other->fresh()->status);
     }
 
     public function test_a_named_wearers_measurements_never_replace_the_customers_own(): void
@@ -296,11 +502,13 @@ class CustomerServiceOrderTest extends TestCase
         // The shop takes the measurements itself: a plain size tally is not a sign-off.
         $this->service->update(['measurement_requirement' => 'shop']);
 
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 5]);
+
         $response = $this->actingAs($this->customer)->postJson(
             "/api/v1/stores/{$this->store->slug}/service-orders",
             $this->payload([
                 'order_mode' => 'bulk',
-                'size_breakdown' => ['XS' => 2, 'M' => 3, 'XL' => 0],
+                'roster' => [...$this->people(2, ['size' => 'XS']), ...$this->people(3)],
                 'team_name' => 'Suntik Hi-Tech',
             ]),
         );
@@ -310,14 +518,15 @@ class CustomerServiceOrderTest extends TestCase
         $job = JobOrder::find($response->json('data.id'));
         $this->assertSame(5, $job->quantity);
         $this->assertSame(['XS' => 2, 'M' => 3], $job->custom_order_data['size_breakdown']);
+        $this->assertSame(5, $job->custom_order_data['people_count']);
         $this->assertArrayNotHasKey('standard_size', $job->custom_order_data);
 
-        // The tally alone does not satisfy the shop's measurement sign-off —
-        // the existing gate is still standing, so the order stays blocked.
-        $this->assertFalse(OrderReadiness::measurementsRecorded($job));
+        // A named list (a person and a chart size per row) is recorded sizing, the same as the walk-in team list;
+        // the shop still signs the measurements off before production.
+        $this->assertTrue(OrderReadiness::measurementsRecorded($job));
         $this->assertContains('measurements', array_column(OrderReadiness::startBlockers($job), 'key'));
 
-        // Only when the shop links a recorded profile can it sign off.
+        // The shop links a recorded profile and signs off.
         $profile = Measurement::create([
             'store_id' => $this->store->id,
             'customer_id' => $this->customer->id,
@@ -454,36 +663,19 @@ class CustomerServiceOrderTest extends TestCase
         $this->assertSame('none', JobOrder::find($response->json('data.id'))->payment_policy, 'The trusted-customer rule must snapshot on the order');
     }
 
-    public function test_the_payment_policy_endpoint_applies_the_trusted_customer_waiver(): void
+    public function test_a_trusted_customer_still_pays_the_half_before_production(): void
     {
         $this->store->update(['default_payment_policy' => 'deposit', 'default_payment_percent' => 50]);
         $url = "/api/v1/stores/{$this->store->slug}/service-order/payment-policy?service_id={$this->service->id}";
+        $this->store->customers()->syncWithoutDetaching([$this->customer->id => [
+            'is_trusted' => true, 'trusted_by' => $this->owner->id, 'trusted_at' => now(),
+        ]]);
 
-        // Not trusted: the service's deposit policy stands, untouched.
+        // Shop rule: no waiver, even for a trusted customer.
         $this->actingAs($this->customer)->getJson($url)
             ->assertStatus(200)
             ->assertJsonPath('data.payment_policy', 'deposit')
             ->assertJsonPath('data.payment_policy_percent', 50);
-
-        $stranger = User::factory()->create();
-        $stranger->roles()->attach(Role::where('name', 'customer')->first());
-
-        $this->store->customers()->syncWithoutDetaching([$this->customer->id => [
-            'is_trusted' => true,
-            'trusted_by' => $this->owner->id,
-            'trusted_at' => now(),
-        ]]);
-
-        // Trusted: nothing is owed up front — the same waiver the order itself gets.
-        $this->actingAs($this->customer)->getJson($url)
-            ->assertStatus(200)
-            ->assertJsonPath('data.payment_policy', 'none')
-            ->assertJsonPath('data.payment_policy_percent', 0);
-
-        // The trust is per customer: someone else at the same shop still sees the deposit.
-        $this->actingAs($stranger)->getJson($url)
-            ->assertStatus(200)
-            ->assertJsonPath('data.payment_policy', 'deposit');
     }
 
     public function test_a_custom_fit_order_stays_blocked_until_the_shop_verifies_measurements(): void

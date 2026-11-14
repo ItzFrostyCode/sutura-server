@@ -95,6 +95,7 @@ class ServiceController extends Controller
         if ($place = StoreBranch::placeFilter($request)) {
             $query->whereHas('store.branches', $place);
         }
+        \App\Support\Psgc::applyLocationFilter($query, $request, 'store.branches');
 
         // One of the 4 services (CanonicalTaxonomy::SERVICE_GROUPS) — /search?tab=services and the
         // All Categories page filter on it, distinct from the free-text category search above.
@@ -123,6 +124,10 @@ class ServiceController extends Controller
         }
         if ($request->filled('max_price')) {
             $query->where('base_price', '<=', $request->float('max_price'));
+        }
+        if ($request->filled('min_rating')) {
+            // Same AVG as withAvg() above, repeated: a select alias cannot be used in WHERE/HAVING on Postgres.
+            $query->whereRaw('(SELECT AVG(r.rating) FROM service_reviews r WHERE r.service_id = services.id) >= ?', [$request->float('min_rating')]);
         }
 
         match ($request->string('sort_by')->toString()) {
@@ -194,9 +199,10 @@ class ServiceController extends Controller
             ])
             ->get([
                 'id', 'store_id', 'name', 'description', 'categories', 'service_types', 'service_category',
+                'showcase_category', 'service_leaf_type',
                 'garment_types', 'capabilities', 'base_price', 'sale_price', 'sale_starts_at', 'sale_ends_at',
                 'estimated_days', 'estimated_days_max', 'is_active', 'status', 'price_display', 'image_url', 'custom_fields', 'roster_fields',
-                'min_order_qty', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
+                'min_order_qty', 'own_fabric_deduction', 'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
                 'measurement_requirement', 'fitting_requirement', 'payment_policy', 'payment_policy_percent',
             ])
             ->each(function (Service $service) use ($store) {

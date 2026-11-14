@@ -33,7 +33,7 @@ Role enforcement is via `role:` middleware in `routes/api.php`, e.g. `Route::mid
 Don't build these — they were deliberately excluded from the approved thesis scope:
 - Hardware integration (body scanners, RFID) — measurements are always manually entered.
 - Offline mode / background sync.
-- Native payment gateway integration — track payment/deposit status only, don't move money.
+- Payment gateway for **customer → shop** payments (orders, deposits) — those are tracked only (status + proof), SUTURA doesn't move that money. **Exception, approved by the adviser (2026-11-13):** shop → SUTURA **plan payments** can be paid with GCash online through Xendit (`App\Services\Xendit`, `App\Support\OnlinePlanPayments`, webhook `POST /webhooks/xendit`), with admin refunds; the manual GCash receipt upload stays as the backup. Users only ever see "GCash", never the gateway's name.
 - Predictive analytics / AI forecasting.
 - Inventory / material stock / purchase orders.
 - Payroll or utility-cost tracking.
@@ -158,11 +158,11 @@ API contracts the frontend relies on (all three screens are built — keep these
 
 | Layer | Approved thesis paper says | Actual current team decision |
 |---|---|---|
-| Database | MySQL hosted on **PlanetScale** | **Real local MySQL 8.4** (Homebrew, not XAMPP — `DB_CONNECTION=mysql`, `DB_HOST=127.0.0.1:3306`); migrating to **Supabase (Postgres)** ~mid-September 2026 |
-| File storage | not specified | **Cloudflare R2** (planned at migration time; local dev still uses the `public` disk, see `FileUploadController`/`ProfileController::UPLOAD_DISK`) |
-| Deploy | Vercel + Railway/Render | Vercel (frontend) + **Railway** (backend) — Render dropped |
+| Database | MySQL hosted on **PlanetScale** | **Real local MySQL 8.4** (Homebrew, not XAMPP — `DB_CONNECTION=mysql`, `DB_HOST=127.0.0.1:3306`) |
+| File storage | not specified | Server disk (`public` / `local`) |
+| Deploy | Vercel + cloud backend host | Handled by the team leader — not documented here |
 
-See `sutura-client/DEADLINE.md` for the full migration plan. **A low-stakes dry run of this migration was already done (2026-07-23) against a disposable Supabase + R2 project** — full detail in this project's Claude memory (`project_postgres_migration_test_bugs_fixed.md`, `project_r2_storage_connected_url_bug_fixed.md`), summary here:
+An earlier Postgres dry run (2026-07-23, abandoned) left portability fixes that still matter:
 
 - `league/flysystem-aws-s3-v3` — **installed**, not pending anymore.
 - `FileUploadController`'s URL bug — **fixed**. It now uses a single `private const UPLOAD_DISK = 'public'` referenced by both the `store()` and `Storage::disk(...)->url()` calls in all 4 methods. **Don't call bare `Storage::url($path)` or hardcode `'public'`/`'s3'` in more than one place here again** — the original bug was exactly that drift (store used one disk, url-generation silently used a different default disk). When the real Sept switch happens, changing that one constant to `'s3'` is the entire migration for this file.
@@ -175,5 +175,4 @@ See `sutura-client/DEADLINE.md` for the full migration plan. **A low-stakes dry 
 - **`Cache::remember()` must store plain arrays, never a `Collection`/object.** `SystemNewsController::index()` cached `->values()` (a `Collection`) directly; a `composer update` regenerating the autoloader mid-TTL broke the cached blob's `unserialize()`, coming back as `__PHP_Incomplete_Class` — which `json_encode`s as `{}` instead of `[]`, crashing the frontend's `.map()` with "items.map is not a function" even though the frontend code was correct. Fixed by caching `->all()` instead. If you add a new `Cache::remember()`, always store the plain-array/scalar result, not an Eloquent Collection/model instance — the failure mode is silent until something (a deploy, a composer update, a class rename) shifts autoloading during the cache's TTL.
 - **Dependency security scan (2026-08-13)**: `composer audit` found 17 advisories (mostly `guzzlehttp/guzzle` 7.11.1, high/medium severity) — all transitive deps with permissive constraints, fixed with `composer update guzzlehttp/guzzle guzzlehttp/psr7 league/commonmark --with-all-dependencies` (no Laravel version change). `composer audit` now reports zero. Git history (both repos) was also swept for committed secrets — clean, nothing to purge. Run `composer audit` periodically; it's cheap and this codebase hadn't been checked before.
 - Auth (Sanctum Bearer tokens), Queue (`sync`), and Session (`database` driver) are already cross-domain-friendly — nothing to change there at migration time.
-- Do NOT migrate the XAMPP data — it's seed/demo data only (`LocalTestSeeder`); just run `php artisan migrate --seed` fresh against Postgres.
-- The actual disk switch (`UPLOAD_DISK` constant from `'public'` to `'s3'`, and pointing `.env`'s `DB_*` at the real production Supabase project instead of a throwaway test one) is still deliberately deferred to the real September migration — everything above was verified against disposable test infrastructure, not wired into the app's actual default config.
+- Do NOT migrate the local data — it's seed/demo data only; run `php artisan migrate --seed` fresh against the production MySQL.

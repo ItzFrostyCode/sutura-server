@@ -7,6 +7,8 @@ use App\Models\Role;
 use App\Models\StaffProfile;
 use App\Models\Store;
 use App\Models\StoreBranch;
+use App\Models\SubscriptionPlan;
+use App\Models\User;
 use App\Services\GoogleMapsLinkResolver;
 use App\Support\BranchPin;
 use App\Support\DavaoLocations;
@@ -89,6 +91,7 @@ class StoreBranchController extends Controller
             'longitude' => 'required|numeric|between:-180,180',
             'operating_hours' => 'nullable|string|max:255',
             'guide_image_url' => 'nullable|string|max:500',
+            'landmark_image_url' => 'nullable|string|max:500',
             // The "Branch manager" section: a new account, an existing staff member (their staff profile id), or neither.
             'manager_id' => 'nullable|integer',
             'manager' => 'nullable|array',
@@ -103,16 +106,20 @@ class StoreBranchController extends Controller
 
         $store = Store::findOrFail($storeId);
 
-        // The plan's branch limit (admin-editable on the Plans page); a store
-        // with no live subscription gets a single branch.
-        $branchCount = $store->branches()->count();
+        // The plan's limit counts Branch Shops only (is_main = false); the
+        // Main Shop never uses it up. A store with no live subscription gets
+        // its Main Shop only.
+        $hasMain = $store->branches()->exists();
+        $branchShops = $store->branches()->where('is_main', false)->count();
         $subscription = $store->subscription()->whereIn('status', ['active', 'trial'])->first();
-        $limit = $subscription?->plan?->branchLimit() ?? 1;
+        $limit = $subscription?->plan?->branchLimit() ?? 0;
 
-        if ($limit !== -1 && $branchCount >= $limit) {
+        if ($hasMain && $limit !== -1 && $branchShops >= $limit) {
             return response()->json([
                 'success' => false,
-                'message' => "Your plan allows up to {$limit} branch".($limit === 1 ? '' : 'es').'. Upgrade your plan to add more.',
+                'message' => ($limit === 0
+                    ? 'Your plan includes your main shop only.'
+                    : "Your plan allows up to {$limit} branch shop".($limit === 1 ? '' : 's').' besides your main shop.').' Upgrade your plan to add more.',
             ], 403);
         }
 
@@ -132,6 +139,7 @@ class StoreBranchController extends Controller
                 'slug' => Str::slug($request->name).'-'.uniqid(),
                 'address' => $request->address,
                 'landmark' => $request->landmark,
+                'landmark_image_url' => $request->landmark_image_url ?: null,
                 'barangay' => $barangay,
                 'city' => $request->city,
                 'district' => $district,
@@ -290,6 +298,7 @@ class StoreBranchController extends Controller
             'operating_hours' => 'nullable|string|max:255',
             'status' => 'nullable|in:active,inactive',
             'guide_image_url' => 'nullable|string|max:500',
+            'landmark_image_url' => 'nullable|string|max:500',
             'manager_id' => 'nullable',
             'manager' => 'nullable|array',
             ...$this->managerRules(),
@@ -312,13 +321,16 @@ class StoreBranchController extends Controller
             'name' => $request->name,
             'address' => $request->address,
             'landmark' => $request->landmark,
+            'landmark_image_url' => $request->has('landmark_image_url') ? ($request->landmark_image_url ?: null) : $branch->landmark_image_url,
             'barangay' => $barangay,
             'city' => $request->city,
             'district' => $district,
             'contact_number' => $request->contact_number,
             'latitude' => $request->filled('latitude') ? $request->latitude : ($request->latitude === '' ? null : $branch->latitude),
             'longitude' => $request->filled('longitude') ? $request->longitude : ($request->longitude === '' ? null : $branch->longitude),
-            'operating_hours' => $request->operating_hours,
+            // Hours live on the store profile now; the branch form no longer
+            // sends them, so keep whatever a branch already had.
+            'operating_hours' => $request->has('operating_hours') ? $request->operating_hours : $branch->operating_hours,
             'status' => $request->status ?? $branch->status,
             'guide_image_url' => $request->filled('guide_image_url') ? $request->guide_image_url : ($request->guide_image_url === '' ? null : $branch->guide_image_url),
         ]);

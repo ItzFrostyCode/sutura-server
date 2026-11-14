@@ -240,289 +240,6 @@ class JobOrderController extends Controller
     }
 
     /**
-     * Customer-facing "Bulk Order" off a Catalog Designs item — Size +
-     * Quantity only for now (Color deferred). Requires the item to have a
-     * linked, bulk_sublimation-typed Service (CatalogItem.service_id) —
-     * there's no fallback/auto-detected service, so an unlinked item simply
-     * has no Bulk Order entry point. Pricing is the item's own real price
-     * × total quantity (never guessed), and each unit becomes its own
-     * team_roster row (name left blank — a browsing customer has no real
-     * per-recipient names, unlike a staff-entered team roster) so the store's
-     * existing Team Roster & Size Sheet UI can track/complete each piece
-     * individually, exactly as it already does for staff-created bulk jobs.
-     */
-    public function customerBulkOrder(Request $request, Store $store): JsonResponse
-    {
-        $validated = $request->validate([
-            'catalog_item_id' => 'required|integer',
-            'organization_name' => 'nullable|string|max:255',
-            'store_branch_id' => 'nullable|integer',
-            'roster' => 'required|array|min:1|max:500',
-            'roster.*.name' => 'nullable|string|max:100',
-            'roster.*.size' => 'required|string|max:50',
-        ]);
-
-        $item = CatalogItem::where('id', $validated['catalog_item_id'])
-            ->where('store_id', $store->id)
-            ->first();
-
-        if (! $item || ! $item->service_id) {
-            return response()->json(['success' => false, 'message' => 'This item is not available for bulk ordering.'], 404);
-        }
-
-        $service = Service::find($item->service_id);
-        if (! $service || ! $service->hasType(Service::TYPE_BULK_SUBLIMATION)) {
-            return response()->json(['success' => false, 'message' => 'This item is not available for bulk ordering.'], 404);
-        }
-
-        $totalQty = count($validated['roster']);
-
-        // The minimum is the shop's usual one, not a wall: a smaller request still goes to the shop, which decides.
-        $belowMinimum = $service->min_order_qty > 1 && $totalQty < $service->min_order_qty;
-
-        // Keep whatever extra columns the customer added on the roster
-        // table (e.g. "Jersey Number") — $request->validate() above only
-        // proves name/size are present, it doesn't strip the rest, so the
-        // raw rows (not $validated) carry those extra keys through into
-        // custom_order_data.team_roster for the store owner to see.
-        $roster = collect($request->input('roster'))->map(function ($row) {
-            return array_merge($row, ['name' => $row['name'] ?? null]);
-        })->all();
-
-        $sizeCounts = collect($validated['roster'])->countBy('size');
-        // Priced by the service (plus the design's extra charge, if any) — never the design's old own price.
-        // A design that needs a quotation starts at 0 and the shop quotes it in the order flow.
-        $pricing = DesignPricing::resolve($item, $service);
-        $baseUnit = $pricing['amount'] ?? 0;
-
-        // Size extras per piece from roster
-        $totalSizeExtras = 0.0;
-        foreach ($validated['roster'] as $r) {
-            $totalSizeExtras += DesignPricing::parseSizeExtra($r['size'] ?? '');
-        }
-        $totalSizeExtras = round($totalSizeExtras, 2);
-
-        // Resolve selected add-ons across the bulk order
-        $addOnsResult = DesignPricing::resolveAddOns($item, $service, $request->input('selected_add_ons'));
-        $totalAddOns = round($addOnsResult['total'] * $totalQty, 2);
-
-        $totalAmount = $pricing['needs_quote']
-            ? 0
-            : round(($baseUnit * $totalQty) + $totalSizeExtras + $totalAddOns, 2);
-
-        // Pre-build quotation additional charges
-        $additionalCharges = [];
-        if ($totalSizeExtras > 0) {
-            $additionalCharges[] = [
-                'label' => 'Size adjustments (bulk roster)',
-                'amount' => $totalSizeExtras,
-            ];
-        }
-        foreach ($addOnsResult['items'] as $addon) {
-            $levelLabel = $addon['level'] === 'design' ? 'Design add-on' : 'Service add-on';
-            $additionalCharges[] = [
-                'label' => "{$levelLabel}: {$addon['name']} ({$totalQty} pcs)",
-                'amount' => round($addon['price'] * $totalQty, 2),
-            ];
-        }
-
-        $initialQuotation = [
-            'base_price' => round($baseUnit * $totalQty, 2),
-            'quantity_adjustment' => 0,
-            'additional_charges' => $additionalCharges,
-            'customer_provided_deduction' => [],
-            'notes' => null,
-            'total' => $totalAmount,
-        ];
-
-        // Customer-picked branch (via the catalog page's Find sheet) wins
-        // when it actually belongs to this store; otherwise fall back to the
-        // store's main branch same as before the picker existed.
-        $pickedBranch = ! empty($validated['store_branch_id'])
-            ? $store->branches()->where('id', $validated['store_branch_id'])->first()
-            : null;
-        $mainBranch = $pickedBranch ?? $store->branches()->where('is_main', true)->first();
-
-        $orderNumber = $this->generateOrderNumber($store);
-        $jobOrder = $store->jobOrders()->create([
-            'order_number' => $orderNumber,
-            'tracking_code' => $this->generateTrackingCode($store, $orderNumber),
-            'intake_channel' => 'online',
-            'store_branch_id' => $mainBranch?->id,
-            'customer_id' => $request->user()->id,
-            'service_id' => $service->id,
-            'catalog_item_id' => $item->id,
-            'garment_category' => $item->garment_type,
-            'material_source' => 'store_supplied',
-            'total_amount' => $totalAmount,
-            'balance' => $totalAmount,
-            'payment_status' => 'unpaid',
-            'status' => 'pending',
-            'uses_confirmation_flow' => true,
-            'quotation' => $initialQuotation,
-            'notes' => "Bulk order: {$item->name} — ".$sizeCounts->map(fn ($qty, $size) => "{$qty}x {$size}")->implode(', ')
-                .($totalSizeExtras > 0 ? ' (Size adjustments: ₱'.number_format($totalSizeExtras, 2).')' : '')
-                .($belowMinimum ? " (Below the usual minimum of {$service->min_order_qty}: {$totalQty} requested. The shop confirms.)" : '')
-                .(! empty($addOnsResult['items']) ? ' (Add-ons: '.collect($addOnsResult['items'])->pluck('name')->implode(', ').')' : '')
-                .($pricing['needs_quote'] ? '. Price to be quoted by the shop.' : ''),
-            'reference_images' => $item->images()->where('is_primary', true)->value('image_url') ? [$item->images()->where('is_primary', true)->value('image_url')] : [],
-            'custom_order_data' => [
-                'team_name' => $validated['organization_name'] ?? $item->name,
-                'team_roster' => $roster,
-                'people_count' => count($roster),
-                'size_surcharges_total' => $totalSizeExtras,
-                'selected_add_ons' => $addOnsResult['items'],
-                'pricing_snapshot' => [
-                    'mode' => $item->pricing_mode ?? 'same',
-                    'base_unit_price' => $baseUnit,
-                    'quantity' => $totalQty,
-                    'base_total' => round($baseUnit * $totalQty, 2),
-                    'size_surcharges_total' => $totalSizeExtras,
-                    'add_ons_total' => $totalAddOns,
-                    'total' => $totalAmount,
-                    'captured_at' => now()->toIso8601String(),
-                ],
-            ],
-        ]);
-
-        $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
-
-        // The customer lands in the shop's Client Book (never detached from the others).
-        $store->customers()->syncWithoutDetaching([$request->user()->id]);
-
-        $storeOwner = $store->owner;
-        if ($storeOwner) {
-            $storeOwner->notify(new NewJobOrderNotification($jobOrder));
-        }
-        $this->notifyManagersOfOnlineOrder($store, $jobOrder);
-
-        return response()->json(['success' => true, 'data' => $jobOrder], 201);
-    }
-
-    /**
-     * Customer-facing "Made to Order" — a single piece of a specific
-     * Showroom item, no team roster (that's Bulk Order's shape, not this
-     * one). Requires the item to have a linked Service same as Bulk Order,
-     * but explicitly rejects a bulk_sublimation-typed one — that service's
-     * min_order_qty is a real business rule (e.g. "10 pieces minimum") a
-     * single-piece order would otherwise silently bypass.
-     */
-    public function customerMadeToOrder(Request $request, Store $store): JsonResponse
-    {
-        $validated = $request->validate([
-            'catalog_item_id' => 'required|integer',
-            'size' => 'nullable|string|max:50',
-            'selected_add_ons' => 'nullable|array|max:30',
-        ]);
-
-        $item = CatalogItem::where('id', $validated['catalog_item_id'])
-            ->where('store_id', $store->id)
-            ->first();
-
-        if (! $item || ! $item->service_id) {
-            return response()->json(['success' => false, 'message' => 'This item is not available to order directly yet.'], 404);
-        }
-
-        $service = Service::find($item->service_id);
-        if (! $service) {
-            return response()->json(['success' => false, 'message' => 'This item is not available to order directly yet.'], 404);
-        }
-        if ($service->hasType(Service::TYPE_BULK_SUBLIMATION)) {
-            return response()->json(['success' => false, 'message' => 'This item requires a Bulk Order — please use the bulk order flow instead.'], 422);
-        }
-
-        if (! empty($validated['size']) && ! empty($item->sizes) && ! in_array($validated['size'], $item->sizes, true)) {
-            return response()->json(['success' => false, 'message' => 'That size is not offered for this item.'], 422);
-        }
-
-        // Same rule as a bulk order: the service's price plus the design's extra charge, or 0 until quoted.
-        $pricing = DesignPricing::resolve($item, $service);
-        $baseUnit = $pricing['amount'] ?? 0;
-        $sizeExtra = DesignPricing::parseSizeExtra($validated['size'] ?? null);
-        $addOnsResult = DesignPricing::resolveAddOns($item, $service, $request->input('selected_add_ons'));
-
-        $totalAmount = $pricing['needs_quote']
-            ? 0
-            : round($baseUnit + $sizeExtra + $addOnsResult['total'], 2);
-
-        $additionalCharges = [];
-        if ($sizeExtra > 0 && ! empty($validated['size'])) {
-            $additionalCharges[] = [
-                'label' => "Size adjustment ({$validated['size']})",
-                'amount' => $sizeExtra,
-            ];
-        }
-        foreach ($addOnsResult['items'] as $addon) {
-            $levelLabel = $addon['level'] === 'design' ? 'Design add-on' : 'Service add-on';
-            $additionalCharges[] = [
-                'label' => "{$levelLabel}: {$addon['name']}",
-                'amount' => $addon['price'],
-            ];
-        }
-
-        $initialQuotation = [
-            'base_price' => $baseUnit,
-            'quantity_adjustment' => 0,
-            'additional_charges' => $additionalCharges,
-            'customer_provided_deduction' => [],
-            'notes' => null,
-            'total' => $totalAmount,
-        ];
-
-        $mainBranch = $store->branches()->where('is_main', true)->first();
-        $primaryImage = $item->images()->where('is_primary', true)->value('image_url');
-
-        $orderNumber = $this->generateOrderNumber($store);
-        $jobOrder = $store->jobOrders()->create([
-            'order_number' => $orderNumber,
-            'tracking_code' => $this->generateTrackingCode($store, $orderNumber),
-            'intake_channel' => 'online',
-            'store_branch_id' => $mainBranch?->id,
-            'customer_id' => $request->user()->id,
-            'service_id' => $service->id,
-            'catalog_item_id' => $item->id,
-            'garment_category' => $item->garment_type,
-            'material_source' => 'store_supplied',
-            'total_amount' => $totalAmount,
-            'balance' => $totalAmount,
-            'payment_status' => 'unpaid',
-            'status' => 'pending',
-            'uses_confirmation_flow' => true,
-            'quotation' => $initialQuotation,
-            'notes' => 'Made to Order: '.$item->name.(! empty($validated['size']) ? ' (Reference size: '.$validated['size'].')' : '')
-                .(! empty($addOnsResult['items']) ? ' (Add-ons: '.collect($addOnsResult['items'])->pluck('name')->implode(', ').')' : '')
-                .($pricing['needs_quote'] ? '. Price to be quoted by the shop.' : ''),
-            'reference_images' => $primaryImage ? [$primaryImage] : [],
-            'custom_order_data' => array_filter([
-                'reference_size' => $validated['size'] ?? null,
-                'size_extra' => $sizeExtra > 0 ? $sizeExtra : null,
-                'selected_add_ons' => $addOnsResult['items'] ?: null,
-                'pricing_snapshot' => [
-                    'mode' => $item->pricing_mode ?? 'same',
-                    'base_unit_price' => $baseUnit,
-                    'size_extra' => $sizeExtra,
-                    'add_ons_total' => $addOnsResult['total'],
-                    'total' => $totalAmount,
-                    'captured_at' => now()->toIso8601String(),
-                ],
-            ]),
-        ]);
-
-        $jobOrder->load(['customer:id,name', 'service', 'catalogItem:id,name']);
-
-        // The customer lands in the shop's Client Book (never detached from the others).
-        $store->customers()->syncWithoutDetaching([$request->user()->id]);
-
-        $storeOwner = $store->owner;
-        if ($storeOwner) {
-            $storeOwner->notify(new NewJobOrderNotification($jobOrder));
-        }
-        $this->notifyManagersOfOnlineOrder($store, $jobOrder);
-
-        return response()->json(['success' => true, 'data' => $jobOrder], 201);
-    }
-
-    /**
      * Customer-facing general order request: a made-to-measure garment or service with no appointment and no
      * catalog design. It waits as a pending request for the shop to accept, then to price. Nothing is paid
      * and nothing starts here. Repairs and bulk orders keep their own entry points (price list / roster).
@@ -600,21 +317,37 @@ class JobOrderController extends Controller
     {
         $validated = $request->validate([
             'service_id' => 'required|integer',
-            'contact_phone' => 'required|string|max:20',
+            // Philippine mobile: 11 digits starting with 09 (e.g. 09171234567).
+            'contact_phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'store_branch_id' => 'nullable|integer',
 
+            // individual = for one person; bulk = a Group order (a name and a size per person, see 'roster').
             'order_mode' => 'required|in:individual,bulk',
+            // How the shop gets one person's sizes: saved profile, a chart size, their own numbers, or the shop measures.
+            'measurement_source' => 'nullable|in:saved,standard,own,shop',
+            // The fit one person is cut for (Men's / Ladies' / Kids); optional, describes the garment, not the person.
+            'cut' => ['nullable', 'string', Rule::in(["Men's", "Ladies'", 'Kids'])],
             'measurement_id' => 'nullable|integer',
+            // A design of this shop picked as the style to follow (its photo becomes the first reference).
+            'catalog_item_id' => 'nullable|integer',
             'individual_measurements' => 'nullable|array',
             'individual_measurements.unit' => 'nullable|in:in,cm',
             'individual_measurements.*' => 'nullable',
             // What the person gets (top, bottom or both): asked first, before any size, whenever the service needs sizing.
             'measure_area' => 'nullable|in:top,bottom,both',
-            'size_breakdown' => 'required_if:order_mode,bulk|array',
-            'size_breakdown.*' => 'nullable|integer|min:0|max:500',
-            // Top & bottom in bulk: how many of each size for the bottoms (the same number of sets as the tops).
-            'size_breakdown_bottom' => 'nullable|array',
-            'size_breakdown_bottom.*' => 'nullable|integer|min:0|max:500',
+            // A Group order: one row per person. size is a chart size or "Custom Fit" (then fit_metrics holds the
+            // person's measurements, in roster_unit). The size counts are worked out from the rows.
+            'roster' => 'required_if:order_mode,bulk|array|max:500',
+            'roster.*.player_name' => 'required|string|max:100',
+            'roster.*.measure_area' => 'nullable|in:top,bottom,both',
+            'roster.*.size' => 'required|string|max:50',
+            'roster.*.bottom_size' => 'nullable|string|max:50',
+            'roster.*.fit_metrics' => 'nullable|array',
+            // The service's own list columns (Jersey Number, Position…), keyed by the column's label.
+            'roster.*.extra' => 'nullable|array',
+            'roster.*.extra.*' => 'nullable|string|max:100',
+            'roster.*.fit_metrics.*' => 'nullable|numeric|min:0|max:200',
+            'roster_unit' => 'nullable|in:in,cm',
             'team_name' => 'nullable|string|max:255',
             // Who will wear it when that is not the customer (a child, a relative): keeps their measurements apart from the customer's own.
             'wearer_name' => 'nullable|string|max:120',
@@ -639,6 +372,8 @@ class JobOrderController extends Controller
             'needed_by' => 'nullable|date|after:today',
             // Only the customer's preference: nothing is paid with the request.
             'payment_term' => 'required|in:full,downpayment',
+            // How they plan to pay once the shop confirms the price: GCash (proof sent from My Orders) or cash at the shop.
+            'payment_method' => 'nullable|in:gcash,cash',
         ]);
 
         $service = Service::where('id', $validated['service_id'])
@@ -684,6 +419,8 @@ class JobOrderController extends Controller
         // The service decides first whether any body sizing is asked at all (see "Sizing" below); the typed points only
         // ever come from the covered part: top = chest, shoulders, sleeve, neck, length; bottom = waist, hips, inseam.
         $area = $validated['measure_area'] ?? null;
+        // An option that says what it covers decides it for everyone on a group order; otherwise each person may differ.
+        $areaLocked = $pricing && in_array($pricing->covers, ServicePricing::COVERS, true);
         $pointsByArea = ['top' => ['chest', 'shoulders', 'sleeve', 'neck', 'length'], 'bottom' => ['waist', 'hips', 'inseam']];
         $allowedPoints = match ($area) {
             'top' => $pointsByArea['top'],
@@ -714,43 +451,106 @@ class JobOrderController extends Controller
             }
         }
 
+        // A Group order: only for a service that takes them, and with at least the shop's group minimum of people.
+        // Each row is one person with a name and a size (a chart size, or Custom Fit with their measurements); the
+        // size counts the shop cuts by are worked out from the rows, never typed separately.
         $sizeBreakdown = null;
+        $sizeBreakdownBottom = null;
+        $roster = null;
+        // A team / uniform service sold by the batch (its only order type is bulk) takes group orders only.
+        if ($validated['order_mode'] === 'individual' && $service->service_types === [Service::TYPE_BULK_SUBLIMATION]) {
+            return response()->json(['success' => false, 'message' => 'This service is for group orders: list each person with their size.'], 422);
+        }
         if ($validated['order_mode'] === 'bulk') {
-            $sizeBreakdown = collect($validated['size_breakdown'] ?? [])
-                ->only(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'])
-                ->map(fn ($qty) => (int) $qty)
-                ->filter(fn ($qty) => $qty > 0)
-                ->all();
-            if (! $sizeBreakdown) {
+            // A service offers group orders when the shop ticked "Bulk orders"; its usual minimum is the group minimum.
+            $groupMin = in_array('bulk_orders', (array) ($service->capabilities ?? []), true) ? max(2, (int) $service->min_order_qty) : 0;
+            if ($groupMin < 2) {
+                return response()->json(['success' => false, 'message' => 'This service does not take group orders online. Order for one person, or message the shop.'], 422);
+            }
+            $rows = array_values($validated['roster'] ?? []);
+            if (count($rows) < $groupMin) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Add how many pieces you need in at least one size.',
-                    'errors' => ['size_breakdown' => ['Enter at least one size quantity.']],
+                    'message' => "A group order of this service needs at least {$groupMin} people. You listed ".count($rows).'.',
+                    'errors' => ['roster' => ["Add at least {$groupMin} people."]],
                 ], 422);
             }
-        }
-
-        $sizeBreakdownBottom = null;
-        if ($sizeBreakdown && $area === 'both') {
-            $sizeBreakdownBottom = collect($validated['size_breakdown_bottom'] ?? [])
-                ->only(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'])
-                ->map(fn ($qty) => (int) $qty)
-                ->filter(fn ($qty) => $qty > 0)
-                ->all();
-            // A set is one top and one bottom, so both lists count the same number of people.
-            if (array_sum($sizeBreakdownBottom) !== array_sum($sizeBreakdown)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'The bottoms must add up to the same number as the tops.',
-                    'errors' => ['size_breakdown_bottom' => ['Tops and bottoms must be the same number of pieces.']],
-                ], 422);
+            $roster = [];
+            foreach ($rows as $i => $row) {
+                $rowArea = $areaLocked ? $area : (($row['measure_area'] ?? null) ?: $area);
+                $who = 'Person '.($i + 1).' ('.trim($row['player_name']).')';
+                $top = trim((string) $row['size']);
+                $bottom = trim((string) ($row['bottom_size'] ?? ''));
+                if ($rowArea === 'both' && $bottom === '') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "{$who} needs a bottom size too.",
+                        'errors' => ["roster.$i.bottom_size" => ['Choose the bottom size.']],
+                    ], 422);
+                }
+                $custom = $top === JobOrder::CUSTOM_SIZE || $bottom === JobOrder::CUSTOM_SIZE;
+                $fit = $custom ? array_filter((array) ($row['fit_metrics'] ?? []), fn ($v) => $v !== null && $v !== '') : [];
+                if ($custom && $fit === []) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "{$who} is Custom Fit: add their measurements.",
+                        'errors' => ["roster.$i.fit_metrics" => ['Add the measurements.']],
+                    ], 422);
+                }
+                // The service's list columns, in the keys the shop's team list already reads (Jersey Number → number,
+                // Position → position, Nickname → print_name); any other column keeps its own label.
+                $columns = [];
+                foreach ((array) ($row['extra'] ?? []) as $label => $value) {
+                    $value = trim((string) $value);
+                    if ($value === '') {
+                        continue;
+                    }
+                    $key = match (strtolower(trim((string) $label))) {
+                        'jersey number', 'number', 'jersey no.', 'jersey no' => 'number',
+                        'position', 'role', 'role / position' => 'position',
+                        'nickname', 'name on jersey', 'print name' => 'print_name',
+                        'cut' => 'cut',
+                        default => (string) $label,
+                    };
+                    $columns[$key] = $value;
+                }
+                $roster[] = array_filter([
+                    'player_name' => trim($row['player_name']),
+                    ...$columns,
+                    'measure_area' => $rowArea,
+                    'size' => $top,
+                    'bottom_size' => $rowArea === 'both' ? $bottom : null,
+                    'fit_metrics' => $fit ?: null,
+                ], fn ($v) => $v !== null && $v !== '');
+            }
+            // Tops are everyone but the bottom-only people; bottoms are the bottom-only and the full sets.
+            $sizeBreakdown = collect($roster)->filter(fn ($r) => ($r['measure_area'] ?? 'top') !== 'bottom')->countBy('size')->all()
+                ?: collect($roster)->countBy('size')->all();
+            $bottoms = collect($roster)->filter(fn ($r) => in_array($r['measure_area'] ?? null, ['bottom', 'both'], true))
+                ->map(fn ($r) => $r['measure_area'] === 'both' ? $r['bottom_size'] : $r['size']);
+            if ($bottoms->isNotEmpty() && collect($roster)->contains(fn ($r) => ($r['measure_area'] ?? null) !== 'bottom')) {
+                $sizeBreakdownBottom = $bottoms->countBy()->all();
             }
         }
 
         // Sizing, in order: (1) a service that needs no body measurements asks nothing about sizing, whatever was sent;
         // (2) otherwise what the person gets (top / bottom / both) comes first; (3) then, for one person, a top & bottom
         // standard size needs both sizes. Payment never depends on any of this: it follows the service's own payment rules.
-        $needsSizing = OrderRequirements::resolve($store, [$service])['measurement_requirement'] !== 'none';
+        // A service with a size chart (jerseys, uniforms) always asks for a size, even when it takes no body
+        // measurements; then only chart sizes count, never typed body numbers.
+        $bodyMeasured = OrderRequirements::resolve($store, [$service])['measurement_requirement'] !== 'none';
+        $hasChart = ! empty($service->size_chart_rows) || ! empty($service->size_chart_image_url);
+        $needsSizing = $bodyMeasured || $hasChart;
+        if (! $bodyMeasured) {
+            $measurements = null;
+        }
+        if ($needsSizing && ! $bodyMeasured && $roster === null && empty($validated['size'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Choose a size from the size chart.',
+                'errors' => ['size' => ['Choose a size.']],
+            ], 422);
+        }
         if (! $needsSizing) {
             $area = null;
             $measurements = null;
@@ -777,17 +577,11 @@ class JobOrderController extends Controller
             ? (trim(($validated['size'] ?? '').' / '.($validated['size_bottom'] ?? ''), ' /') ?: null)
             : ($validated['size'] ?? null));
 
-        $quantity = $sizeBreakdown ? (int) array_sum($sizeBreakdown) : (int) $validated['quantity'];
+        $quantity = $roster !== null ? count($roster) : (int) $validated['quantity'];
         if ($quantity > 500) {
             return response()->json(['success' => false, 'message' => 'Online orders are capped at 500 pieces. Message the shop for larger batches.'], 422);
         }
-        if ($service->min_order_qty > 1 && $quantity < $service->min_order_qty) {
-            return response()->json([
-                'success' => false,
-                'message' => "This service requires a minimum of {$service->min_order_qty} pieces.",
-                'errors' => ['quantity' => ["Order at least {$service->min_order_qty} pieces."]],
-            ], 422);
-        }
+        // (The group minimum is checked with the roster above; an order for one person has no minimum.)
 
         // Required service questions must be answered, and only known questions are kept.
         // Keyed by the question's label, same as booking answers (the job form pre-fills from them).
@@ -834,8 +628,38 @@ class JobOrderController extends Controller
             }
         }
 
+        // A design of this shop picked as the style: it must be listed and belong to this service (or to no service).
+        $design = null;
+        if (! empty($validated['catalog_item_id'])) {
+            $design = CatalogItem::where('id', $validated['catalog_item_id'])->where('store_id', $store->id)
+                ->where(fn ($q) => $q->whereNull('service_id')->orWhere('service_id', $service->id))
+                ->listed()->with('images')->first();
+            if (! $design) {
+                return response()->json(['success' => false, 'message' => 'That design is no longer offered. Pick another, or add your own reference.'], 422);
+            }
+        }
+
         $unitPrice = $pricing && $pricing->amount !== null ? (float) $pricing->amount : $service->effectivePrice();
-        $totalAmount = round($unitPrice * $quantity, 2);
+        if ($design) {
+            $dp = DesignPricing::resolve($design, $service);
+            $unitPrice = match (true) {
+                $dp['needs_quote'] => 0.0,
+                $dp['mode'] === 'set' => (float) ($dp['amount'] ?? $unitPrice),
+                $dp['mode'] === 'extra' => $unitPrice + (float) ($dp['extra_charge'] ?? 0),
+                default => $unitPrice,
+            };
+        }
+        // Own fabric: the service's per-piece deduction comes off the price (never below ₱0).
+        $fabricEach = $validated['material_source'] === 'customer_supplied'
+            ? min((float) ($service->own_fabric_deduction ?? 0), $unitPrice)
+            : 0.0;
+        $fabricDeduction = round($fabricEach * $quantity, 2);
+        $subtotal = round(($unitPrice - $fabricEach) * $quantity, 2);
+        // Rush: the shop's rush percentage of the price, added to the total now, so the customer sees the same number
+        // here, on the quotation and on the deposit. The shop can still decline rush or change it while quoting.
+        $rush = ! empty($validated['rush_requested']) && $store->rush_available;
+        $rushFee = $rush ? \App\Support\RushFee::amount($store, $request->user()->id, $subtotal, $quantity) : 0.0;
+        $totalAmount = round($subtotal + $rushFee, 2);
 
         // standard_size is the key OrderReadiness::measurementsRecorded() reads for "the shop has
         // something to cut by"; a bulk order keeps its size_breakdown instead and the shop signs
@@ -847,17 +671,24 @@ class JobOrderController extends Controller
             'individual_measurements' => $measurements,
             'size_breakdown' => $sizeBreakdown,
             'measurement_sheets' => $sheets ?: null,
-            'team_name' => $sizeBreakdown ? (trim((string) ($validated['team_name'] ?? '')) ?: null) : null,
-            'wearer_name' => $sizeBreakdown ? null : (trim((string) ($validated['wearer_name'] ?? '')) ?: null),
+            'team_name' => $roster !== null ? (trim((string) ($validated['team_name'] ?? '')) ?: null) : null,
+            'team_roster' => $roster,
+            'people_count' => $roster !== null ? count($roster) : null,
+            'roster_unit' => $roster !== null ? ($validated['roster_unit'] ?? 'in') : null,
+            'wearer_name' => $roster !== null ? null : (trim((string) ($validated['wearer_name'] ?? '')) ?: null),
             ...$optionSnapshot,
             'standard_size' => $standardSize,
             'measure_area' => $area,
             'size_breakdown_bottom' => $sizeBreakdownBottom ?: null,
             'customer_fabric' => $validated['material_source'] === 'customer_supplied' ? ($validated['material_description'] ?? null) : null,
+            // Same key the walk-in form uses for its fabric deduction (the total already has it taken off).
+            'own_fabric_deduction' => $fabricDeduction > 0 ? number_format($fabricDeduction, 2, '.', '') : null,
             'item_rate' => (string) $unitPrice,
             'payment_term' => $validated['payment_term'],
-            // The customer asks; the shop decides whether to take it as rush and sets the fee.
-            'rush_requested' => ! empty($validated['rush_requested']) ? 'Yes' : null,
+            'payment_method_preference' => $validated['payment_method'] ?? null,
+            'cut' => $roster === null ? ($validated['cut'] ?? null) : null,
+            'measurement_source' => $roster === null ? ($validated['measurement_source'] ?? null) : null,
+            'rush_requested' => $rush ? 'Yes' : null,
             'needed_by' => ! empty($validated['needed_by']) ? \Carbon\Carbon::parse($validated['needed_by'])->toDateString() : null,
         ], fn ($v) => $v !== null && $v !== '');
 
@@ -866,7 +697,7 @@ class JobOrderController extends Controller
         // prefers travels with the order as a note; the rules it runs under are snapshotted by JobOrder::booted.
 
         $orderNumber = $this->generateOrderNumber($store);
-        $jobOrder = DB::transaction(function () use ($store, $orderNumber, $branch, $customerId, $service, $measurementId, $quantity, $validated, $totalAmount, $sheets, $customOrderData) {
+        $jobOrder = DB::transaction(function () use ($store, $orderNumber, $branch, $customerId, $service, $measurementId, $quantity, $validated, $totalAmount, $sheets, $customOrderData, $rush, $rushFee, $design) {
             $jobOrder = $store->jobOrders()->create([
             'order_number' => $orderNumber,
             'tracking_code' => $this->generateTrackingCode($store, $orderNumber),
@@ -878,7 +709,13 @@ class JobOrderController extends Controller
             'quantity' => $quantity,
             // No garment_category: this order belongs to a service, and the legacy garment
             // taxonomy is left untouched rather than being forced into the 10 old values.
+            'catalog_item_id' => $design?->id,
             'material_source' => $validated['material_source'],
+            // "Have the shop measure me" etc. (one person only); the job page shows the measurement visit for 'shop'.
+            'measurement_source' => in_array($validated['measurement_source'] ?? null, JobOrder::MEASUREMENT_SOURCES, true) && ! isset($customOrderData['team_roster'])
+                ? $validated['measurement_source'] : null,
+            'is_rush' => $rush,
+            'rush_fee' => $rushFee,
             'total_amount' => $totalAmount,
             'balance' => $totalAmount,
             'payment_status' => 'unpaid',
@@ -904,7 +741,10 @@ class JobOrderController extends Controller
         // The customer typed these measurements themselves — the profile they become is marked
         // theirs. An explicitly linked saved profile is kept as-is, never re-versioned behind
         // the customer's back.
-        if (! $measurementId) {
+        if ($roster !== null) {
+            // Each Custom Fit person's measurements become their own profile on the customer's account.
+            JobMeasurementSync::syncRoster($store, $jobOrder, 'customer');
+        } elseif (! $measurementId) {
             JobMeasurementSync::syncForJob($store, $jobOrder, 'customer');
         }
 
@@ -915,6 +755,25 @@ class JobOrderController extends Controller
         $this->notifyManagersOfOnlineOrder($store, $jobOrder);
 
         return response()->json(['success' => true, 'data' => $jobOrder], 201);
+    }
+
+    /**
+     * "New Job Order Created" for an order the shop wrote up: the owner, plus the managers of the branch the order
+     * belongs to (never other branches' managers). The notification carries the branch (notifications.branch_id), so
+     * the owner's bell shows it under that branch when they switch to it (NotificationController::feed).
+     */
+    private function notifyNewJobOrder(Store $store, JobOrder $jobOrder): void
+    {
+        $recipients = collect([$store->owner]);
+        if ($jobOrder->store_branch_id) {
+            $recipients = $recipients->merge(User::whereHas('staffProfile', fn ($q) => $q->where('store_id', $store->id)
+                ->where('store_branch_id', $jobOrder->store_branch_id)
+                ->where('is_branch_manager', true))->get());
+        }
+
+        foreach ($recipients->filter()->unique('id') as $user) {
+            SafeNotify::send($user, new NewJobOrderNotification($jobOrder));
+        }
     }
 
     /**
@@ -951,6 +810,12 @@ class JobOrderController extends Controller
             'data' => [
                 'payment_policy' => $requirements['payment_policy'],
                 'payment_policy_percent' => $requirements['payment_policy_percent'],
+                // What rush adds for this customer (half for a repeat customer); 0 when the shop takes no rush orders.
+                'rush_available' => (bool) $store->rush_available,
+                // percent: rush_fee_percent of the price · per_piece: rush_fee_per_piece pesos for every piece.
+                'rush_fee_mode' => $store->rush_fee_mode === 'per_piece' ? 'per_piece' : 'percent',
+                'rush_fee_percent' => \App\Support\RushFee::percentFor($store, $request->user()->id),
+                'rush_fee_per_piece' => \App\Support\RushFee::perPieceFor($store, $request->user()->id),
             ],
         ]);
     }
@@ -1265,11 +1130,7 @@ class JobOrderController extends Controller
         // holds a customer-type classification (b2b_suki/reseller/walk_in_retail),
         // not a repeat-customer flag, so it isn't the right signal for this.
         if (! empty($validated['is_rush']) && empty($validated['rush_fee']) && $totalAmount > 0) {
-            $priorJobCount = JobOrder::where('store_id', $store->id)
-                ->where('customer_id', $validated['customer_id'])
-                ->count();
-            $rushFeePercent = $priorJobCount >= 3 ? 0.15 : 0.30;
-            $validated['rush_fee'] = round($totalAmount * $rushFeePercent, 2);
+            $validated['rush_fee'] = \App\Support\RushFee::amount($store, (int) $validated['customer_id'], (float) $totalAmount, (int) ($validated['quantity'] ?? 1));
         }
 
         // Resolve the linked appointment (if any) before creating the job so its
@@ -1418,11 +1279,8 @@ class JobOrderController extends Controller
 
         $jobOrder->load(['customer:id,name', 'service', 'assignedStaff:id,name', 'staffStages', 'catalogItem:id,name,fabric_image_url', 'catalogItem.images']);
 
-        // Notify store owner of the new job order
-        $storeOwner = $store->owner;
-        if ($storeOwner) {
-            $storeOwner->notify(new NewJobOrderNotification($jobOrder));
-        }
+        // The owner and the managers of the order's branch hear about it (the bell follows the branch selector).
+        $this->notifyNewJobOrder($store, $jobOrder);
         // The customer hears it was written up, with the code to follow it (their extra orders are listed on the same page).
         $more = count($extraOrders);
         SafeNotify::send($jobOrder->customer()->first(), new \App\Notifications\OrderUpdateNotification(
@@ -1468,6 +1326,9 @@ class JobOrderController extends Controller
         $jobOrder->customer_job_count = $jobOrder->customer_id
             ? JobOrder::where('store_id', $store->id)->where('customer_id', $jobOrder->customer_id)->count()
             : 0;
+
+        // "Have the shop measure me": has a measurement visit been booked yet?
+        $jobOrder->measurement_visit = $jobOrder->measurementVisit();
 
         // A job order pins measurement_id at creation and nothing ever
         // re-points it — Measurement::update() always closes out the old
@@ -1536,6 +1397,11 @@ class JobOrderController extends Controller
         if ($newStatus === 'cancelled' && $oldStatus !== 'cancelled') {
             return response()->json(['success' => false, 'message' => 'Use Cancel this order.'], 422);
         }
+        // An online garment-work request is not worked on until the shop has checked the garment it received
+        // (and, when it differs, the customer accepted the new price). See App\Support\GarmentCheck.
+        if ($newStatus !== $oldStatus && ($stop = \App\Support\GarmentCheck::blocker($jobOrder, $newStatus))) {
+            return response()->json(['success' => false, 'message' => $stop], 422);
+        }
         // Ordering-flow orders (not repairs) follow the workflow sequence: ... -> Quality Check -> Ready for
         // Final Fitting / Collection -> Customer Fitting -> Adjustment -> Balance & Handover -> Completed.
         // The customer is invited to the fitting/collection when the order becomes Ready for Final Fitting /
@@ -1553,11 +1419,7 @@ class JobOrderController extends Controller
             ! empty($validated['is_rush']) && ! $jobOrder->is_rush
             && ! isset($validated['rush_fee']) && (float) $jobOrder->total_amount > 0
         ) {
-            $priorJobCount = JobOrder::where('store_id', $jobOrder->store_id)
-                ->where('customer_id', $jobOrder->customer_id)
-                ->count();
-            $rushFeePercent = $priorJobCount >= 3 ? 0.15 : 0.30;
-            $validated['rush_fee'] = round((float) $jobOrder->total_amount * $rushFeePercent, 2);
+            $validated['rush_fee'] = \App\Support\RushFee::amount($store, $jobOrder->customer_id, (float) $jobOrder->total_amount, (int) $jobOrder->quantity);
         }
 
         // Server-side backstop for the same "No DP, No Cut" / "No Balance, No Claim"
@@ -1688,14 +1550,29 @@ class JobOrderController extends Controller
         // $newStatus, so a request that simultaneously advances the job
         // into production can't launder a stale-snapshot swap through the
         // same call.
+        // Attaching the *first* measurements (an order taken as "have the shop
+        // measure me") swaps nothing out, so it's allowed at any stage.
         if (
             array_key_exists('measurement_id', $validated)
+            && $jobOrder->measurement_id !== null
             && (int) ($validated['measurement_id'] ?? 0) !== (int) $jobOrder->measurement_id
             && in_array($oldStatus, JobOrder::STAGES_REQUIRING_DOWNPAYMENT, true)
         ) {
             return response()->json([
                 'success' => false,
                 'message' => 'This job has already started production — its measurement snapshot is locked and can no longer be switched to a different version.',
+            ], 422);
+        }
+
+        // The form request only checks the measurement is this shop's; it must also be this order's customer's.
+        if (
+            ! empty($validated['measurement_id'])
+            && $jobOrder->customer_id
+            && ! Measurement::where('id', $validated['measurement_id'])->where('customer_id', $jobOrder->customer_id)->exists()
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => "Those measurements belong to a different customer. Pick one of this customer's profiles.",
             ], 422);
         }
 
@@ -2157,41 +2034,50 @@ class JobOrderController extends Controller
         $validated = $request->validate([
             'amount' => 'required|numeric|min:0.01',
             'reason' => 'nullable|string|max:500',
+            // fabric = the customer brought their own fabric. Same balance effect as a discount, but
+            // recorded as a fabric deduction (own_fabric_deduction_after) so receipts and reports can name it.
+            'kind' => 'nullable|in:discount,fabric',
         ]);
 
         $discountAmount = (float) $validated['amount'];
+        $isFabric = ($validated['kind'] ?? 'discount') === 'fabric';
 
         try {
-            DB::transaction(function () use ($jobOrder, $discountAmount, $validated, $request) {
+            DB::transaction(function () use ($jobOrder, $discountAmount, $validated, $request, $isFabric) {
                 $locked = JobOrder::where('id', $jobOrder->id)->lockForUpdate()->firstOrFail();
 
                 $currentBalance = (float) $locked->balance;
                 if ($discountAmount > $currentBalance) {
-                    throw new \RuntimeException('Discount cannot exceed the remaining balance (₱'.number_format($currentBalance, 2).').');
+                    throw new \RuntimeException(($isFabric ? 'The fabric deduction' : 'Discount').' cannot exceed the remaining balance (₱'.number_format($currentBalance, 2).').');
                 }
 
                 $newBalance = round($currentBalance - $discountAmount, 2);
                 $newDiscountTotal = round((float) ($locked->discount_amount ?? 0) + $discountAmount, 2);
 
+                $data = (array) $locked->custom_order_data;
+                if ($isFabric) {
+                    $data['own_fabric_deduction_after'] = number_format(round((float) ($data['own_fabric_deduction_after'] ?? 0) + $discountAmount, 2), 2, '.', '');
+                } elseif (! empty($validated['reason'])) {
+                    // The reason is shown on the receipt too ("bulk 20 pcs"); the audit log below keeps every one.
+                    $data['discount_reason'] = $validated['reason'];
+                }
+
                 $locked->update([
                     'balance' => $newBalance,
                     'discount_amount' => $newDiscountTotal,
                     'payment_status' => $newBalance <= 0 ? 'paid' : $locked->payment_status,
-                    // The reason is shown on the receipt too ("bulk 20 pcs"); the audit log below keeps every one.
-                    'custom_order_data' => ! empty($validated['reason'])
-                        ? array_merge((array) $locked->custom_order_data, ['discount_reason' => $validated['reason']])
-                        : $locked->custom_order_data,
+                    'custom_order_data' => $data ?: null,
                 ]);
 
                 $store = $locked->store;
                 $store->auditLogs()->create([
                     'user_id' => $request->user()->id,
-                    'action' => 'discount_applied',
+                    'action' => $isFabric ? 'fabric_deduction_applied' : 'discount_applied',
                     'model_type' => JobOrder::class,
                     'model_id' => $locked->id,
                     'payload' => [
                         'amount' => $discountAmount,
-                        'reason' => $validated['reason'] ?? null,
+                        'reason' => $validated['reason'] ?? ($isFabric ? "Customer's own fabric" : null),
                     ],
                     'ip_address' => $request->ip(),
                 ]);
@@ -2202,7 +2088,7 @@ class JobOrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Discount applied successfully.',
+            'message' => $isFabric ? 'Fabric deduction applied.' : 'Discount applied successfully.',
             'data' => $jobOrder->fresh(['customer', 'service', 'assignedStaff', 'payments.recordedBy:id,name', 'staffStages']),
         ]);
     }
@@ -2294,6 +2180,11 @@ class JobOrderController extends Controller
             'waive' => 'required|boolean',
             'reason' => 'required_if:waive,true|nullable|string|max:500',
         ]);
+        // Shop rule: production starts only after at least half is paid, so a made-to-order job's deposit cannot be waived.
+        if ($validated['waive'] && ! $jobOrder->isRepairOnly()) {
+            return response()->json(['success' => false, 'message' => 'Production starts only after the customer pays at least '
+                .\App\Support\OrderRequirements::MIN_DEPOSIT_PERCENT.'%. The deposit cannot be waived.'], 422);
+        }
 
         if (in_array($jobOrder->status, JobOrder::STAGES_REQUIRING_DOWNPAYMENT, true)
             || in_array($jobOrder->status, ['completed', 'cancelled', 'rejected'], true)) {

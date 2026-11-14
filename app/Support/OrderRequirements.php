@@ -22,14 +22,20 @@ class OrderRequirements
 
     public const PAYMENT = ['none', 'full', 'deposit', 'custom'];
 
+    /** What an owner can choose. "Pay at pick-up" is gone: production never starts on less than MIN_DEPOSIT_PERCENT. */
+    public const PAYMENT_CHOICES = ['full', 'deposit', 'custom'];
+
+    /** Shop rule (2026-11-15): a made-to-order job, walk-in or online, starts production only after at least half is paid. */
+    public const MIN_DEPOSIT_PERCENT = 50;
+
     /** Validation rules for the nullable offering-level fields (service/design). */
     public static function offeringRules(): array
     {
         return [
             'measurement_requirement' => ['nullable', Rule::in(self::MEASUREMENT)],
             'fitting_requirement' => ['nullable', Rule::in(self::FITTING)],
-            'payment_policy' => ['nullable', Rule::in(self::PAYMENT)],
-            'payment_policy_percent' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'payment_policy' => ['nullable', Rule::in(self::PAYMENT_CHOICES)],
+            'payment_policy_percent' => ['nullable', 'integer', 'min:'.self::MIN_DEPOSIT_PERCENT, 'max:100'],
         ];
     }
 
@@ -40,8 +46,8 @@ class OrderRequirements
             'default_measurement_requirement' => ['sometimes', Rule::in(self::MEASUREMENT)],
             'default_measurement_unit' => ['sometimes', Rule::in(['in', 'cm'])],
             'default_fitting_requirement' => ['sometimes', Rule::in(self::FITTING)],
-            'default_payment_policy' => ['sometimes', Rule::in(self::PAYMENT)],
-            'default_payment_percent' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'default_payment_policy' => ['sometimes', Rule::in(self::PAYMENT_CHOICES)],
+            'default_payment_percent' => ['sometimes', 'integer', 'min:'.self::MIN_DEPOSIT_PERCENT, 'max:100'],
         ];
     }
 
@@ -81,29 +87,19 @@ class OrderRequirements
 
     /**
      * The requirements a specific customer's online order runs under: the resolved hierarchy
-     * with the trusted-customer waiver applied. A trusted customer owes nothing up front,
-     * but may still choose to pay in full — that voluntary choice is charged in full.
+     * Trust no longer waives the deposit: every made-to-order job needs MIN_DEPOSIT_PERCENT before production.
      *
      * @return array{measurement_requirement:string,fitting_requirement:string,payment_policy:string,payment_policy_percent:int}
      */
     public static function forCustomer(Store $store, array $chain, int $customerId): array
     {
-        $resolved = self::resolve($store, $chain);
-        if ($resolved['payment_policy'] !== 'none' && $store->isTrustedCustomer($customerId)) {
-            $resolved['payment_policy'] = 'none';
-            $resolved['payment_policy_percent'] = 0;
-        }
-
-        return $resolved;
+        return self::resolve($store, $chain);
     }
 
     /** Share of the amount due that must be paid before production. */
     public static function depositFraction(string $policy, int $percent): float
     {
-        return match ($policy) {
-            'none' => 0.0,
-            'full' => 1.0,
-            default => max(1, min(100, $percent)) / 100,
-        };
+        // 'none' (pay at pick-up) and anything under the minimum are read as the minimum: older settings cannot skip it.
+        return $policy === 'full' ? 1.0 : max(self::MIN_DEPOSIT_PERCENT, min(100, $percent)) / 100;
     }
 }
