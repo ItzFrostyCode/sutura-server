@@ -117,6 +117,11 @@ class OrderFlowController extends Controller
 
         $v = $request->validate([
             'base_price' => 'required|numeric|min:0|max:9999999',
+            // The price line by line when people on the order get different options (8 sets + 2 blouses); they add up to base_price.
+            'price_lines' => 'nullable|array|max:50',
+            'price_lines.*.label' => 'required|string|max:120',
+            'price_lines.*.unit' => 'required|numeric|min:0|max:9999999',
+            'price_lines.*.qty' => 'required|integer|min:1|max:500',
             'quantity_adjustment' => 'nullable|numeric|min:-9999999|max:9999999',
             'additional_charges' => 'nullable|array|max:20',
             'additional_charges.*.label' => 'required|string|max:80',
@@ -134,6 +139,10 @@ class OrderFlowController extends Controller
             'reason' => 'nullable|string|max:255',
         ]);
 
+        $lines = array_values(array_map(fn ($l) => ['label' => trim($l['label']), 'unit' => round((float) $l['unit'], 2), 'qty' => (int) $l['qty']], $v['price_lines'] ?? []));
+        if ($lines !== [] && abs(array_sum(array_map(fn ($l) => $l['unit'] * $l['qty'], $lines)) - (float) $v['base_price']) > 0.01) {
+            return response()->json(['success' => false, 'message' => 'The price lines do not add up to the price. Check each line.', 'errors' => ['price_lines' => ['They must add up to the price.']]], 422);
+        }
         $q = OrderQuotation::normalize($v);
         $dueDate = $v['due_date'] ?? null;
 
@@ -167,6 +176,13 @@ class OrderFlowController extends Controller
         }
         if (! $jobOrder->shop_accepted_at) {
             $jobOrder->forceFill(['shop_accepted_at' => now(), 'shop_accepted_by' => $request->user()->id])->save();
+        }
+        // The lines the price was built from travel with the order, so the customer and the next edit read the same lines.
+        if (array_key_exists('price_lines', $v)) {
+            $jobOrder->refresh();
+            $data = (array) $jobOrder->custom_order_data;
+            $data['price_lines'] = count($lines) > 1 ? $lines : null;
+            $jobOrder->forceFill(['custom_order_data' => array_filter($data, fn ($x) => $x !== null)])->save();
         }
         $this->logOrderAction($request, $store, $jobOrder, 'order_quotation_saved', [
             'status' => $v['status'], 'total' => $q['total'], 'version' => $result['version'], 'reason' => $reason !== '' ? $reason : null,

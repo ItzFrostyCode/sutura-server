@@ -340,13 +340,16 @@ class JobOrderController extends Controller
             'roster' => 'required_if:order_mode,bulk|array|max:500',
             'roster.*.player_name' => 'required|string|max:100',
             'roster.*.measure_area' => 'nullable|in:top,bottom,both',
+            // This person's own option (Complete set / Blouse only...); empty = the order's option.
+            'roster.*.pricing_id' => 'nullable|integer',
             'roster.*.size' => 'required|string|max:50',
             'roster.*.bottom_size' => 'nullable|string|max:50',
             'roster.*.fit_metrics' => 'nullable|array',
             // The service's own list columns (Jersey Number, Position…), keyed by the column's label.
             'roster.*.extra' => 'nullable|array',
             'roster.*.extra.*' => 'nullable|string|max:100',
-            'roster.*.fit_metrics.*' => 'nullable|numeric|min:0|max:200',
+            // A number, optionally with its unit ("90 cm") when that one value was typed in the other unit.
+            'roster.*.fit_metrics.*' => ['nullable', 'regex:/^\s*\d+(\.\d+)?\s*(in|cm)?\s*$/i'],
             'roster_unit' => 'nullable|in:in,cm',
             'team_name' => 'nullable|string|max:255',
             // Who will wear it when that is not the customer (a child, a relative): keeps their measurements apart from the customer's own.
@@ -437,11 +440,13 @@ class JobOrderController extends Controller
                 if ($value === null || $value === '') {
                     continue;
                 }
-                if (! is_numeric($value) || $value <= 0 || $value > 200) {
+                // Inches go up to 80 and centimeters up to 200 (the same limits as the order form).
+                $max = ($measurements['unit'] ?? 'in') === 'cm' ? 200 : 80;
+                if (! is_numeric($value) || $value <= 0 || $value > $max) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'Measurements must be numbers between 0 and 200.',
-                        'errors' => ["individual_measurements.$key" => ['Enter a number between 0 and 200.']],
+                        'message' => "Measurements must be above 0 and at most {$max} {$measurements['unit']}.",
+                        'errors' => ["individual_measurements.$key" => ["Enter a number from 0 to {$max}."]],
                     ], 422);
                 }
                 $measurements[$key] = (string) (0 + $value);
@@ -457,6 +462,7 @@ class JobOrderController extends Controller
         $sizeBreakdown = null;
         $sizeBreakdownBottom = null;
         $roster = null;
+        $rowPricings = [];
         // A team / uniform service sold by the batch (its only order type is bulk) takes group orders only.
         if ($validated['order_mode'] === 'individual' && $service->service_types === [Service::TYPE_BULK_SUBLIMATION]) {
             return response()->json(['success' => false, 'message' => 'This service is for group orders: list each person with their size.'], 422);
@@ -477,8 +483,23 @@ class JobOrderController extends Controller
             }
             $roster = [];
             foreach ($rows as $i => $row) {
-                $rowArea = $areaLocked ? $area : (($row['measure_area'] ?? null) ?: $area);
                 $who = 'Person '.($i + 1).' ('.trim($row['player_name']).')';
+                // Each person may have their own option; it is read from the service here, never trusted from the client,
+                // and when it says what it covers, that is what this person gets.
+                $rowPricing = $pricing;
+                if (! empty($row['pricing_id'])) {
+                    $rowPricing = $service->pricing->firstWhere('id', (int) $row['pricing_id']);
+                    if (! $rowPricing) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "{$who}: that option is no longer offered. Pick another.",
+                            'errors' => ["roster.$i.pricing_id" => ['Pick another option.']],
+                        ], 422);
+                    }
+                }
+                $rowCovers = $rowPricing && in_array($rowPricing->covers, ServicePricing::COVERS, true) ? $rowPricing->covers : null;
+                $rowArea = $rowCovers ?? ($areaLocked ? $area : (($row['measure_area'] ?? null) ?: $area));
+                $rowPricings[$i] = $rowPricing;
                 $top = trim((string) $row['size']);
                 $bottom = trim((string) ($row['bottom_size'] ?? ''));
                 if ($rowArea === 'both' && $bottom === '') {
@@ -490,6 +511,18 @@ class JobOrderController extends Controller
                 }
                 $custom = $top === JobOrder::CUSTOM_SIZE || $bottom === JobOrder::CUSTOM_SIZE;
                 $fit = $custom ? array_filter((array) ($row['fit_metrics'] ?? []), fn ($v) => $v !== null && $v !== '') : [];
+                // Inches go up to 80 and centimeters up to 200 (a point labelled "(cm)" was typed in cm).
+                foreach ($fit as $point => $value) {
+                    $own = strtolower(trim(preg_replace('/^[\d.\s]+/', '', (string) $value)));
+                    $inCm = $own === 'cm' || ($own === '' && ($validated['roster_unit'] ?? 'in') === 'cm');
+                    if ((float) $value <= 0 || (float) $value > ($inCm ? 200 : 80)) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "{$who}: {$point} is {$value}, too big for ".($inCm ? 'centimeters (max 200).' : 'inches (max 80). Is it in cm?'),
+                            'errors' => ["roster.$i.fit_metrics" => ['Check this measurement.']],
+                        ], 422);
+                    }
+                }
                 if ($custom && $fit === []) {
                     return response()->json([
                         'success' => false,
@@ -517,6 +550,10 @@ class JobOrderController extends Controller
                 $roster[] = array_filter([
                     'player_name' => trim($row['player_name']),
                     ...$columns,
+                    // The option this person ordered, by name, so the shop's list reads "Complete set" / "Blouse only".
+                    'option' => $rowPricing && $service->pricing->count() > 1 ? $rowPricing->label : null,
+                    // What one of this person's pieces is (a set = a top and a bottom); counts the garments to hand over.
+                    'sold_as' => $rowPricing && $service->pricing->count() > 1 ? $rowPricing->sold_as : null,
                     'measure_area' => $rowArea,
                     'size' => $top,
                     'bottom_size' => $rowArea === 'both' ? $bottom : null,
@@ -639,22 +676,44 @@ class JobOrderController extends Controller
             }
         }
 
-        $unitPrice = $pricing && $pricing->amount !== null ? (float) $pricing->amount : $service->effectivePrice();
-        if ($design) {
-            $dp = DesignPricing::resolve($design, $service);
-            $unitPrice = match (true) {
-                $dp['needs_quote'] => 0.0,
-                $dp['mode'] === 'set' => (float) ($dp['amount'] ?? $unitPrice),
-                $dp['mode'] === 'extra' => $unitPrice + (float) ($dp['extra_charge'] ?? 0),
-                default => $unitPrice,
+        // The price of one of an option: the option's own price, else the service's; a picked design then replaces it,
+        // adds to it or asks for a quote (the client works it out the same way: orderLines.ts unitFor).
+        $dp = $design ? DesignPricing::resolve($design, $service) : null;
+        $unitOf = function (?ServicePricing $p) use ($service, $dp): float {
+            $unit = $p && $p->amount !== null ? (float) $p->amount : (float) $service->effectivePrice();
+
+            return match (true) {
+                $dp === null => $unit,
+                (bool) $dp['needs_quote'] => 0.0,
+                $dp['mode'] === 'set' => (float) ($dp['amount'] ?? $unit),
+                $dp['mode'] === 'extra' => $unit + (float) ($dp['extra_charge'] ?? 0),
+                default => $unit,
             };
+        };
+        // The bill as lines: one line for one person; for a group, one line per option with the people on it. Each person
+        // is charged by their own option, never one price for everyone.
+        $priceLines = [];
+        if ($roster !== null) {
+            foreach (array_keys($roster) as $i) {
+                $p = $rowPricings[$i] ?? $pricing;
+                $unit = $unitOf($p);
+                $label = $p?->label ?? $service->name;
+                $key = $label.'|'.$unit;
+                $priceLines[$key] ??= ['label' => $label, 'unit' => $unit, 'qty' => 0];
+                $priceLines[$key]['qty']++;
+            }
+            $priceLines = array_values($priceLines);
+        } else {
+            $priceLines = [['label' => $pricing?->label ?? $service->name, 'unit' => $unitOf($pricing), 'qty' => $quantity]];
         }
-        // Own fabric: the service's per-piece deduction comes off the price (never below ₱0).
-        $fabricEach = $validated['material_source'] === 'customer_supplied'
-            ? min((float) ($service->own_fabric_deduction ?? 0), $unitPrice)
-            : 0.0;
-        $fabricDeduction = round($fabricEach * $quantity, 2);
-        $subtotal = round(($unitPrice - $fabricEach) * $quantity, 2);
+        // A line with no price (a quoted design, an option priced at quotation) leaves the whole order for the shop to price.
+        $quotedLine = collect($priceLines)->contains(fn ($l) => $l['unit'] <= 0);
+        // Own fabric: the service's per-piece deduction comes off each piece's price (never below 0).
+        $fabricOff = $validated['material_source'] === 'customer_supplied' ? (float) ($service->own_fabric_deduction ?? 0) : 0.0;
+        $fabricDeduction = $quotedLine ? 0.0 : round(array_sum(array_map(fn ($l) => min($fabricOff, $l['unit']) * $l['qty'], $priceLines)), 2);
+        $subtotal = $quotedLine ? 0.0 : round(array_sum(array_map(fn ($l) => $l['unit'] * $l['qty'], $priceLines)) - $fabricDeduction, 2);
+        $units = array_values(array_unique(array_map(fn ($l) => $l['unit'], $priceLines)));
+        $unitPrice = count($units) === 1 ? $units[0] : null;
         // Rush: the shop's rush percentage of the price, added to the total now, so the customer sees the same number
         // here, on the quotation and on the deposit. The shop can still decline rush or change it while quoting.
         $rush = ! empty($validated['rush_requested']) && $store->rush_available;
@@ -683,7 +742,9 @@ class JobOrderController extends Controller
             'customer_fabric' => $validated['material_source'] === 'customer_supplied' ? ($validated['material_description'] ?? null) : null,
             // Same key the walk-in form uses for its fabric deduction (the total already has it taken off).
             'own_fabric_deduction' => $fabricDeduction > 0 ? number_format($fabricDeduction, 2, '.', '') : null,
-            'item_rate' => (string) $unitPrice,
+            // One price for everyone (the walk-in form and the quotation read it), or the lines when people differ.
+            'item_rate' => $unitPrice !== null ? (string) $unitPrice : null,
+            'price_lines' => count($priceLines) > 1 ? $priceLines : null,
             'payment_term' => $validated['payment_term'],
             'payment_method_preference' => $validated['payment_method'] ?? null,
             'cut' => $roster === null ? ($validated['cut'] ?? null) : null,
@@ -997,7 +1058,20 @@ class JobOrderController extends Controller
             if (in_array($option->covers, ServicePricing::COVERS, true)) {
                 $validated['custom_order_data']['measure_area'] = $option->covers;
                 if (is_array($validated['custom_order_data']['team_roster'] ?? null)) {
-                    $validated['custom_order_data']['team_roster'] = array_map(fn ($row) => is_array($row) ? [...$row, 'measure_area' => $option->covers] : $row, $validated['custom_order_data']['team_roster']);
+                    // When the service prices each part (sets for most, blouses for some), a person keeps the part they
+                    // were given, as long as an option offers it, and is labelled with that option. Otherwise everyone
+                    // gets the order's option (same rule as the online order).
+                    $parts = $service->pricing()->whereIn('covers', ServicePricing::COVERS)->get();
+                    $perPerson = $parts->count() > 1;
+                    $validated['custom_order_data']['team_roster'] = array_map(function ($row) use ($option, $parts, $perPerson) {
+                        if (! is_array($row)) {
+                            return $row;
+                        }
+                        $mine = $perPerson ? ($option->covers === ($row['measure_area'] ?? null) ? $option : $parts->firstWhere('covers', $row['measure_area'] ?? null)) : null;
+                        $use = $mine ?? $option;
+
+                        return [...$row, 'measure_area' => $use->covers, 'option' => $perPerson ? $use->label : ($row['option'] ?? null), 'sold_as' => $perPerson ? $use->sold_as : ($row['sold_as'] ?? null)];
+                    }, $validated['custom_order_data']['team_roster']);
                 }
             }
         }

@@ -211,6 +211,50 @@ class CustomerServiceOrderTest extends TestCase
         $this->assertSame(['M' => 1, 'S' => 1], $job->custom_order_data['size_breakdown_bottom'], 'Bottoms: Ben and Cy');
     }
 
+    /** "Babayaran separate by person": each person is charged by their own option, and the bill keeps a line per option. */
+    public function test_each_person_on_a_group_pays_for_their_own_option(): void
+    {
+        $this->service->update(['capabilities' => ['bulk_orders', 'custom_measured_uniform'], 'min_order_qty' => 3]);
+        $set = \App\Models\ServicePricing::create(['service_id' => $this->service->id, 'label' => 'Complete set', 'amount' => 1150, 'covers' => 'both', 'sold_as' => 'set']);
+        $blouse = \App\Models\ServicePricing::create(['service_id' => $this->service->id, 'label' => 'Blouse only', 'amount' => 600, 'covers' => 'top', 'sold_as' => 'garment']);
+
+        $job = JobOrder::findOrFail($this->order(['order_mode' => 'bulk', 'pricing_id' => $set->id, 'roster' => [
+            ['player_name' => 'Ana', 'size' => 'M', 'bottom_size' => 'M'],
+            ['player_name' => 'Ben', 'size' => 'L', 'bottom_size' => 'L'],
+            ['player_name' => 'Cy', 'pricing_id' => $blouse->id, 'measure_area' => 'both', 'size' => 'S'],
+        ]])->assertStatus(201)->json('data.id'));
+
+        $this->assertSame(2900.0, (float) $job->total_amount, '2 sets and 1 blouse, not 3 sets');
+        $this->assertEquals([['label' => 'Complete set', 'unit' => 1150.0, 'qty' => 2], ['label' => 'Blouse only', 'unit' => 600.0, 'qty' => 1]], $job->custom_order_data['price_lines']);
+        $rows = $job->custom_order_data['team_roster'];
+        $this->assertSame(['both', 'both', 'top'], array_column($rows, 'measure_area'), 'The part follows the option, whatever the client sent');
+        $this->assertSame('Blouse only', $rows[2]['option']);
+        $this->assertArrayNotHasKey('item_rate', $job->custom_order_data, 'No single price when people differ');
+
+        $other = \App\Models\ServicePricing::create(['service_id' => Service::create(['store_id' => $this->store->id, 'name' => 'Other', 'base_price' => 1])->id, 'label' => 'Elsewhere', 'amount' => 1]);
+        $this->order(['order_mode' => 'bulk', 'pricing_id' => $set->id, 'roster' => [
+            ['player_name' => 'Ana', 'size' => 'M', 'bottom_size' => 'M'], ['player_name' => 'Ben', 'size' => 'L', 'bottom_size' => 'L'],
+            ['player_name' => 'Cy', 'pricing_id' => $other->id, 'size' => 'S'],
+        ]])->assertStatus(422)->assertJsonValidationErrors('roster.2.pricing_id');
+    }
+
+    public function test_measurements_in_inches_stop_at_80(): void
+    {
+        // A group person's value may carry its own unit ("90 cm"); a plain number is in the group's unit.
+        $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 2]);
+        $group = fn (array $fit) => $this->order(['order_mode' => 'bulk', 'roster' => [
+            ['player_name' => 'Ana', 'size' => 'Custom Fit', 'fit_metrics' => $fit],
+            ['player_name' => 'Ben', 'size' => 'M'],
+        ]]);
+        $job = JobOrder::findOrFail($group(['Chest' => 38, 'Waist' => '90 cm'])->assertStatus(201)->json('data.id'));
+        $this->assertSame('90 cm', $job->custom_order_data['team_roster'][0]['fit_metrics']['Waist'] ?? \App\Models\Measurement::find($job->custom_order_data['team_roster'][0]['measurement_id'])->metrics['Waist']);
+        $group(['Chest' => 95])->assertStatus(422);
+        $group(['Chest' => '150 cm'])->assertStatus(201);
+
+        $this->order(['individual_measurements' => ['unit' => 'in', 'chest' => 95]])->assertStatus(422)->assertJsonValidationErrors('individual_measurements.chest');
+        $this->order(['individual_measurements' => ['unit' => 'cm', 'chest' => 95]])->assertStatus(201);
+    }
+
     public function test_a_service_sold_only_by_the_batch_takes_no_one_person_orders(): void
     {
         $this->service->update(['capabilities' => ['bulk_orders'], 'min_order_qty' => 2, 'service_types' => [Service::TYPE_BULK_SUBLIMATION]]);

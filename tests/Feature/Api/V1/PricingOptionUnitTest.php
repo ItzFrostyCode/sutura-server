@@ -214,4 +214,15 @@ class PricingOptionUnitTest extends TestCase
         $this->assertSame(8, $job->garmentCount(), '8 physical garments to hand over');
         $this->assertSame(['both', 'both'], array_column($job->custom_order_data['team_roster'], 'measure_area'), 'The option sets the coverage of every person');
     }
+
+    /** A walk-in team may mix options when each part has its own price: each person keeps their part and is counted by it. */
+    public function test_a_walk_in_team_can_mix_sets_and_tops(): void
+    {
+        $team = [['name' => 'Ana', 'size' => 'M', 'bottom_size' => 'L', 'measure_area' => 'both'], ['name' => 'Ben', 'size' => 'S', 'measure_area' => 'top', 'qty' => 2]];
+        $job = JobOrder::findOrFail($this->shopOrder(['pricing_id' => $this->set->id], ['team_roster' => $team])->assertStatus(201)->json('data.id'));
+        $rows = $job->custom_order_data['team_roster'];
+        $this->assertSame(['both', 'top'], array_column($rows, 'measure_area'));
+        $this->assertSame(['Uniform set', 'Top only'], array_column($rows, 'option'));
+        $this->assertSame(4, $job->garmentCount(), 'Ana: 1 set = 2 garments; Ben: 2 tops = 2 garments');
+    }
 }

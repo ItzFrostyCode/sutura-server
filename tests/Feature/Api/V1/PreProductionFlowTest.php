@@ -141,6 +141,18 @@ class PreProductionFlowTest extends TestCase
         $this->assertSame('full', $job->fresh()->payment_policy);
     }
 
+    /** A price built from lines (8 sets, 2 blouses) must add up, and the lines stay with the order for the customer to read. */
+    public function test_a_quotation_by_lines_must_add_up_and_is_kept_on_the_order(): void
+    {
+        $job = $this->order();
+        $lines = [['label' => 'Complete set', 'unit' => 400, 'qty' => 10], ['label' => 'Blouse only', 'unit' => 500, 'qty' => 2]];
+        $this->quote($job, ['base_price' => 4800, 'price_lines' => $lines])->assertStatus(422)->assertJsonValidationErrors('price_lines');
+        $this->quote($job, ['base_price' => 5000, 'price_lines' => $lines])->assertOk();
+        $this->assertCount(2, $job->fresh()->custom_order_data['price_lines']);
+        $this->quote($job, ['base_price' => 5000, 'price_lines' => []])->assertOk();
+        $this->assertArrayNotHasKey('price_lines', (array) $job->fresh()->custom_order_data, 'One price again: no stale lines');
+    }
+
     /** Shop rule: production starts only after at least half is paid, walk-in or online. */
     public function test_production_never_starts_on_less_than_half_paid(): void
     {

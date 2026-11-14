@@ -217,6 +217,8 @@ class JobOrderTrackingController extends Controller
             'quotation_status' => $jobOrder->quotation_status,
             'breakdown' => $q ? [
                 'base_price' => $q['base_price'] ?? 0,
+                // Line by line when people got different options (8 sets; 2 blouses); null for one price.
+                'price_lines' => $jobOrder->custom_order_data['price_lines'] ?? null,
                 'quantity_adjustment' => $q['quantity_adjustment'] ?? 0,
                 'additional_charges' => $q['additional_charges'] ?? [],
                 'customer_provided_deduction' => $q['customer_provided_deduction'] ?? [],

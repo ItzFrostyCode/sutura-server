@@ -525,6 +525,14 @@ class JobOrder extends Model
     /** How many physical garments have to be handed over: the ordered quantity × the garments in one unit (2 for a set). */
     public function garmentCount(): int
     {
+        // A team whose people got different options (sets for most, a blouse for some): count each person's own pieces.
+        $roster = $this->custom_order_data['team_roster'] ?? null;
+        if (is_array($roster) && collect($roster)->contains(fn ($r) => is_array($r) && array_key_exists('sold_as', $r))) {
+            return (int) collect($roster)->sum(fn ($r) => is_array($r)
+                ? min(500, max(1, (int) ($r['qty'] ?? 1))) * (($r['sold_as'] ?? ($this->soldAsSet() ? 'set' : null)) === 'set' ? 2 : 1)
+                : 0);
+        }
+
         return $this->orderedQuantity() * $this->garmentsPerUnit();
     }
 
