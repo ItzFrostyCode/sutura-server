@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Laravel\Socialite\Contracts\User as SocialiteUser;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 
@@ -94,10 +95,13 @@ class GoogleAuthController extends Controller
             // password yet): Google has just proved the email belongs to
             // this person, and marking it set stops anyone else from
             // claiming it later through the register form.
+            // The account shows the Google photo, kept current each sign-in, unless the person uploaded their own.
+            $avatar = $this->googleAvatar($google);
+            $keepOwn = $user->profile_picture && ! $this->isGooglePhoto($user->profile_picture);
             $user->forceFill([
                 'google_id' => $google->getId(),
                 'password_set_at' => $user->password_set_at ?? now(),
-                'profile_picture' => $user->profile_picture ?: $google->getAvatar(),
+                'profile_picture' => $keepOwn ? $user->profile_picture : ($avatar ?? $user->profile_picture),
             ])->save();
             $event = ['signed_in', 'Signed in with Google'];
         } else {
@@ -107,7 +111,7 @@ class GoogleAuthController extends Controller
                 // They sign in with Google; "Forgot Password?" sets a real one.
                 'password' => Hash::make(Str::random(40)),
                 'password_set_at' => now(),
-                'profile_picture' => $google->getAvatar(),
+                'profile_picture' => $this->googleAvatar($google),
             ]);
             $user->forceFill(['google_id' => $google->getId()])->save();
             $event = ['account_registered', 'Created an account with Google'];
@@ -148,6 +152,25 @@ class GoogleAuthController extends Controller
                 'token' => $token,
             ],
         ]);
+    }
+
+    /** The Google account's photo at profile size: Google sends a 96px one (`…=s96-c`), blurry on the account page. */
+    private function googleAvatar(SocialiteUser $google): ?string
+    {
+        $url = $google->getAvatar();
+        if (! is_string($url) || $url === '') {
+            return null;
+        }
+
+        return preg_replace('/=s\d+(-c)?$/', '=s256-c', $url) ?? $url;
+    }
+
+    /** A photo that came from Google (not one the person uploaded), so a newer Google photo may replace it. */
+    private function isGooglePhoto(string $url): bool
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($host) && str_ends_with($host, '.googleusercontent.com');
     }
 
     /** Back to the web app's callback page; values ride in the URL fragment, which browsers never send to a server. */

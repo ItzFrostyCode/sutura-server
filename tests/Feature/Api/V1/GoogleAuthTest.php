@@ -28,10 +28,10 @@ class GoogleAuthTest extends TestCase
         ]);
     }
 
-    private function fakeGoogle(string $email, bool $verified = true, string $id = 'g-123'): void
+    private function fakeGoogle(string $email, bool $verified = true, string $id = 'g-123', ?string $avatar = null): void
     {
         $google = (new GoogleUser)->setRaw(['email_verified' => $verified])->map([
-            'id' => $id, 'name' => 'Maria Santos', 'email' => $email, 'avatar' => null,
+            'id' => $id, 'name' => 'Maria Santos', 'email' => $email, 'avatar' => $avatar,
         ]);
         $provider = Mockery::mock();
         $provider->shouldReceive('stateless')->andReturnSelf();
@@ -87,6 +87,45 @@ class GoogleAuthTest extends TestCase
         $params = $this->runCallback();
         $this->assertArrayHasKey('error', $params);
         $this->assertDatabaseMissing('users', ['email' => 'maria@gmail.com']);
+    }
+
+    public function test_new_google_user_gets_the_google_photo_at_profile_size(): void
+    {
+        $this->fakeGoogle('maria@gmail.com', avatar: 'https://lh3.googleusercontent.com/a/abc=s96-c');
+        $this->runCallback();
+
+        $this->assertSame('https://lh3.googleusercontent.com/a/abc=s256-c', User::where('email', 'maria@gmail.com')->value('profile_picture'));
+    }
+
+    public function test_existing_customer_without_a_photo_gets_the_google_photo(): void
+    {
+        $user = User::factory()->create(['email' => 'maria@gmail.com', 'profile_picture' => null]);
+        $user->roles()->attach(Role::where('name', 'customer')->first()->id);
+        $this->fakeGoogle('maria@gmail.com', avatar: 'https://lh3.googleusercontent.com/a/abc=s96-c');
+        $this->runCallback();
+
+        $this->assertSame('https://lh3.googleusercontent.com/a/abc=s256-c', $user->fresh()->profile_picture);
+    }
+
+    public function test_a_changed_google_photo_replaces_the_old_google_photo(): void
+    {
+        $user = User::factory()->create(['email' => 'maria@gmail.com', 'profile_picture' => 'https://lh3.googleusercontent.com/a/old=s96-c']);
+        $user->roles()->attach(Role::where('name', 'customer')->first()->id);
+        $this->fakeGoogle('maria@gmail.com', avatar: 'https://lh3.googleusercontent.com/a/new=s96-c');
+        $this->runCallback();
+
+        $this->assertSame('https://lh3.googleusercontent.com/a/new=s256-c', $user->fresh()->profile_picture);
+    }
+
+    public function test_an_uploaded_photo_is_kept_over_the_google_photo(): void
+    {
+        $own = 'http://127.0.0.1:8000/storage/avatars/me.jpg';
+        $user = User::factory()->create(['email' => 'maria@gmail.com', 'profile_picture' => $own]);
+        $user->roles()->attach(Role::where('name', 'customer')->first()->id);
+        $this->fakeGoogle('maria@gmail.com', avatar: 'https://lh3.googleusercontent.com/a/abc=s96-c');
+        $this->runCallback();
+
+        $this->assertSame($own, $user->fresh()->profile_picture);
     }
 
     public function test_unknown_state_is_refused(): void
