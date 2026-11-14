@@ -195,6 +195,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/my-orders/{jobOrder}/approve-quotation', [OrderFlowController::class, 'customerApprove'])->middleware('throttle:sensitive-writes');
         // The customer's answer to the final price: accept, ask for changes, or decline.
         Route::post('/my-orders/{jobOrder}/decision', [OrderFlowController::class, 'customerDecision'])->middleware('throttle:sensitive-writes');
+        // "Report a problem" within 3 days of completion: a free repair or a refund. The customer sees only their
+        // own orders (404 otherwise); the shop decides under /stores/{store}/claims. Writes are throttled like payments.
+        Route::get('/my-orders/{jobOrder}/claims', [\App\Http\Controllers\Api\V1\OrderClaimController::class, 'customerIndex']);
+        Route::post('/my-orders/{jobOrder}/claims', [\App\Http\Controllers\Api\V1\OrderClaimController::class, 'customerStore'])->middleware('throttle:sensitive-writes');
+        Route::post('/my-orders/{jobOrder}/claims/{claim}/escalate', [\App\Http\Controllers\Api\V1\OrderClaimController::class, 'escalate'])->middleware('throttle:sensitive-writes');
+        Route::post('/my-orders/{jobOrder}/claims/{claim}/respond', [\App\Http\Controllers\Api\V1\OrderClaimController::class, 'customerRespond'])->middleware('throttle:sensitive-writes');
         // Book an appointment online — the signed-in customer's own account, no typed email, no payment.
         // Rate limit: 10 bookings per minute — enough for a real customer retrying after a validation
         // error, low enough to slow a bot hitting every shop's /book endpoint.
@@ -266,6 +272,10 @@ Route::prefix('v1')->group(function () {
                 // Per-piece completion on a bulk/team order's roster — same
                 // "staff at the workbench" reasoning as progress photos above.
                 Route::post('/jobs/{jobOrder}/roster/{index}/toggle', [JobOrderController::class, 'toggleRosterItem'])->whereNumber('index');
+                // After-sale claims: anyone at the counter can read them and file one for a walk-in customer;
+                // deciding (accept / decline / offer repair / refund) is owner + branch manager only, below.
+                Route::get('/jobs/{jobOrder}/claims', [\App\Http\Controllers\Api\V1\OrderClaimController::class, 'shopIndex']);
+                Route::post('/jobs/{jobOrder}/claims', [\App\Http\Controllers\Api\V1\OrderClaimController::class, 'shopStore'])->middleware('throttle:sensitive-writes');
 
                 // Ordering flow (Flow 2). Everyone on the shop floor can see the readiness checklist;
                 // every set-up step (specs, measurements, materials, prices, approval, tailor planning,
@@ -395,6 +405,12 @@ Route::prefix('v1')->group(function () {
                 Route::post('/jobs/{jobOrder}/cancel', [\App\Http\Controllers\Api\V1\OrderCancelController::class, 'cancel']);
                 // The shop's mistake on a completed order: a linked follow-up order that starts in Confirmed at P0.
                 Route::post('/jobs/{jobOrder}/free-fix', [\App\Http\Controllers\Api\V1\OrderFollowUpController::class, 'freeFix'])->middleware(['throttle:sensitive-writes', 'branch.permission:workmanship']);
+                // Deciding an after-sale claim. A repair is a free fix (workmanship); a refund is a refund approval.
+                Route::post('/claims/{claim}/accept', [\App\Http\Controllers\Api\V1\OrderClaimDecisionController::class, 'accept'])->middleware(['throttle:sensitive-writes', 'branch.permission:workmanship']);
+                Route::post('/claims/{claim}/decline', [\App\Http\Controllers\Api\V1\OrderClaimDecisionController::class, 'decline'])->middleware(['throttle:sensitive-writes', 'branch.permission:workmanship']);
+                Route::post('/claims/{claim}/offer-repair', [\App\Http\Controllers\Api\V1\OrderClaimDecisionController::class, 'offerRepair'])->middleware(['throttle:sensitive-writes', 'branch.permission:workmanship']);
+                Route::post('/claims/{claim}/respond', [\App\Http\Controllers\Api\V1\OrderClaimDecisionController::class, 'shopRespond'])->middleware(['throttle:sensitive-writes', 'branch.permission:workmanship']);
+                Route::post('/claims/{claim}/refund', [\App\Http\Controllers\Api\V1\OrderClaimDecisionController::class, 'refund'])->middleware(['throttle:sensitive-writes', 'branch.permission:refund_approval']);
                 Route::put('/jobs/{jobOrder}/payments/{payment}', [JobOrderController::class, 'updatePayment'])->middleware('branch.permission:payment_correction');
                 Route::post('/jobs/{jobOrder}/notify-customer', [JobOrderController::class, 'notifyCustomer']);
 

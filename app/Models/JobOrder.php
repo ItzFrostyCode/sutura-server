@@ -190,6 +190,7 @@ class JobOrder extends Model
         'balance_acknowledged_at' => 'datetime',
         'balance_due_by' => 'date',
         'production_authorized_at' => 'datetime',
+        'completed_at' => 'datetime',
     ];
 
     public function store(): BelongsTo
@@ -594,6 +595,27 @@ class JobOrder extends Model
 
         static::deleting(function (self $jobOrder) {
             DatabaseNotification::whereJsonContains('data->job_order_id', $jobOrder->id)->delete();
+        });
+
+        // completed_at follows status on every path that completes an order: set on entering
+        // 'completed', cleared if the order is ever moved back out (the claim window counts from it).
+        static::saving(function (self $job) {
+            if (! $job->isDirty('status')) {
+                return;
+            }
+            if ($job->status === 'completed' && ! $job->completed_at) {
+                $job->completed_at = now();
+            } elseif ($job->status !== 'completed' && $job->completed_at) {
+                $job->completed_at = null;
+            }
+        });
+
+        // A warranty repair that is completed resolves its claim (and opens a new claim window).
+        static::updated(function (self $job) {
+            if ($job->wasChanged('status') && $job->status === 'completed') {
+                OrderClaim::where('repair_job_order_id', $job->id)->where('status', 'repairing')
+                    ->update(['status' => 'resolved', 'resolved_at' => now()]);
+            }
         });
     }
 
