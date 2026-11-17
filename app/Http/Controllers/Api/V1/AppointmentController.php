@@ -221,6 +221,7 @@ class AppointmentController extends Controller
         return response()->json([
             'success' => true,
             'data' => $appointments->items(),
+            'total' => $appointments->total(),
             'meta' => [
                 'current_page' => $appointments->currentPage(),
                 'last_page' => $appointments->lastPage(),

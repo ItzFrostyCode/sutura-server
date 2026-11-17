@@ -111,6 +111,21 @@ class Store extends Model
         return $this->belongsTo(User::class, 'approved_by');
     }
 
+    /**
+     * The single public-visibility rule every *anonymous* storefront route must
+     * pass: an admin-approved store that has not been hidden. The public
+     * sub-routes (catalog, services, payment-methods, posts, reviews, booking
+     * settings/appointments) apply this so a pending/rejected/suspended/hidden
+     * shop's pages 404 instead of staying reachable by direct slug.
+     *
+     * The authenticated owner/staff endpoints deliberately do NOT use it — they
+     * must keep seeing their own still-pending shop to finish onboarding.
+     */
+    public function isPubliclyVisible(): bool
+    {
+        return $this->status === 'approved' && ! $this->is_hidden;
+    }
+
     public function subscriptions(): HasMany
     {
         return $this->hasMany(StoreSubscription::class);
@@ -181,17 +196,24 @@ class Store extends Model
     }
 
     /**
-     * Stores currently on a paid-up Premium plan: an active or trial Premium
-     * subscription that hasn't run out. ends_at is checked too, because a
-     * lapsed row keeps its status until the ExpireSubscriptions command runs.
+     * Keep only shops that are on Premium RIGHT NOW — the same live-plan rule
+     * (an active or unexpired trial Premium subscription) that scopeWithPremiumNow()
+     * exposes as the computed `is_premium` column and the storefront's `is_featured`
+     * field reports. Used as a WHERE filter instead of the stored `is_featured`
+     * copy, which goes stale both ways (see scopeWithPremiumNow's docblock).
      */
-    public function scopePremiumActive($query)
+    public function scopeLivePremium(Builder $query): Builder
     {
-        return $query->whereHas('subscriptions', function ($sq) {
-            $sq->whereIn('status', ['active', 'trial'])
-                ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
-                ->whereHas('plan', fn ($pq) => $pq->where('slug', 'premium'));
+        $query->whereExists(function ($q) {
+            $q->from('store_subscriptions')
+                ->join('subscription_plans', 'subscription_plans.id', '=', 'store_subscriptions.plan_id')
+                ->whereColumn('store_subscriptions.store_id', 'stores.id')
+                ->whereIn('store_subscriptions.status', ['active', 'trial'])
+                ->where(fn ($sq) => $sq->whereNull('store_subscriptions.ends_at')->orWhere('store_subscriptions.ends_at', '>=', now()))
+                ->where('subscription_plans.slug', 'premium');
         });
+
+        return $query;
     }
 
     public function catalogItems(): HasMany

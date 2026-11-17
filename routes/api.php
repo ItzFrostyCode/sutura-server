@@ -99,7 +99,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/owner-signups/verify', [\App\Http\Controllers\Api\V1\OwnerSignupController::class, 'verify'])->middleware('throttle:20,1,owner-signup-verify');
     Route::get('/owner-signups/{pollToken}', [\App\Http\Controllers\Api\V1\OwnerSignupController::class, 'status'])->middleware('throttle:60,1,owner-signup-status');
     Route::post('/owner-signups/{pollToken}/resend', [\App\Http\Controllers\Api\V1\OwnerSignupController::class, 'resend'])->middleware('throttle:6,1,owner-signup-resend');
-    Route::get('/store-applications/status', [StoreApplicationController::class, 'status']);
+    Route::get('/store-applications/status', [StoreApplicationController::class, 'status'])->middleware('throttle:20,1,store-application-status');
     // Live "already registered?" check for the Open-a-shop form (email / contact number).
     Route::get('/store-applications/check-availability', [StoreApplicationController::class, 'checkAvailability'])->middleware('throttle:30,1,store-application-check');
     // The applicant's GCash payment page (no login yet; the random token from their link is the key).
@@ -576,9 +576,9 @@ Route::prefix('v1')->group(function () {
                 // billing isn't a branch-manager action anywhere else either.
                 Route::get('/analytics/subscription', [AnalyticsController::class, 'subscriptionActivity']);
 
-                // Reviews Management
+                // Reviews Management (ratings are star-only — no reply/feature
+                // actions, so there is no PUT on /reviews/{review})
                 Route::get('/reviews', [StoreReviewController::class, 'index']);
-                Route::put('/reviews/{review}', [StoreReviewController::class, 'update']);
                 Route::delete('/reviews/{review}', [StoreReviewController::class, 'destroy']);
 
                 // Catalog Item Reviews — per-design-item reviews (e.g. a

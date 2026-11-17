@@ -28,6 +28,10 @@ class StorePostController extends Controller
      */
     public function publicIndex(Store $store): JsonResponse
     {
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         return response()->json([
             'success' => true,
             'data' => $store->posts()->with('service:id,name')->latest()->get(),

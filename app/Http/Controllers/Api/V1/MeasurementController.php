@@ -84,6 +84,7 @@ class MeasurementController extends Controller
         return response()->json([
             'success' => true,
             'data' => $measurements,
+            'total' => $measurements->count(),
         ]);
     }
 

@@ -144,6 +144,11 @@ class StoreController extends Controller
         // Premium right now (Store::scopeWithPremiumNow) — the one answer for the badge, the Featured section and the
         // top placement, instead of the stored is_featured copy that can go stale.
         $query->withPremiumNow();
+        // Additive, optional `?featured=1`: return only live-Premium shops so the landing "Featured"
+        // spotlight is never capped by per_page + a client-side is_featured filter. Absent → unchanged.
+        if ($request->boolean('featured')) {
+            $query->livePremium();
+        }
         $this->applyDistanceFilter($query, $request);
         $this->applySorting($query, $request);
 
@@ -553,7 +558,7 @@ class StoreController extends Controller
         $viewer = auth('sanctum')->user();
         // Pending/rejected stores are also private — only admin-approved
         // stores may appear publicly, same rule publicIndex() applies.
-        $isPubliclyVisible = ! $store->is_hidden && $store->status === 'approved';
+        $isPubliclyVisible = $store->isPubliclyVisible();
         if (! $isPubliclyVisible && (! $viewer || $viewer->id !== $store->owner_id)) {
             return response()->json(['success' => false, 'message' => 'Store not found'], 404);
         }
@@ -570,7 +575,7 @@ class StoreController extends Controller
         if ($viewer) {
             $store->my_review = StoreReview::where('store_id', $store->id)
                 ->where('user_id', $viewer->id)
-                ->first(['id', 'rating', 'comment']);
+                ->first(['id', 'rating']);
         } else {
             $store->my_review = null;
         }

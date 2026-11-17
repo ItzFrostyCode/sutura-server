@@ -24,6 +24,10 @@ class PublicBookingController extends Controller
      */
     public function getSettings(Store $store): JsonResponse
     {
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -58,6 +62,10 @@ class PublicBookingController extends Controller
      */
     public function getAppointments(Store $store): JsonResponse
     {
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         // Only return confirmed appointments (or pending if you want to block pending too)
         // Returning only scheduled_at and duration_minutes to keep customer details anonymous
         $appointments = $store->appointments()

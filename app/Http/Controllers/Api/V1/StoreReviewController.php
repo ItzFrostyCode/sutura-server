@@ -35,7 +35,6 @@ class StoreReviewController extends Controller
 
         $validated = $request->validate([
             'rating' => 'required|integer|min:0|max:5',
-            'comment' => 'nullable|string|max:1000',
         ]);
 
         $userId = $request->user()->id;
@@ -60,7 +59,7 @@ class StoreReviewController extends Controller
 
         $review = StoreReview::updateOrCreate(
             ['store_id' => $store->id, 'user_id' => $userId],
-            ['rating' => (int) $validated['rating'], 'comment' => $validated['comment'] ?? null]
+            ['rating' => (int) $validated['rating']]
         );
 
         $store->loadCount('reviews');
@@ -82,7 +81,7 @@ class StoreReviewController extends Controller
     {
         $review = StoreReview::where('store_id', $store->id)
             ->where('user_id', $request->user()->id)
-            ->first(['id', 'store_id', 'user_id', 'rating', 'comment', 'created_at', 'updated_at']);
+            ->first(['id', 'store_id', 'user_id', 'rating', 'created_at', 'updated_at']);
 
         return response()->json([
             'success' => true,
@@ -131,30 +130,8 @@ class StoreReviewController extends Controller
 
     public function index(Store $store, Request $request): JsonResponse
     {
-        // View all reviews for a store
-        $query = $store->reviews()->with('user:id,name,email');
-
-        if ($request->has('rating')) {
-            $query->where('rating', $request->rating);
-        }
-
-        if ($request->has('is_featured')) {
-            $query->where('is_featured', filter_var($request->is_featured, FILTER_VALIDATE_BOOLEAN));
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => $query->latest()->paginate($request->input('per_page', 15)),
-        ]);
-    }
-
-    /**
-     * Public feed for the storefront's Reviews tab — same review content as
-     * the owner's dashboard list, just without the management fields being
-     * writable, and reachable without authentication.
-     */
-    public function publicIndex(Store $store, Request $request): JsonResponse
-    {
+        // View all ratings for a store — star-only, so no comment/reply/featured
+        // fields are ever written or read; each row is reviewer + stars + date.
         $query = $store->reviews()->with('user:id,name');
 
         if ($request->has('rating')) {
@@ -163,27 +140,49 @@ class StoreReviewController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $query->latest()->paginate($request->input('per_page', 10)),
+            'data' => $this->present($query->latest()->paginate($request->input('per_page', 15))),
         ]);
     }
 
-    public function update(Request $request, Store $store, StoreReview $review): JsonResponse
+    /**
+     * Public feed for the storefront's Reviews tab — same star-only rating
+     * content as the owner's list, reachable without authentication.
+     */
+    public function publicIndex(Store $store, Request $request): JsonResponse
     {
-        if ($review->store_id !== $store->id) {
-            return response()->json(['message' => 'Review not found'], 404);
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
         }
 
-        $validated = $request->validate([
-            'reply' => 'nullable|string',
-            'is_featured' => 'boolean',
-        ]);
+        $query = $store->reviews()->with('user:id,name');
 
-        $review->update($validated);
+        if ($request->has('rating')) {
+            $query->where('rating', $request->rating);
+        }
 
         return response()->json([
             'success' => true,
-            'data' => $review->fresh('user:id,name,email'),
+            'data' => $this->present($query->latest()->paginate($request->input('per_page', 10))),
         ]);
+    }
+
+    /**
+     * Trim a paginated store-ratings list down to the fields the frontend
+     * shows — reviewer, stars, and date. The comment / reply / is_featured
+     * columns still exist in the DB but are no longer surfaced anywhere.
+     */
+    private function present($paginator): array
+    {
+        $paginator->setCollection($paginator->getCollection()->map(function (StoreReview $review) {
+            return [
+                'id' => $review->id,
+                'rating' => $review->rating,
+                'created_at' => $review->created_at,
+                'user' => $review->user ? ['id' => $review->user->id, 'name' => $review->user->name] : null,
+            ];
+        })->values());
+
+        return $paginator->toArray();
     }
 
     public function destroy(Request $request, Store $store, StoreReview $review): JsonResponse

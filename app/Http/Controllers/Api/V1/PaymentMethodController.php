@@ -114,6 +114,10 @@ class PaymentMethodController extends Controller
     /** Customer-facing: active methods for a shop, plus the branch's own when ?branch_id is given. */
     public function publicIndex(Request $request, Store $store): JsonResponse
     {
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         $branch = $request->integer('branch_id') ?: null;
         $methods = $store->paymentMethods()->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('store_branch_id')->when($branch, fn ($qq) => $qq->orWhere('store_branch_id', $branch)))

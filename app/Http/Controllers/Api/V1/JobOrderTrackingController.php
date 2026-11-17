@@ -44,6 +44,23 @@ class JobOrderTrackingController extends Controller
             ->latest()
             ->paginate($request->input('per_page', 20));
 
+        // Uncapped, independent of the display list's per_page (and of ?active=1) so the
+        // hub's status tiles stay right as the customer's order count grows. The three buckets
+        // mirror the frontend's orderPhases sets (IN_PRODUCTION / READY_FOR_PICKUP / 'completed')
+        // so a tile's number always matches the tab it opens.
+        $customerId = $request->user()->id;
+        $statusCounts = [
+            'inProduction' => JobOrder::where('customer_id', $customerId)
+                ->whereIn('status', ['pending', 'confirmed', 'awaiting_materials', 'queued', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'in_repair', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'qc_check', 'on_hold'])
+                ->count(),
+            'readyForPickup' => JobOrder::where('customer_id', $customerId)
+                ->whereIn('status', ['ready_for_pickup', 'balance_handover'])
+                ->count(),
+            'completed' => JobOrder::where('customer_id', $customerId)
+                ->where('status', 'completed')
+                ->count(),
+        ];
+
         $jobOrders->getCollection()->transform(fn (JobOrder $jobOrder) => [
             'id' => $jobOrder->id,
             'order_number' => $jobOrder->order_number,
@@ -79,6 +96,8 @@ class JobOrderTrackingController extends Controller
         return response()->json([
             'success' => true,
             'data' => $jobOrders->items(),
+            'total' => $jobOrders->total(),
+            'status_counts' => $statusCounts,
             'meta' => [
                 'current_page' => $jobOrders->currentPage(),
                 'last_page' => $jobOrders->lastPage(),
@@ -115,9 +134,25 @@ class JobOrderTrackingController extends Controller
         }
 
         $jobOrder->load([
-            'store:id,name,slug,logo_path', 'service:id,name,service_types', 'catalogItem:id,name', 'staffStages',
+            'store:id,name,slug,logo_path', 'service:id,name,service_types,image_url',
+            'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'staffStages',
             'payments' => fn ($q) => $q->whereNull('verified_at')->whereNull('rejected_at'),
         ]);
+
+        // The order's own picture of what it is: what the customer attached wins; if they attached
+        // nothing (walk-in, or older orders predating the catalog-image fallback), the design/service
+        // image stands in so an order with a design or a service never renders without one.
+        $references = $jobOrder->reference_images ?: [];
+        if ($references === []) {
+            $catalogItem = $jobOrder->catalogItem;
+            $fallback = $catalogItem?->images->firstWhere('is_primary', true)?->image_url
+                ?? $catalogItem?->images->first()?->image_url
+                ?? $catalogItem?->fabric_image_url
+                ?? $jobOrder->service?->image_url;
+            if ($fallback !== null) {
+                $references = [$fallback];
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -160,6 +195,12 @@ class JobOrderTrackingController extends Controller
                 // Work on the customer's own garment: where to bring it, and the shop's drop-off check.
                 'garment_check' => \App\Support\GarmentCheck::forCustomer($jobOrder),
                 'drop_off' => \App\Support\GarmentCheck::applies($jobOrder) ? $this->dropOffFor($jobOrder) : null,
+                // The customer's own attachments from the online booking (inspiration photos, the design link the customer
+                // pasted, a reference link) — their data, customer-safe, so the order page shows them what they sent.
+                // Empty arrays fall back to the order's design/service image (computed above), never to a blank order.
+                'reference_images' => $references,
+                'design_link' => $jobOrder->design_link,
+                'reference_link' => $jobOrder->reference_link,
                 'customer_material_status' => $jobOrder->customer_material_status,
                 'progress_photos' => $jobOrder->progress_photos,
                 'stage_timestamps' => $this->buildStageTimestamps($jobOrder),

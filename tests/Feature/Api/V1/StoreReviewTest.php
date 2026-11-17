@@ -57,7 +57,6 @@ class StoreReviewTest extends TestCase
         $response = $this->actingAs($customer, 'sanctum')
             ->postJson("/api/v1/stores/{$store->id}/reviews", [
                 'rating' => 5,
-                'comment' => 'Nindot kaayo ang tahi ug sakto ang sukat!',
             ]);
 
         $response->assertStatus(200)

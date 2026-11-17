@@ -76,6 +76,12 @@ class CatalogController extends Controller
      */
     public function index(Request $request, Store $store): JsonResponse
     {
+        // Public surface: a not-yet-approved or hidden shop's catalog must not
+        // stay reachable by slug — 404, the same rule publicProfile() applies.
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         $query = $store->catalogItems()
             ->with(['images', 'recommendations.recommendedItem', 'service:id,name', 'customApparelType'])
             ->withCount(['saves', 'reviews', 'catalogOrders', 'jobOrders'])
@@ -489,6 +495,10 @@ class CatalogController extends Controller
      */
     public function show(Request $request, Store $store, CatalogItem $catalog): JsonResponse
     {
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         if ($catalog->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => 'Not found'], 404);
         }
@@ -534,6 +544,9 @@ class CatalogController extends Controller
         $catalog->load($relations);
         $catalog->loadCount(['saves', 'reviews', 'catalogOrders', 'jobOrders']);
         $catalog->loadAvg('reviews', 'rating');
+        // Ratings are star-only now — the comment/reply columns still exist on
+        // catalog_item_reviews but are no longer written or surfaced anywhere.
+        $catalog->reviews->each->makeHidden(['comment', 'reply']);
         $catalog->reviews_avg_rating = $catalog->reviews_avg_rating !== null ? round((float) $catalog->reviews_avg_rating, 1) : null;
 
         if ($catalog->store) {

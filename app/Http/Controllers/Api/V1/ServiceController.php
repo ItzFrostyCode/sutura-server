@@ -180,6 +180,10 @@ class ServiceController extends Controller
      */
     public function publicIndex(Store $store): JsonResponse
     {
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         // service_types + pricing added for the customer-facing "Request a
         // Repair" flow — it needs to know which services are actually
         // alteration/repair-typed, and their real per-item pricing (never a

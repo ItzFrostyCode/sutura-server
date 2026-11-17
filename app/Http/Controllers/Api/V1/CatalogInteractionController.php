@@ -7,7 +7,6 @@ use App\Models\CatalogItem;
 use App\Models\CatalogItemReview;
 use App\Models\Store;
 use App\Models\SupportTicket;
-use App\Notifications\CatalogItemReviewReplyNotification;
 use App\Support\DesignPricing;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +17,10 @@ class CatalogInteractionController extends Controller
 
     public function incrementViews(Store $store, CatalogItem $catalogItem): JsonResponse
     {
+        if (! $store->isPubliclyVisible()) {
+            return response()->json(['success' => false, 'message' => 'Store not found'], 404);
+        }
+
         if ($catalogItem->store_id !== $store->id) {
             return response()->json(['success' => false, 'message' => self::NOT_FOUND_MESSAGE], 404);
         }
@@ -128,10 +131,10 @@ class CatalogInteractionController extends Controller
     /**
      * Cross-store "my ratings" for the Showroom tab of the customer's Star
      * Ratings page — same customer-scoped, no-role-gate pattern as
-     * /my-orders, /my-appointments, /my-measurements. No comment field in
-     * the response shape the frontend cares about; comments still exist on
-     * the row (and on the owner's own review list) but this app's rating
-     * UI is star-only now.
+     * /my-orders, /my-appointments, /my-measurements. The response is
+     * star-only: reviewer + rating + the catalog item's aggregates. The
+     * comment/reply columns still exist in the DB but are never written or
+     * read anywhere in the app now.
      */
     public function myReviews(Request $request): JsonResponse
     {
@@ -216,14 +219,13 @@ class CatalogInteractionController extends Controller
 
         $validated = $request->validate([
             'rating' => 'required|integer|min:1|max:5',
-            'comment' => 'nullable|string',
         ]);
 
         $user = $request->user();
 
         $review = $catalogItem->reviews()->updateOrCreate(
             ['user_id' => $user->id],
-            ['rating' => $validated['rating'], 'comment' => $validated['comment'] ?? null]
+            ['rating' => $validated['rating']]
         );
 
         $averageRating = $catalogItem->reviews()->avg('rating');
@@ -232,29 +234,44 @@ class CatalogInteractionController extends Controller
             'success' => true,
             'average_rating' => round($averageRating, 1),
             'reviews_count' => $catalogItem->reviews()->count(),
-            'review' => $review,
+            'review' => [
+                'id' => $review->id,
+                'rating' => $review->rating,
+                'created_at' => $review->created_at,
+            ],
         ]);
     }
 
     /**
-     * Owner-facing list of every review left on any of this store's catalog
+     * Owner-facing list of every rating left on any of this store's catalog
      * items — mirrors StoreReviewController::index, but scoped one level
-     * down (per-item, not per-store). Before this, a customer could rate/
-     * comment on a specific Barong/gown design and the owner had no page
-     * anywhere that surfaced it.
+     * down (per-item, not per-store). Ratings are star-only, so each row is
+     * reviewer + stars + date; the comment/reply columns that still exist on
+     * the table are no longer surfaced.
      */
     public function indexForStore(Store $store, Request $request): JsonResponse
     {
         $query = CatalogItemReview::whereHas('catalogItem', fn ($q) => $q->where('store_id', $store->id))
-            ->with(['user:id,name,email', 'catalogItem:id,name']);
+            ->with(['user:id,name', 'catalogItem:id,name']);
 
         if ($request->has('rating')) {
             $query->where('rating', $request->rating);
         }
 
+        $paginator = $query->latest()->paginate($request->input('per_page', 15));
+        $paginator->setCollection($paginator->getCollection()->map(function (CatalogItemReview $review) {
+            return [
+                'id' => $review->id,
+                'rating' => $review->rating,
+                'created_at' => $review->created_at,
+                'user' => $review->user ? ['id' => $review->user->id, 'name' => $review->user->name] : null,
+                'catalog_item' => $review->catalogItem ? ['id' => $review->catalogItem->id, 'name' => $review->catalogItem->name] : null,
+            ];
+        })->values());
+
         return response()->json([
             'success' => true,
-            'data' => $query->latest()->paginate($request->input('per_page', 15)),
+            'data' => $paginator->toArray(),
         ]);
     }
 
