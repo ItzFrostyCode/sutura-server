@@ -80,8 +80,11 @@ class BranchManagerFlowTest extends TestCase
         $this->actingAs($owner)->postJson("/api/v1/stores/{$store->id}/staff", ['email' => 'sue@example.com', 'name' => 'Sue'] + $staff)->assertStatus(201);
     }
 
-    public function test_branch_manager_can_edit_the_shop_page_but_plain_staff_cannot(): void
+    public function test_store_page_edits_are_owner_only_even_for_the_branch_manager(): void
     {
+        // 148aeb2 moved PUT /stores/{store} out of the owner+manager group into "Store Management
+        // (Owner Only)" — the shop page is the store's identity, a bigger decision than a branch's
+        // day-to-day info (branch managers still edit their own branch via PUT /branches/{branch}).
         [$owner, $store] = $this->owner();
         $this->actingAs($owner)->postJson("/api/v1/stores/{$store->id}/branches", $this->branchPayload([
             'manager' => ['name' => 'Mia Manager', 'email' => 'mia@example.com', 'password' => 'Secret123!', 'password_confirmation' => 'Secret123!'],
@@ -89,12 +92,15 @@ class BranchManagerFlowTest extends TestCase
         $manager = User::where('email', 'mia@example.com')->firstOrFail();
         // Owner-created managers start with must_change_password=true (the forced first-login change), which
         // CheckRole blocks every store-scoped route behind. Represent the manager having completed that step so
-        // the shop-page edit permission — the subject of this test — can be exercised. (must_change_password is
+        // the 403 below is the role guard, not the forced-change lock. (must_change_password is
         // not fillable, so it is set on the instance directly, not via update()).
         $manager->must_change_password = false;
 
-        $this->actingAs($manager)->putJson("/api/v1/stores/{$store->id}", ['description' => 'Made by Mia'])->assertOk();
-        $this->assertSame('Made by Mia', $store->fresh()->description);
+        $this->actingAs($owner)->putJson("/api/v1/stores/{$store->id}", ['description' => 'Made by the owner'])->assertOk();
+        $this->assertSame('Made by the owner', $store->fresh()->description);
+
+        $this->actingAs($manager)->putJson("/api/v1/stores/{$store->id}", ['description' => 'Made by Mia'])->assertStatus(403);
+        $this->assertSame('Made by the owner', $store->fresh()->description);
 
         $staffUser = User::factory()->create();
         $staffUser->roles()->attach(Role::where('name', 'staff')->first());

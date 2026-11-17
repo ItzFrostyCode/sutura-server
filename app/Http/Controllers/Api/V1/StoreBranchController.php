@@ -114,6 +114,10 @@ class StoreBranchController extends Controller
         $subscription = $store->subscription()->whereIn('status', ['active', 'trial'])->first();
         $limit = $subscription?->plan?->branchLimit() ?? 0;
 
+        // Total branches before this one is created (the limit check above only
+        // needs main-ness + branch-shop count; is_main below needs the total).
+        $branchCount = $branchShops + ($hasMain ? 1 : 0);
+
         if ($hasMain && $limit !== -1 && $branchShops >= $limit) {
             return response()->json([
                 'success' => false,

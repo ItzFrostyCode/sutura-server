@@ -268,32 +268,40 @@ class CustomerController extends Controller
                 ->merge($store->appointments()->pluck('customer_id'))
                 ->filter()
                 ->unique();
-            $existingByPhone = User::whereIn('id', $existingCustomerIds)
+            $existingByPhone = User::whereIn('id', $shopCustomerIds)
                 ->whereIn('phone', [$validated['phone'], $rawPhone])
                 ->first();
+
+            // "Clearly the same person": same name (or the record has none yet) and no conflicting
+            // email — and never a business account whose personal number happens to be in this
+            // shop's customer set (that would let one shop's walk-in form rewrite a stranger).
             if ($existingByPhone) {
-                $email = $existingByPhone->email;
+                $nameMatches = empty($existingByPhone->name)
+                    || Str::lower(trim((string) $existingByPhone->name)) === Str::lower(trim($validated['name']));
+                $existingEmail = $existingByPhone->notificationEmail();
+                $emailConflicts = $rawEmail && $existingEmail && Str::lower($rawEmail) !== Str::lower($existingEmail);
+                $isBusinessAccount = $existingByPhone->hasRole('store_owner') || $existingByPhone->hasRole('staff')
+                    || $existingByPhone->hasRole('branch_manager') || $existingByPhone->hasRole('admin');
+
+                if ($nameMatches && ! $emailConflicts && ! $isBusinessAccount) {
+                    $matchedUser = $existingByPhone;
+                }
             }
         }
 
         if ($matchedUser) {
-            $updates = [];
-            if ($rawEmail && ! $matchedUser->notificationEmail()) {
-                $updates['contact_email'] = $rawEmail;
-            }
-            if (! empty($validated['suki_tag'])) {
-                $updates['suki_tag'] = $validated['suki_tag'];
-            }
-            if (! empty($updates)) {
-                $matchedUser->update($updates);
-            }
-
-            $user->update([
+            $user = $matchedUser;
+            $updates = [
                 'name' => $validated['name'],
                 'phone' => $validated['phone'] ?? $user->phone,
                 'gender' => $validated['gender'] ?? $user->gender,
                 'suki_tag' => $validated['suki_tag'] ?? $user->suki_tag,
-            ]);
+            ];
+            // The record keeps its login email; the typed one only fills the notification slot when empty.
+            if ($rawEmail && ! $user->notificationEmail()) {
+                $updates['contact_email'] = $rawEmail;
+            }
+            $user->update($updates);
         } else {
             $user = User::create([
                 'email' => 'walkin_'.time().'_'.Str::random(6).self::SUTURA_DOMAIN,

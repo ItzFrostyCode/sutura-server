@@ -155,8 +155,9 @@ class UserGenderTest extends TestCase
             'gender' => 'female',
             'store_name' => 'Clara Fashions',
             'address' => '123 Rizal St',
-            'city' => 'Davao City',
-            'province' => 'Davao del Sur',
+            'province_code' => '112400000',   // Davao del Sur
+            'city_code' => '112402000',        // Davao City
+            'barangay_code' => '112402001',    // Acacia
             'latitude' => 7.07,
             'longitude' => 125.6,
             'specializations' => ['custom_tailoring'],
@@ -166,6 +167,9 @@ class UserGenderTest extends TestCase
             'brgy_clearance' => $dummyPdf,
             'government_id' => $dummyPdf,
             'government_id_type' => 'Passport',
+            'selfie_with_id' => $dummyImg,
+            'privacy_consent' => '1',
+            'terms_accepted' => '1',
             'plan_id' => $plan->id,
             'billing_cycle' => 'monthly',
             'payment_method' => 'gcash',
