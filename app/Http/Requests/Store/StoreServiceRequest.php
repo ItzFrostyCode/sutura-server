@@ -65,6 +65,11 @@ class StoreServiceRequest extends FormRequest
             'estimated_days_max' => ['nullable', 'integer', 'min:1', 'gt:estimated_days'],
             'min_order_qty' => ['nullable', 'integer', 'min:1'],
             'own_fabric_deduction' => ['nullable', 'numeric', 'min:0', 'max:999999'],
+            // Rush for this service: null = the shop's rule, false = no rush, true = its own fee, which then needs its amount.
+            'rush_available' => ['nullable', 'boolean'],
+            'rush_fee_mode' => ['nullable', 'required_if:rush_available,true', 'in:percent,per_piece'],
+            'rush_fee_percent' => ['nullable', 'required_if:rush_fee_mode,percent', 'numeric', 'min:1', 'max:200'],
+            'rush_fee_per_piece' => ['nullable', 'required_if:rush_fee_mode,per_piece', 'numeric', 'min:1', 'max:99999'],
             // Questions asked once per order. Older type names (dropdown, short_text) are accepted and saved as the
             // current ones by the model (App\Support\ServiceQuestions); a missing id is made from the label.
             'custom_fields' => ['nullable', 'array', 'max:20'],

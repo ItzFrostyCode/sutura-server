@@ -716,8 +716,9 @@ class JobOrderController extends Controller
         $unitPrice = count($units) === 1 ? $units[0] : null;
         // Rush: the shop's rush percentage of the price, added to the total now, so the customer sees the same number
         // here, on the quotation and on the deposit. The shop can still decline rush or change it while quoting.
-        $rush = ! empty($validated['rush_requested']) && $store->rush_available;
-        $rushFee = $rush ? \App\Support\RushFee::amount($store, $request->user()->id, $subtotal, $quantity) : 0.0;
+        // Rush follows the service's own rush rule when it has one (no rush, or its own fee), else the shop's.
+        $rush = ! empty($validated['rush_requested']) && \App\Support\RushFee::available($store, $service);
+        $rushFee = $rush ? \App\Support\RushFee::amount($store, $request->user()->id, $subtotal, $quantity, $service) : 0.0;
         $totalAmount = round($subtotal + $rushFee, 2);
 
         // standard_size is the key OrderReadiness::measurementsRecorded() reads for "the shop has
@@ -872,11 +873,12 @@ class JobOrderController extends Controller
                 'payment_policy' => $requirements['payment_policy'],
                 'payment_policy_percent' => $requirements['payment_policy_percent'],
                 // What rush adds for this customer (half for a repeat customer); 0 when the shop takes no rush orders.
-                'rush_available' => (bool) $store->rush_available,
-                // percent: rush_fee_percent of the price · per_piece: rush_fee_per_piece pesos for every piece.
-                'rush_fee_mode' => $store->rush_fee_mode === 'per_piece' ? 'per_piece' : 'percent',
-                'rush_fee_percent' => \App\Support\RushFee::percentFor($store, $request->user()->id),
-                'rush_fee_per_piece' => \App\Support\RushFee::perPieceFor($store, $request->user()->id),
+                // The service's own rush rule when it has one (no rush, or its own fee), else the shop's.
+                'rush_available' => \App\Support\RushFee::available($store, $service),
+                // percent: that percent of the price · per_piece: that many pesos for every piece.
+                'rush_fee_mode' => \App\Support\RushFee::rules($store, $service)['mode'],
+                'rush_fee_percent' => \App\Support\RushFee::percentFor($store, $request->user()->id, $service),
+                'rush_fee_per_piece' => \App\Support\RushFee::perPieceFor($store, $request->user()->id, $service),
             ],
         ]);
     }
@@ -1134,6 +1136,27 @@ class JobOrderController extends Controller
             }
         }
 
+        // The same customer may already have an open order for this service (an online request waiting for its garment,
+        // or one written up earlier today). Warn, don't block: a second pair of pants is a real second order, so the
+        // shop sees the open one and continues only when it means to (same pattern as below_minimum).
+        if ($service && ! empty($validated['customer_id']) && empty($validated['follow_up_of_id']) && ! $request->boolean('confirm_possible_duplicate')) {
+            $open = JobOrder::where('store_id', $store->id)
+                ->where('customer_id', $validated['customer_id'])
+                ->where('service_id', $service->id)
+                ->whereNotIn('status', ['completed', 'cancelled', 'rejected'])
+                ->latest('id')->first();
+            if ($open) {
+                return response()->json([
+                    'success' => false,
+                    'code' => 'possible_duplicate',
+                    'can_continue' => true,
+                    'job_order_id' => $open->id,
+                    'message' => "This customer already has {$open->order_number} for this service".($open->intake_channel === 'online' ? ', sent online' : '')
+                        .'. Open that order to add to it, or continue if this is a separate order.',
+                ], 422);
+            }
+        }
+
         // Only the owner and branch managers reach this method (route group); staff never create orders.
 
         $validated['order_number'] = $this->generateOrderNumber($store);
@@ -1204,7 +1227,7 @@ class JobOrderController extends Controller
         // holds a customer-type classification (b2b_suki/reseller/walk_in_retail),
         // not a repeat-customer flag, so it isn't the right signal for this.
         if (! empty($validated['is_rush']) && empty($validated['rush_fee']) && $totalAmount > 0) {
-            $validated['rush_fee'] = \App\Support\RushFee::amount($store, (int) $validated['customer_id'], (float) $totalAmount, (int) ($validated['quantity'] ?? 1));
+            $validated['rush_fee'] = \App\Support\RushFee::amount($store, (int) $validated['customer_id'], (float) $totalAmount, (int) ($validated['quantity'] ?? 1), $service ?? null);
         }
 
         // Resolve the linked appointment (if any) before creating the job so its
@@ -1493,7 +1516,7 @@ class JobOrderController extends Controller
             ! empty($validated['is_rush']) && ! $jobOrder->is_rush
             && ! isset($validated['rush_fee']) && (float) $jobOrder->total_amount > 0
         ) {
-            $validated['rush_fee'] = \App\Support\RushFee::amount($store, $jobOrder->customer_id, (float) $jobOrder->total_amount, (int) $jobOrder->quantity);
+            $validated['rush_fee'] = \App\Support\RushFee::amount($store, $jobOrder->customer_id, (float) $jobOrder->total_amount, (int) $jobOrder->quantity, $jobOrder->service);
         }
 
         // Server-side backstop for the same "No DP, No Cut" / "No Balance, No Claim"

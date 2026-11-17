@@ -60,6 +60,8 @@ class WearerQuantityTest extends TestCase
     private function createJob(array $overrides = []): \Illuminate\Testing\TestResponse
     {
         return $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs", array_merge([
+            // These tests make several orders for one customer on purpose; the duplicate warning has its own test.
+            'confirm_possible_duplicate' => true,
             'customer_id' => $this->customer->id,
             'service_id' => $this->shirt->id,
             'total_amount' => 1500,

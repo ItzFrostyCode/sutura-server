@@ -63,6 +63,8 @@ class PricingOptionUnitTest extends TestCase
     private function shopOrder(array $extra = [], array $data = []): \Illuminate\Testing\TestResponse
     {
         return $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs", array_merge([
+            // These tests make several orders for one customer on purpose; the duplicate warning has its own test.
+            'confirm_possible_duplicate' => true,
             'customer_id' => $this->customer->id, 'service_id' => $this->service->id, 'total_amount' => 1200, 'balance' => 1200,
             'custom_order_data' => $data,
         ], $extra));
@@ -224,5 +226,14 @@ class PricingOptionUnitTest extends TestCase
         $this->assertSame(['both', 'top'], array_column($rows, 'measure_area'));
         $this->assertSame(['Uniform set', 'Top only'], array_column($rows, 'option'));
         $this->assertSame(4, $job->garmentCount(), 'Ana: 1 set = 2 garments; Ben: 2 tops = 2 garments');
+    }
+
+    /** A second order for the same customer and service is flagged first (warn, don't block), then allowed on purpose. */
+    public function test_a_second_open_order_for_the_same_service_is_flagged_before_it_is_made(): void
+    {
+        $first = $this->shopOrder(['pricing_id' => $this->top->id])->assertStatus(201)->json('data.id');
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs", [
+            'customer_id' => $this->customer->id, 'service_id' => $this->service->id, 'pricing_id' => $this->top->id, 'total_amount' => 350, 'balance' => 350,
+        ])->assertStatus(422)->assertJsonPath('code', 'possible_duplicate')->assertJsonPath('job_order_id', $first);
     }
 }

@@ -238,6 +238,29 @@ class CustomerServiceOrderTest extends TestCase
         ]])->assertStatus(422)->assertJsonValidationErrors('roster.2.pricing_id');
     }
 
+    /** Rush is set per service: the shop's rule by default, none for this service, or this service's own fee. */
+    public function test_each_service_can_have_its_own_rush_rule(): void
+    {
+        $this->store->update(['rush_available' => true, 'rush_fee_mode' => 'percent', 'rush_fee_percent' => 30]);
+        $rush = fn () => JobOrder::findOrFail($this->order(['rush_requested' => true, 'quantity' => 2])->assertStatus(201)->json('data.id'));
+        $policy = fn () => $this->actingAs($this->customer)->getJson("/api/v1/stores/{$this->store->slug}/service-order/payment-policy?service_id={$this->service->id}");
+
+        $this->assertSame(600.0, (float) $rush()->rush_fee, 'Shop rule: 30% of 2 x 1000');
+
+        $this->service->update(['rush_available' => false]);
+        $this->assertFalse($rush()->is_rush, 'No rush for this service');
+        $policy()->assertJsonPath('data.rush_available', false);
+
+        $this->service->update(['rush_available' => true, 'rush_fee_mode' => 'per_piece', 'rush_fee_per_piece' => 150]);
+        $this->assertSame(300.0, (float) $rush()->rush_fee, 'Its own fee: 150 per piece x 2');
+        $policy()->assertJsonPath('data.rush_fee_mode', 'per_piece');
+
+        // The editor refuses a custom rule with no amount.
+        $this->actingAs($this->owner)->putJson("/api/v1/stores/{$this->store->id}/services/{$this->service->id}", [
+            'name' => $this->service->name, 'rush_available' => true, 'rush_fee_mode' => 'percent',
+        ])->assertStatus(422)->assertJsonValidationErrors('rush_fee_percent');
+    }
+
     public function test_measurements_in_inches_stop_at_80(): void
     {
         // A group person's value may carry its own unit ("90 cm"); a plain number is in the group's unit.
@@ -463,6 +486,23 @@ class CustomerServiceOrderTest extends TestCase
         $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/garment-check", ['result' => 'as_described'])->assertOk();
         $this->assertSame('queued', $job->fresh()->status);
         $put('in_repair')->assertOk();
+    }
+
+    /** An open online repair request is already the order: booking an alteration visit for it would make a second one. */
+    public function test_an_open_repair_request_needs_no_drop_off_booking(): void
+    {
+        $job = $this->repairRequest();
+        $book = fn () => $this->actingAs($this->customer, 'sanctum')->postJson("/api/v1/catalog/{$this->store->slug}/book", [
+            'kind' => 'service', 'store_branch_id' => $this->branch->id, 'service_id' => $job->service_id, 'appointment_type' => 'alteration',
+            'scheduled_at' => now()->addDays(2)->setTime(10, 0)->toDateTimeString(),
+            'items' => [['service_id' => $job->service_id, 'item_name' => 'Pants hemming', 'quantity' => 1]],
+        ]);
+
+        $book()->assertStatus(422)->assertJsonPath('code', 'request_already_open')->assertJsonPath('data.job_order_id', $job->id);
+
+        // Once the shop has the garment, a separate visit is the customer's own business again.
+        $this->actingAs($this->owner)->postJson("/api/v1/stores/{$this->store->id}/jobs/{$job->id}/garment-check", ['result' => 'as_described'])->assertOk();
+        $this->assertNotSame('request_already_open', $book()->json('code'));
     }
 
     public function test_a_different_garment_needs_the_customers_yes_before_work_and_a_no_closes_it_free(): void

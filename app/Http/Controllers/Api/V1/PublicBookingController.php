@@ -246,6 +246,27 @@ class PublicBookingController extends Controller
             ], 422);
         }
 
+        // An online repair / alteration / embroidery request is already an order: its garment is simply brought in while
+        // the shop is open (the order page shows where and when). Booking a visit for the same service would let the
+        // shop make a second order for the same garment, so it is refused with the order to bring it for.
+        $garmentWork = $validated['service_id'] && Service::find($validated['service_id'])?->hasType(Service::TYPE_ALTERATION_REPAIR);
+        if ($garmentWork) {
+            $open = \App\Models\JobOrder::where('store_id', $store->id)
+                ->where('customer_id', $request->user()->id)
+                ->where('service_id', $validated['service_id'])
+                ->where('intake_channel', 'online')
+                ->whereIn('status', ['pending', 'queued'])
+                ->latest('id')->first();
+            if ($open && ! \App\Support\GarmentCheck::settled($open)) {
+                return response()->json([
+                    'success' => false,
+                    'code' => 'request_already_open',
+                    'message' => "You already sent a request for this ({$open->order_number}). No booking needed: bring the garment to the shop while it is open and show that order number.",
+                    'data' => ['job_order_id' => $open->id, 'order_number' => $open->order_number],
+                ], 422);
+            }
+        }
+
         // ── Resolve branch ─────────────────────────────────────────────────────
         $branchId = $validated['store_branch_id'] ?? null;
         if ($branchCount === 1) {

@@ -66,6 +66,8 @@ class Service extends Model
         'size_chart_image_url', 'size_chart_columns', 'size_chart_rows',
         // Per-piece amount off when the customer brings their own fabric (null = none set).
         'own_fabric_deduction',
+        // Rush for this service: null = the shop's rule, false = no rush, true = its own fee (App\Support\RushFee::rules).
+        'rush_available', 'rush_fee_mode', 'rush_fee_percent', 'rush_fee_per_piece',
     ];
 
     protected $hidden = ['department', 'service_leaf_type', 'showcase_category'];
@@ -78,6 +80,9 @@ class Service extends Model
         'sale_ends_at' => 'datetime',
         'min_order_qty' => 'integer',
         'own_fabric_deduction' => 'decimal:2',
+        'rush_available' => 'boolean',
+        'rush_fee_percent' => 'decimal:2',
+        'rush_fee_per_piece' => 'decimal:2',
         'is_active' => 'boolean',
         // One shape for every screen (App\Support\ServiceQuestions): older {name, dropdown} rows read as {id, select}.
         'custom_fields' => \App\Casts\ServiceQuestionsCast::class,
