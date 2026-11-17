@@ -724,6 +724,17 @@ class LocalTestSeeder extends Seeder
             $onlineCustomers[$cData['name']] = $cUser;
         }
 
+        // Set profile pictures for demo customers (persisted avatars in storage/app/public/avatars/)
+        // These are tracked in git so they persist across machines.
+        $avatarUrls = [
+            'pia.santos@gmail.com'       => Storage::url('avatars/customer-1.jpg'),
+            'carlos.mendoza@gmail.com'   => Storage::url('avatars/customer-2.jpg'),
+            'juan.delacruz@gmail.com'    => Storage::url('avatars/customer-1.jpg'), // reuse first avatar
+        ];
+        foreach ($avatarUrls as $email => $url) {
+            User::where('email', $email)->update(['profile_picture' => $url]);
+        }
+
         // 10. Seed 4 Appointments
         $service1 = Service::where('name', 'Custom Sublimation Team Jerseys')->first();
         $service2 = Service::where('name', 'Bespoke Suit Tailoring')->first();
