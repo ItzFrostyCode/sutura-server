@@ -46,6 +46,22 @@ class DashboardController extends Controller
                 'pending_branches' => \App\Models\StoreBranch::where('verification_status', 'pending')->whereHas('store', fn ($q) => $q->where('status', 'approved'))->count(),
                 'pending_apparel_types' => \App\Models\CustomApparelType::where('status', 'pending')->count(),
                 'open_tickets' => SupportTicket::whereIn('status', ['open', 'in_progress'])->count(),
+                'expiring_soon' => StoreSubscription::with(['store:id,name,slug,city,owner_id', 'store.owner:id,name,email,contact_email', 'plan:id,name,slug,price_monthly'])
+                    ->whereIn('status', ['active', 'trial'])
+                    ->whereBetween('ends_at', [now(), now()->addDays(3)])
+                    ->orderBy('ends_at')
+                    ->get()
+                    ->map(fn ($sub) => [
+                        'id' => $sub->id,
+                        'store_id' => $sub->store_id,
+                        'store_name' => $sub->store?->name,
+                        'store_slug' => $sub->store?->slug,
+                        'owner_name' => $sub->store?->owner?->name,
+                        'owner_email' => $sub->store?->owner?->contact_email ?: $sub->store?->owner?->email,
+                        'plan_name' => $sub->plan?->name,
+                        'ends_at' => $sub->ends_at,
+                        'days_left' => max(0, (int) ceil(now()->diffInSeconds($sub->ends_at, false) / 86400)),
+                    ]),
                 'recent_applications' => Store::with('owner:id,name,email,contact_email')
                     ->where('status', 'pending')
                     ->oldest()

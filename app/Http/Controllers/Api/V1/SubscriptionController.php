@@ -122,4 +122,114 @@ class SubscriptionController extends Controller
             'data' => $newSubscription->load('plan'),
         ]);
     }
+
+    /**
+     * Cancel an active subscription.
+     * Retains access until ends_at, or ends immediately if no end date.
+     */
+    public function cancel(Request $request, $storeId)
+    {
+        $id = $storeId instanceof Store ? $storeId->id : $storeId;
+        $user = $request->user();
+        if (! $user->stores()->where('id', $id)->exists() && ! $user->hasRole('admin')) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        $subscription = StoreSubscription::where('store_id', $id)
+            ->whereIn('status', ['active', 'trial'])
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
+            ->latest()
+            ->first();
+
+        if (! $subscription) {
+            return response()->json(['success' => false, 'message' => 'No active subscription found to cancel.'], 422);
+        }
+
+        if ($subscription->cancelled_at !== null) {
+            return response()->json(['success' => false, 'message' => 'Subscription is already cancelled.'], 422);
+        }
+
+        $subscription->update([
+            'cancelled_at' => now(),
+        ]);
+
+        SubscriptionEvent::create([
+            'store_id' => $id,
+            'store_subscription_id' => $subscription->id,
+            'event_type' => 'cancelled',
+            'plan_id' => $subscription->plan_id,
+            'billing_cycle' => $subscription->billing_cycle ?? 'monthly',
+            'triggered_by' => $user->id,
+            'occurred_at' => now(),
+        ]);
+
+        $until = $subscription->ends_at
+            ? $subscription->ends_at->timezone('Asia/Manila')->format('M j, Y')
+            : 'the end of your current period';
+
+        return response()->json([
+            'success' => true,
+            'message' => "Your subscription has been cancelled. You will retain access until {$until}.",
+            'data' => $subscription->fresh()->load('plan'),
+        ]);
+    }
+
+    /**
+     * Resubscribe or uncancel a cancelled subscription before it ends.
+     */
+    public function resubscribe(Request $request, $storeId)
+    {
+        $id = $storeId instanceof Store ? $storeId->id : $storeId;
+        $user = $request->user();
+        if (! $user->stores()->where('id', $id)->exists() && ! $user->hasRole('admin')) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        $store = Store::findOrFail($id);
+
+        // Check if there is an active subscription with cancelled_at set
+        $subscription = StoreSubscription::where('store_id', $id)
+            ->whereIn('status', ['active', 'trial'])
+            ->whereNotNull('cancelled_at')
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
+            ->latest()
+            ->first();
+
+        if ($subscription) {
+            // Simply remove cancellation
+            $subscription->update(['cancelled_at' => null]);
+
+            SubscriptionEvent::create([
+                'store_id' => $id,
+                'store_subscription_id' => $subscription->id,
+                'event_type' => 'resubscribed',
+                'plan_id' => $subscription->plan_id,
+                'billing_cycle' => $subscription->billing_cycle ?? 'monthly',
+                'triggered_by' => $user->id,
+                'occurred_at' => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Subscription reactivation successful! Auto-renewal is restored.',
+                'data' => $subscription->fresh()->load('plan'),
+            ]);
+        }
+
+        // If completely expired/inactive, re-apply the basic plan or prompt renewal
+        $defaultPlan = SubscriptionPlan::where('slug', 'basic')->first()
+            ?? SubscriptionPlan::where('price_monthly', 0)->first();
+
+        if (! $defaultPlan) {
+            return response()->json(['success' => false, 'message' => 'Please select a plan to subscribe.'], 422);
+        }
+
+        $newSub = SubscriptionSwitcher::apply($store, $defaultPlan, 'monthly', $user->id);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully resubscribed to {$defaultPlan->name}.",
+            'data' => $newSub->load('plan'),
+        ]);
+    }
 }

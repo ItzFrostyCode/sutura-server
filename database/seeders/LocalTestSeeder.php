@@ -162,6 +162,54 @@ class LocalTestSeeder extends Seeder
             ]);
         }
 
+        // 3b. Sample Store #2: Multi-Branch & Expiring Subscription (Item 10 & 11)
+        $owner2 = User::firstOrCreate(
+            ['email' => 'ricardo.santos@sutura.com'],
+            [
+                'name' => 'Ricardo Santos',
+                'gender' => 'male',
+                'password' => Hash::make('password'),
+                'email_verified_at' => now(),
+            ]
+        );
+        if (! $owner2->roles()->where('role_id', $ownerRole->id)->exists()) {
+            $owner2->roles()->attach($ownerRole->id);
+        }
+
+        $store2 = Store::firstOrCreate(
+            ['slug' => 'davao-formal-wear'],
+            [
+                'owner_id' => $owner2->id,
+                'name' => 'Davao Formal Wear Co.',
+                'store_code' => 'DFWC',
+                'description' => 'Fine bespoke tailoring, barongs, and formal corporate suits.',
+                'specializations' => CanonicalTaxonomy::storeSpecializations(),
+                'address' => '456 JP Laurel Avenue, Bajada',
+                'city' => 'Davao City',
+                'province' => 'Davao del Sur',
+                'email' => 'ricardo@davaoformal.com',
+                'gcash_number' => '0917 987 6543',
+                'gcash_account_name' => 'Davao Formal Wear Co.',
+                'phone' => '+639179876543',
+                'status' => 'approved',
+                'approved_at' => now(),
+                'is_featured' => false,
+            ]
+        );
+
+        $proPlan = SubscriptionPlan::where('slug', 'pro')->first();
+        if ($proPlan && ! $store2->subscription()->exists()) {
+            // Subscription expiring in 2 days (Item 11: tests Admin 3-day reminder widget!)
+            StoreSubscription::create([
+                'store_id' => $store2->id,
+                'plan_id' => $proPlan->id,
+                'status' => 'active',
+                'billing_cycle' => 'monthly',
+                'starts_at' => now()->subDays(28),
+                'ends_at' => now()->addDays(2),
+            ]);
+        }
+
         // Seed Main Branch
         $mainBranch = StoreBranch::firstOrCreate(
             ['store_id' => $store->id, 'name' => 'Poblacion Branch'],
@@ -589,24 +637,45 @@ class LocalTestSeeder extends Seeder
             }
         }
 
-        // 7. Single-branch shop: Thread & Needle runs from Poblacion (main branch)
-        // only. The old Lanang/Matina satellites are retired — their orders
-        // and appointments move to Main (never nulled out), then the branch
-        // rows go. $branch2/$branch3 stay as aliases of Main so the demo
-        // jobs/appointments below still seed, just all at Main.
-        $retiredBranchIds = StoreBranch::where('store_id', $store->id)
-            ->whereIn('name', ['Lanang Branch', 'Matina Branch'])
-            ->pluck('id');
-        if ($retiredBranchIds->isNotEmpty()) {
-            foreach ([Appointment::class, CatalogOrder::class, JobOrder::class, StaffProfile::class, StoreSpecialHour::class] as $model) {
-                $model::withoutGlobalScopes()
-                    ->whereIn('store_branch_id', $retiredBranchIds)
-                    ->update(['store_branch_id' => $mainBranch->id]);
-            }
-            StoreBranch::whereIn('id', $retiredBranchIds)->delete();
-        }
-        $branch2 = $mainBranch;
-        $branch3 = $mainBranch;
+        // 7. Multi-branch setup for Thread & Needle:
+        // - Poblacion Branch: is_main = true, status = 'active', verification_status = 'verified'
+        // - Lanang Branch: is_main = false, status = 'active', verification_status = 'verified' (tests multiple branches)
+        // - Matina Branch: is_main = false, status = 'inactive', verification_status = 'verified' (tests hidden branch filtering!)
+        $branch2 = StoreBranch::updateOrCreate(
+            ['store_id' => $store->id, 'name' => 'Lanang Branch'],
+            [
+                'slug' => 'lanang-branch-sat',
+                'address' => 'KM 7 Lanang, Davao City',
+                'city' => 'Davao City',
+                'district' => 'Lanang',
+                'landmark' => 'Near SM Lanang Premier',
+                'contact_number' => '+63 917 100 0002',
+                'operating_hours' => 'Mon-Sat 9:00 AM - 6:00 PM',
+                'latitude' => 7.0988,
+                'longitude' => 125.6315,
+                'is_main' => false,
+                'status' => 'active',
+                'verification_status' => 'verified',
+            ]
+        );
+
+        $branch3 = StoreBranch::updateOrCreate(
+            ['store_id' => $store->id, 'name' => 'Matina Branch'],
+            [
+                'slug' => 'matina-branch-sat',
+                'address' => 'McArthur Highway, Matina, Davao City',
+                'city' => 'Davao City',
+                'district' => 'Matina',
+                'landmark' => 'Across Ateneo de Davao Matina Campus',
+                'contact_number' => '+63 917 100 0003',
+                'operating_hours' => 'Mon-Sat 8:00 AM - 5:00 PM',
+                'latitude' => 7.0515,
+                'longitude' => 125.5901,
+                'is_main' => false,
+                'status' => 'inactive', // HIDDEN BRANCH for testing hiding/filtering!
+                'verification_status' => 'verified',
+            ]
+        );
 
         // 8. Seed 2 Additional Tailoring Staff Members (making it 3 staff in total)
         $staffNames = [
@@ -699,6 +768,25 @@ class LocalTestSeeder extends Seeder
             }
             $store->customers()->syncWithoutDetaching([$tester->id]);
         }
+
+        // 9c. Joshua's real account — the developer's own login. When he opens
+        // /account/orders he sees his own orders with full measurement data,
+        // payment history (via GCash), and financial breakdown. This account
+        // already exists from the data snapshot (user 19), so firstOrCreate
+        // picks it up without duplicating it.
+        $joshuaUser = User::firstOrCreate(
+            ['email' => 'itzjoshuawayman@gmail.com'],
+            [
+                'name' => 'Joshua A. Arabejo',
+                'gender' => 'male',
+                'password' => Hash::make('password'),
+                'email_verified_at' => now(),
+            ]
+        );
+        if (! $joshuaUser->roles()->where('role_id', $customerRole->id)->exists()) {
+            $joshuaUser->roles()->attach($customerRole->id);
+        }
+        $store->customers()->syncWithoutDetaching([$joshuaUser->id]);
 
         // 9b. Seed 3 more customers used specifically for the GCash/Bank Transfer
         // receipt-verification demo scenarios below — these existed only as ad
@@ -862,26 +950,45 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // 11. Seed 4 Job Orders (Custom Jobs)
-        $jo1 = JobOrder::firstOrCreate(
+        // 11. Seed 16 Job Orders showcasing all distinct production statuses and if/else workflow branches
+        $repairService = Service::where('name', 'Garment Alterations & Repair Services')->first() ?? $service1;
+        $barongService = Service::where('name', 'Barong Tagalog Tailoring')->first() ?? $service2;
+
+        // ORD-0001: PENDING (Quotation Approval Gate)
+        $jo1 = JobOrder::updateOrCreate(
             ['store_id' => $store->id, 'order_number' => 'ORD-0001'],
             [
                 'tracking_code' => 'TNED8K2P',
                 'store_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[0]->id,
-                'service_id' => $service2->id,
+                'service_id' => $barongService->id,
                 'assigned_staff_id' => $staffUsers[0]->id,
-                'total_amount' => 15000.00,
-                'balance' => 7500.00,
-                'payment_status' => 'partial',
-                'status' => 'sewing',
-                'due_date' => now()->addDays(10)->format('Y-m-d'),
-                'notes' => 'Pina Cocoon lining custom suit',
-                'intake_channel' => 'walk_in',
+                'total_amount' => 8500.00,
+                'balance' => 8500.00,
+                'payment_status' => 'unpaid',
+                'status' => 'pending',
+                'due_date' => now()->addDays(14)->format('Y-m-d'),
+                'notes' => 'Piña Seda bespoke barong — quotation pending customer sign-off.',
+                'intake_channel' => 'online',
                 'fulfillment_type' => 'pickup',
+                'quotation_status' => 'final',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 38,
+                        'Waist' => 32,
+                        'Shoulder' => 17.5,
+                        'Sleeve Length' => 24.5,
+                        'Barong Length' => 29,
+                        'Neck' => 15.5,
+                    ],
+                    'fabric_name' => 'Piña Seda (Natural Beige)',
+                ],
             ]
         );
 
+        // ORD-0002: CUTTING (Bulk Order, Rush Priority, Discount, Team Roster)
         $jo2 = JobOrder::updateOrCreate(
             ['store_id' => $store->id, 'order_number' => 'ORD-0002'],
             [
@@ -890,32 +997,39 @@ class LocalTestSeeder extends Seeder
                 'customer_id' => $customers[1]->id,
                 'service_id' => $service1->id,
                 'assigned_staff_id' => $lanangStaff->id,
-                'total_amount' => 6500.00,
-                'balance' => 6500.00,
-                'payment_status' => 'unpaid',
+                'total_amount' => 7000.00,
+                'balance' => 3750.00,
+                'rush_fee' => 1000.00,
+                'discount_amount' => 500.00,
+                'is_rush' => true,
+                'balance_due_by' => now()->addDays(5)->format('Y-m-d'),
+                'estimated_ready_at' => now()->addDays(7),
+                'payment_status' => 'partial',
                 'status' => 'cutting',
-                'due_date' => now()->addDays(14)->format('Y-m-d'),
-                'notes' => '10 jerseys set for tournament',
+                'due_date' => now()->addDays(7)->format('Y-m-d'),
+                'notes' => '10 jerseys set for tournament (Expedited Rush Turnaround)',
                 'intake_channel' => 'online',
                 'fulfillment_type' => 'pickup',
                 'custom_order_data' => [
                     'team_name' => 'Davao Eagles',
+                    'unit' => 'in',
                     'team_roster' => [
-                        ['name' => 'Juan Dela Cruz', 'print_name' => 'JUAN', 'number' => '10', 'size' => 'L'],
-                        ['name' => 'Pedro Penduko', 'print_name' => 'PEDRO', 'number' => '7', 'size' => 'M'],
-                        ['name' => 'Maria Makiling', 'print_name' => 'MARIA', 'number' => '23', 'size' => 'S'],
-                        ['name' => 'Ramon Bautista', 'print_name' => 'RAMON', 'number' => '5', 'size' => 'L'],
-                        ['name' => 'Carlo Reyes', 'print_name' => 'CARLO', 'number' => '11', 'size' => 'M'],
-                        ['name' => 'Nico Santos', 'print_name' => 'NICO', 'number' => '3', 'size' => 'XL'],
-                        ['name' => 'Ella Villanueva', 'print_name' => 'ELLA', 'number' => '8', 'size' => 'S'],
-                        ['name' => 'Miguel Torres', 'print_name' => 'MIGUEL', 'number' => '14', 'size' => 'L'],
-                        ['name' => 'Diego Fernandez', 'print_name' => 'DIEGO', 'number' => '22', 'size' => 'M'],
-                        ['name' => 'Paolo Cruz', 'print_name' => 'PAOLO', 'number' => '9', 'size' => 'L'],
+                        ['name' => 'Juan Dela Cruz', 'gender' => 'Male', 'print_name' => 'JUAN', 'number' => '10', 'size' => 'L', 'cut' => "Men's"],
+                        ['name' => 'Pedro Penduko', 'gender' => 'Male', 'print_name' => 'PEDRO', 'number' => '7', 'size' => 'M', 'cut' => "Men's"],
+                        ['name' => 'Maria Makiling', 'gender' => 'Female', 'print_name' => 'MARIA', 'number' => '23', 'size' => 'S', 'cut' => "Ladies'"],
+                        ['name' => 'Ramon Bautista', 'gender' => 'Male', 'print_name' => 'RAMON', 'number' => '5', 'size' => 'L', 'cut' => "Men's"],
+                        ['name' => 'Carlo Reyes', 'gender' => 'Male', 'print_name' => 'CARLO', 'number' => '11', 'size' => 'M', 'cut' => "Men's"],
+                        ['name' => 'Nico Santos', 'gender' => 'Male', 'print_name' => 'NICO', 'number' => '3', 'size' => 'XL', 'cut' => "Men's"],
+                        ['name' => 'Ella Villanueva', 'gender' => 'Female', 'print_name' => 'ELLA', 'number' => '8', 'size' => 'S', 'cut' => "Ladies'"],
+                        ['name' => 'Miguel Torres', 'gender' => 'Male', 'print_name' => 'MIGUEL', 'number' => '14', 'size' => 'L', 'cut' => "Men's"],
+                        ['name' => 'Diego Fernandez', 'gender' => 'Male', 'print_name' => 'DIEGO', 'number' => '22', 'size' => 'M', 'cut' => "Men's"],
+                        ['name' => 'Paolo Cruz', 'gender' => 'Male', 'print_name' => 'PAOLO', 'number' => '9', 'size' => 'L', 'cut' => "Men's"],
                     ],
                 ],
             ]
         );
 
+        // ORD-0003: READY_FOR_PICKUP (Bespoke Corporate Suit, Fully Paid)
         $jo3 = JobOrder::updateOrCreate(
             ['store_id' => $store->id, 'order_number' => 'ORD-0003'],
             [
@@ -928,52 +1042,61 @@ class LocalTestSeeder extends Seeder
                 'balance' => 0.00,
                 'payment_status' => 'paid',
                 'status' => 'ready_for_pickup',
-                'due_date' => now()->subDays(20)->format('Y-m-d'),
-                'notes' => 'Bespoke corporate dress suit',
+                'due_date' => now()->subDays(5)->format('Y-m-d'),
+                'notes' => 'Bespoke corporate dress suit — customer notified for pickup.',
                 'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Bust' => 36,
+                        'Waist' => 28,
+                        'Hips' => 38,
+                        'Shoulder' => 15.5,
+                        'Blazer Length' => 26,
+                        'Skirt Length' => 22,
+                    ],
+                ],
             ]
         );
-        // ready_for_pickup_at is server-derived (not in $fillable, same as
-        // adjustment_count/first_adjustment_at) — 3 weeks past due and
-        // already fully paid, the exact "customer never came back for it"
-        // scenario the new Unclaimed Pickups aging list on Reports catches.
-        $jo3->forceFill(['ready_for_pickup_at' => now()->subDays(21)])->save();
+        $jo3->forceFill(['ready_for_pickup_at' => now()->subDays(5)])->save();
 
-        $jo4 = JobOrder::firstOrCreate(
+        // ORD-0004: SEWING (Tailored Trousers in Production)
+        $jo4 = JobOrder::updateOrCreate(
             ['store_id' => $store->id, 'order_number' => 'ORD-0004'],
             [
                 'tracking_code' => 'TNED2V5H',
                 'store_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[0]->id,
-                'service_id' => $service1->id,
+                'service_id' => $service2->id,
                 'assigned_staff_id' => $staffUsers[2]->id,
-                'total_amount' => 3250.00,
-                'balance' => 0.00,
-                'payment_status' => 'paid',
-                'status' => 'completed',
-                'due_date' => now()->subDays(2)->format('Y-m-d'),
-                'notes' => '5 training singlets completed',
-                'intake_channel' => 'online',
+                'total_amount' => 3500.00,
+                'balance' => 1750.00,
+                'payment_status' => 'partial',
+                'status' => 'sewing',
+                'due_date' => now()->addDays(4)->format('Y-m-d'),
+                'notes' => 'Tailored charcoal trousers — assembling waistband and inseam.',
+                'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
                 'custom_order_data' => [
-                    'team_name' => 'Sartorial Club',
-                    'team_roster' => [
-                        ['name' => 'Jossua Arabejo', 'print_name' => 'JOSSUA', 'number' => '99', 'size' => 'XL'],
-                        ['name' => 'Alex Wright', 'print_name' => 'ALEX', 'number' => '14', 'size' => 'M'],
-                        ['name' => 'Ben Castillo', 'print_name' => 'BEN', 'number' => '6', 'size' => 'L'],
-                        ['name' => 'Ken Morales', 'print_name' => 'KEN', 'number' => '2', 'size' => 'M'],
-                        ['name' => 'Rico Domingo', 'print_name' => 'RICO', 'number' => '17', 'size' => 'S'],
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Waist' => 33,
+                        'Hips' => 39,
+                        'Inseam' => 30,
+                        'Outseam' => 40,
+                        'Thigh' => 23,
+                        'Knee' => 17,
+                        'Leg Opening' => 14,
                     ],
                 ],
             ]
         );
 
-        // 11a. Seed 3 more Job Orders exercising the new 3-Phase Tailoring
-        // Tracker statuses introduced by the pipeline redesign (Ready for
-        // Fitting/Final Adjustments/QC & Ironing/the bulk-order Mass Cutting
-        // & Printing override) so every Kanban column has at least one card.
-        $jo5 = JobOrder::firstOrCreate(
+        // ORD-0005: CONFIRMED (Gown Downpayment Approved, Awaiting Production Start)
+        $jo5 = JobOrder::updateOrCreate(
             ['store_id' => $store->id, 'order_number' => 'ORD-0005'],
             [
                 'tracking_code' => 'TNED7N4K',
@@ -984,32 +1107,124 @@ class LocalTestSeeder extends Seeder
                 'total_amount' => 18000.00,
                 'balance' => 9000.00,
                 'payment_status' => 'partial',
-                'status' => 'ready_for_fitting',
-                'due_date' => now()->addDays(7)->format('Y-m-d'),
-                'notes' => 'Barong Tagalog — ready for first fitting',
-                'intake_channel' => 'walk_in',
+                'status' => 'confirmed',
+                'due_date' => now()->addDays(21)->format('Y-m-d'),
+                'notes' => 'Custom Wedding Gown — 50% deposit received, production scheduled.',
+                'intake_channel' => 'online',
                 'fulfillment_type' => 'pickup',
-            ]
-        );
-        // Simulates the auto-created Fitting appointment JobOrderController
-        // spawns when a job's status transitions to 'ready_for_fitting'.
-        Appointment::firstOrCreate(
-            ['store_id' => $store->id, 'job_order_id' => $jo5->id, 'appointment_type' => 'fitting'],
-            [
-                'store_branch_id' => $mainBranch->id,
-                'customer_id' => $jo5->customer_id,
-                'intake_channel' => 'walk_in',
-                'scheduled_at' => now()->addDay()->setTime(10, 0),
-                'duration_minutes' => Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
-                'status' => 'pending',
-                'notes' => "Auto-generated when Job Order {$jo5->order_number} became Ready for Fitting — please confirm the actual date/time with the customer.",
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Bust' => 34,
+                        'Underbust' => 29,
+                        'Waist' => 26,
+                        'Hips' => 36,
+                        'Hollow to Hem' => 58,
+                        'Shoulder to Waist' => 15.5,
+                    ],
+                ],
             ]
         );
 
+        // ORD-0006: AWAITING_MATERIALS (Customer Drop-off Pending)
         $jo6 = JobOrder::updateOrCreate(
             ['store_id' => $store->id, 'order_number' => 'ORD-0006'],
             [
                 'tracking_code' => 'TNED6W9E',
+                'store_branch_id' => $branch2->id,
+                'customer_id' => $customers[2]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $lanangStaff->id,
+                'total_amount' => 6000.00,
+                'balance' => 3000.00,
+                'payment_status' => 'partial',
+                'status' => 'awaiting_materials',
+                'due_date' => now()->addDays(15)->format('Y-m-d'),
+                'notes' => 'Customer providing 3 yards of silk fabric; waiting for drop-off at Lanang.',
+                'intake_channel' => 'online',
+                'fulfillment_type' => 'pickup',
+                'customer_material_status' => 'safe',
+                'custom_order_data' => [
+                    'size' => 'L',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 40,
+                        'Waist' => 34,
+                        'Shoulder' => 18,
+                        'Sleeve' => 25,
+                    ],
+                ],
+            ]
+        );
+
+        // ORD-0007: DESIGN (Sketch & Swatch Selection)
+        $jo7 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0007'],
+            [
+                'tracking_code' => 'TNED3P8T',
+                'store_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[0]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $staffUsers[0]->id,
+                'total_amount' => 16000.00,
+                'balance' => 8000.00,
+                'payment_status' => 'partial',
+                'status' => 'design',
+                'due_date' => now()->addDays(18)->format('Y-m-d'),
+                'notes' => 'Bespoke Evening Gown — senior designer drafting custom neckline sketch.',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Bust' => 35,
+                        'Waist' => 27,
+                        'Hips' => 37,
+                        'Shoulder' => 15,
+                        'Full Length' => 56,
+                    ],
+                ],
+            ]
+        );
+
+        // ORD-0008: PATTERN_MAKING (Drafting Bespoke Sloper)
+        $jo8 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0008'],
+            [
+                'tracking_code' => 'TNED5R2Y',
+                'store_branch_id' => $branch2->id,
+                'customer_id' => $customers[1]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $lanangStaff->id,
+                'total_amount' => 9500.00,
+                'balance' => 4750.00,
+                'payment_status' => 'partial',
+                'status' => 'pattern_making',
+                'due_date' => now()->addDays(11)->format('Y-m-d'),
+                'notes' => 'Custom Blazer — drafting calibrated paper pattern based on measurements.',
+                'intake_channel' => 'online',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'M',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 39,
+                        'Waist' => 33,
+                        'Shoulder' => 17,
+                        'Sleeve' => 24.5,
+                        'Back Length' => 28.5,
+                    ],
+                ],
+            ]
+        );
+
+        // ORD-0009: MASS_CUTTING_PRINTING (Bulk Sublimation Print)
+        $jo9 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0009'],
+            [
+                'tracking_code' => 'TNED8L3X',
                 'store_branch_id' => $branch2->id,
                 'customer_id' => $customers[2]->id,
                 'service_id' => $service1->id,
@@ -1018,40 +1233,75 @@ class LocalTestSeeder extends Seeder
                 'balance' => 4875.00,
                 'payment_status' => 'partial',
                 'status' => 'mass_cutting_printing',
-                'due_date' => now()->addDays(12)->format('Y-m-d'),
-                'notes' => '15 volleyball jerseys — bulk order, skipped Pattern Making',
+                'due_date' => now()->addDays(8)->format('Y-m-d'),
+                'notes' => '15 volleyball jerseys — bulk sublimation laser cutting & heat press.',
                 'intake_channel' => 'online',
                 'fulfillment_type' => 'pickup',
                 'custom_order_data' => [
                     'team_name' => 'Matina Spikers',
                     'fabric_preference' => 'Drifit Mesh',
+                    'unit' => 'in',
                     'team_roster' => [
-                        ['name' => 'Anna Reyes', 'print_name' => 'ANNA', 'number' => '4', 'size' => 'M', 'completed' => false],
-                        ['name' => 'Bea Santos', 'print_name' => 'BEA', 'number' => '12', 'size' => 'S', 'completed' => false],
-                        ['name' => 'Carla Cruz', 'print_name' => 'CARLA', 'number' => '7', 'size' => 'L', 'completed' => false],
-                        ['name' => 'Diana Mendoza', 'print_name' => 'DIANA', 'number' => '1', 'size' => 'M', 'completed' => false],
-                        ['name' => 'Elena Garcia', 'print_name' => 'ELENA', 'number' => '9', 'size' => 'S', 'completed' => false],
-                        ['name' => 'Faith Ramos', 'print_name' => 'FAITH', 'number' => '14', 'size' => 'XL', 'completed' => false],
-                        ['name' => 'Grace Torres', 'print_name' => 'GRACE', 'number' => '3', 'size' => 'M', 'completed' => false],
-                        ['name' => 'Hannah Lopez', 'print_name' => 'HANNAH', 'number' => '10', 'size' => 'S', 'completed' => false],
-                        ['name' => 'Ivy Flores', 'print_name' => 'IVY', 'number' => '6', 'size' => 'L', 'completed' => false],
-                        ['name' => 'Joyce Castro', 'print_name' => 'JOYCE', 'number' => '8', 'size' => 'M', 'completed' => false],
-                        ['name' => 'Karen Diaz', 'print_name' => 'KAREN', 'number' => '15', 'size' => 'L', 'completed' => false],
-                        ['name' => 'Lea Morales', 'print_name' => 'LEA', 'number' => '11', 'size' => 'M', 'completed' => false],
-                        ['name' => 'Mia Navarro', 'print_name' => 'MIA', 'number' => '2', 'size' => 'S', 'completed' => false],
-                        ['name' => 'Nicole Salazar', 'print_name' => 'NICOLE', 'number' => '5', 'size' => 'XL', 'completed' => false],
-                        ['name' => 'Olivia Tan', 'print_name' => 'OLIVIA', 'number' => '13', 'size' => 'M', 'completed' => false],
+                        ['name' => 'Anna Reyes', 'gender' => 'Female', 'print_name' => 'ANNA', 'number' => '4', 'size' => 'M', 'cut' => "Ladies'"],
+                        ['name' => 'Bea Santos', 'gender' => 'Female', 'print_name' => 'BEA', 'number' => '12', 'size' => 'S', 'cut' => "Ladies'"],
+                        ['name' => 'Carla Cruz', 'gender' => 'Female', 'print_name' => 'CARLA', 'number' => '7', 'size' => 'L', 'cut' => "Ladies'"],
+                        ['name' => 'Diana Mendoza', 'gender' => 'Female', 'print_name' => 'DIANA', 'number' => '1', 'size' => 'M', 'cut' => "Ladies'"],
+                        ['name' => 'Elena Garcia', 'gender' => 'Female', 'print_name' => 'ELENA', 'number' => '9', 'size' => 'S', 'cut' => "Ladies'"],
                     ],
                 ],
             ]
         );
 
-        $jo7 = JobOrder::firstOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'ORD-0007'],
+        // ORD-0010: READY_FOR_FITTING (Fitting Gate with Linked Appointment)
+        $jo10 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0010'],
             [
-                'tracking_code' => 'TNED3P8T',
+                'tracking_code' => 'TNED2J7M',
                 'store_branch_id' => $mainBranch->id,
                 'customer_id' => $customers[0]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $staffUsers[1]->id,
+                'total_amount' => 14000.00,
+                'balance' => 7000.00,
+                'payment_status' => 'partial',
+                'status' => 'ready_for_fitting',
+                'due_date' => now()->addDays(6)->format('Y-m-d'),
+                'notes' => 'Bespoke Suit — basted fitting ready, scheduled for client check.',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 41,
+                        'Waist' => 35,
+                        'Hips' => 41,
+                        'Shoulder' => 18.5,
+                        'Sleeve Length' => 25,
+                    ],
+                ],
+            ]
+        );
+        Appointment::firstOrCreate(
+            ['store_id' => $store->id, 'job_order_id' => $jo10->id, 'appointment_type' => 'fitting'],
+            [
+                'store_branch_id' => $mainBranch->id,
+                'customer_id' => $jo10->customer_id,
+                'intake_channel' => 'walk_in',
+                'scheduled_at' => now()->addDay()->setTime(10, 0),
+                'duration_minutes' => Appointment::TYPE_DEFAULT_DURATIONS['fitting'],
+                'status' => 'pending',
+                'notes' => 'Scheduled fitting session for ORD-0010.',
+            ]
+        );
+
+        // ORD-0011: FINAL_ADJUSTMENTS (Post-Fitting Adjustments)
+        $jo11 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0011'],
+            [
+                'tracking_code' => 'TNED9B6S',
+                'store_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[1]->id,
                 'service_id' => $service2->id,
                 'assigned_staff_id' => $staffUsers[0]->id,
                 'total_amount' => 14500.00,
@@ -1059,105 +1309,180 @@ class LocalTestSeeder extends Seeder
                 'payment_status' => 'partial',
                 'status' => 'final_adjustments',
                 'due_date' => now()->addDays(3)->format('Y-m-d'),
-                'notes' => 'Fitting revealed a shoulder adjustment — back to Final Adjustments',
+                'notes' => 'Fitting revealed shoulder slope needs 0.5in taper — final adjustments.',
                 'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 38,
+                        'Waist' => 31.5,
+                        'Hips' => 38,
+                        'Shoulder' => 17,
+                        'Sleeve' => 24,
+                    ],
+                ],
             ]
         );
 
-        $jo8 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'ORD-0008'],
+        // ORD-0012: QC_IRONING (Steam Pressing & Inspection)
+        $jo12 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0012'],
             [
-                'tracking_code' => 'TNED5R2Y',
-                'store_branch_id' => $branch3->id,
-                'customer_id' => $customers[1]->id,
+                'tracking_code' => 'TNED7V1C',
+                'store_branch_id' => $branch2->id,
+                'customer_id' => $customers[2]->id,
                 'service_id' => $service2->id,
-                'assigned_staff_id' => $matinaStaff->id,
+                'assigned_staff_id' => $lanangStaff->id,
                 'total_amount' => 11000.00,
                 'balance' => 5500.00,
                 'payment_status' => 'partial',
                 'status' => 'qc_ironing',
-                'due_date' => now()->addDays(1)->format('Y-m-d'),
-                'notes' => 'Final quality check and ironing before pickup',
-                'intake_channel' => 'walk_in',
-                'fulfillment_type' => 'pickup',
-            ]
-        );
-
-        // 11a-1. Two more scenarios added for the Home dashboard's newer
-        // alert widgets (completed-unpaid + due-today), which every existing
-        // JO above happened to miss — none were both completed and still
-        // owing money, and none had due_date exactly today. Without these,
-        // reseeding always left those two widgets empty, which read as
-        // "broken" even though the feature itself worked fine.
-        $jo9 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'ORD-0009'],
-            [
-                'tracking_code' => 'TNED8L3X',
-                'store_branch_id' => $mainBranch->id,
-                'customer_id' => $customers[2]->id,
-                'service_id' => $service1->id,
-                'assigned_staff_id' => $staffUsers[1]->id,
-                'total_amount' => 4200.00,
-                'balance' => 1200.00,
-                'payment_status' => 'partial',
-                'status' => 'completed',
-                'due_date' => now()->subDays(3)->format('Y-m-d'),
-                'notes' => 'Picked up already — owner let the customer take it and settle the rest later.',
-                'intake_channel' => 'walk_in',
-                'fulfillment_type' => 'pickup',
-            ]
-        );
-
-        $jo10 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'ORD-0010'],
-            [
-                'tracking_code' => 'TNED2J7M',
-                'store_branch_id' => $branch2->id,
-                'customer_id' => $customers[0]->id,
-                'service_id' => $service2->id,
-                'assigned_staff_id' => $lanangStaff->id,
-                'total_amount' => 7800.00,
-                'balance' => 3900.00,
-                'payment_status' => 'partial',
-                'status' => 'sewing',
-                'due_date' => now()->format('Y-m-d'),
-                'notes' => 'Due today — customer is picking this up this afternoon.',
-                'intake_channel' => 'walk_in',
-                'fulfillment_type' => 'pickup',
-            ]
-        );
-
-        // jo2 (ORD-0002) starts unpaid above but receives a partial payment
-        // later in this same seeder (a deliberate "started unpaid, later
-        // paid something" scenario) — so nothing genuinely stays unpaid
-        // without this one, leaving the "no downpayment collected" alert
-        // permanently empty on every reseed.
-        $jo11 = JobOrder::updateOrCreate(
-            ['store_id' => $store->id, 'order_number' => 'ORD-0011'],
-            [
-                'tracking_code' => 'TNED9B6S',
-                'store_branch_id' => $mainBranch->id,
-                'customer_id' => $customers[1]->id,
-                'service_id' => $service1->id,
-                'assigned_staff_id' => $staffUsers[2]->id,
-                'total_amount' => 5000.00,
-                'balance' => 5000.00,
-                'payment_status' => 'unpaid',
-                'status' => 'pending',
-                'due_date' => now()->addDays(9)->format('Y-m-d'),
-                'notes' => 'Full Sublimation Team Jerseys (5 sets). Red & Gold gradient print with team logo on left chest. Fabric: Drifit Honeycomb. Double-stitched seams on collar and armholes.',
+                'due_date' => now()->addDays(2)->format('Y-m-d'),
+                'notes' => 'Final quality inspection, lining check, and industrial steam pressing.',
                 'intake_channel' => 'walk_in',
                 'fulfillment_type' => 'pickup',
                 'custom_order_data' => [
-                    'team_name' => 'Katipunan Ballers',
-                    'fabric_preference' => 'Honeycomb',
-                    'team_roster' => [
-                        ['name' => 'Andres Bonifacio', 'print_name' => 'A. BONIFACIO', 'number' => '1', 'size' => 'L', 'completed' => false],
-                        ['name' => 'Emilio Jacinto', 'print_name' => 'E. JACINTO', 'number' => '2', 'size' => 'M', 'completed' => false],
-                        ['name' => 'Pio Valenzuela', 'print_name' => 'P. VALENZUELA', 'number' => '3', 'size' => 'XL', 'completed' => false],
-                        ['name' => 'Apolinario Mabini', 'print_name' => 'A. MABINI', 'number' => '4', 'size' => 'M', 'completed' => false],
-                        ['name' => 'Melchora Aquino', 'print_name' => 'M. AQUINO', 'number' => '5', 'size' => 'S', 'completed' => false],
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Bust' => 37,
+                        'Waist' => 29,
+                        'Hips' => 39,
+                        'Shoulder' => 16,
+                        'Full Length' => 42,
+                    ],
+                ],
+            ]
+        );
+
+        // ORD-0013: IN_REPAIR (Alterations & Repair Pipeline)
+        $jo13 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0013'],
+            [
+                'tracking_code' => 'TNED1R8Z',
+                'store_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[0]->id,
+                'service_id' => $repairService->id,
+                'assigned_staff_id' => $staffUsers[2]->id,
+                'total_amount' => 450.00,
+                'balance' => 0.00,
+                'payment_status' => 'paid',
+                'status' => 'in_repair',
+                'due_date' => now()->addDays(2)->format('Y-m-d'),
+                'notes' => 'Denim jacket brass zipper replacement and reinforce elbow patches.',
+                'intake_channel' => 'online',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'service_kind' => 'repair',
+                    'repair_note' => 'Denim jacket brass zipper replacement and reinforce elbow patches.',
+                    'alteration_points' => [
+                        'Zipper' => 'Heavy-duty Brass 24 inch',
+                        'Hem' => 'Take in 1 inch',
+                    ],
+                ],
+            ]
+        );
+
+        // ORD-0014: BALANCE_HANDOVER (The Audited Order #14: Custom 3-Piece Suit at Counter Handover)
+        $jo14 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0014'],
+            [
+                'tracking_code' => 'TNED4H9L',
+                'store_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[0]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $staffUsers[0]->id,
+                'total_amount' => 16500.00,
+                'balance' => 8250.00,
+                'rush_fee' => 0.00,
+                'discount_amount' => 500.00,
+                'is_rush' => false,
+                'balance_due_by' => now()->addDays(2)->format('Y-m-d'),
+                'estimated_ready_at' => now()->addDays(2),
+                'payment_status' => 'partial',
+                'status' => 'balance_handover',
+                'due_date' => now()->addDays(2)->format('Y-m-d'),
+                'notes' => 'Custom 3-Piece Charcoal Wool Suit — finished at counter for final handover and balance payment.',
+                'intake_channel' => 'online',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 40,
+                        'Waist' => 33,
+                        'Hips' => 40.5,
+                        'Shoulder Width' => 18,
+                        'Sleeve Length' => 25,
+                        'Jacket Length' => 30.5,
+                        'Vest Length' => 24,
+                        'Pants Inseam' => 31,
+                        'Neck' => 16,
+                    ],
+                    'fabric_preference' => 'Charcoal Grey Wool Serge with Satin Lapels',
+                ],
+            ]
+        );
+
+        // ORD-0015: COMPLETED (Released, Fully Paid, Customer Reviewed)
+        $jo15 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0015'],
+            [
+                'tracking_code' => 'TNED5C3Q',
+                'store_branch_id' => $mainBranch->id,
+                'customer_id' => $customers[1]->id,
+                'service_id' => $barongService->id,
+                'assigned_staff_id' => $staffUsers[1]->id,
+                'total_amount' => 13500.00,
+                'balance' => 0.00,
+                'payment_status' => 'paid',
+                'status' => 'completed',
+                'due_date' => now()->subDays(10)->format('Y-m-d'),
+                'notes' => 'Graduation Barong Tagalog — released and worn for ceremony.',
+                'intake_channel' => 'walk_in',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 39,
+                        'Waist' => 32,
+                        'Shoulder' => 17.5,
+                        'Sleeve' => 24.5,
+                        'Barong Length' => 29.5,
+                    ],
+                ],
+            ]
+        );
+
+        // ORD-0016: QUEUED (Materials Verified, Scheduled on Cutting Floor)
+        $jo16 = JobOrder::updateOrCreate(
+            ['store_id' => $store->id, 'order_number' => 'ORD-0016'],
+            [
+                'tracking_code' => 'TNED6Q1W',
+                'store_branch_id' => $branch2->id,
+                'customer_id' => $customers[2]->id,
+                'service_id' => $service2->id,
+                'assigned_staff_id' => $lanangStaff->id,
+                'total_amount' => 8200.00,
+                'balance' => 4100.00,
+                'payment_status' => 'partial',
+                'status' => 'queued',
+                'due_date' => now()->addDays(12)->format('Y-m-d'),
+                'notes' => 'Materials verified and cut sheet prepared — queued on cutting table.',
+                'intake_channel' => 'online',
+                'fulfillment_type' => 'pickup',
+                'custom_order_data' => [
+                    'size' => 'Custom Fit',
+                    'unit' => 'in',
+                    'measurements' => [
+                        'Chest' => 42,
+                        'Waist' => 36,
+                        'Hips' => 43,
+                        'Shoulder' => 19,
+                        'Sleeve' => 25.5,
                     ],
                 ],
             ]
@@ -1171,11 +1496,8 @@ class LocalTestSeeder extends Seeder
         // status stage marked in-progress (no completed_at yet) — jobs already
         // past all 6 stages (ready_for_pickup, completed) get every stage closed out.
         $stageAssignments = [
-            $jo1->id => [ // status: sewing — design/pattern_making/cutting done, sewing in progress
-                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 6, 'completed' => 5],
-                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 5, 'completed' => 4],
-                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 4, 'completed' => 2],
-                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => null],
+            $jo1->id => [ // status: pending (Quotation Approval Gate)
+                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 1, 'completed' => null],
             ],
             $jo2->id => [ // status: cutting — design/pattern_making done, cutting in progress
                 ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 4, 'completed' => 3],
@@ -1189,47 +1511,68 @@ class LocalTestSeeder extends Seeder
                 ['stage' => 'sewing', 'staff' => $matinaStaff, 'assigned' => 6, 'completed' => 4],
                 ['stage' => 'qc_ironing', 'staff' => $matinaStaff, 'assigned' => 2, 'completed' => 1],
             ],
-            $jo4->id => [ // status: completed — all staff stages already closed out
+            $jo4->id => [ // status: sewing — cutting done, sewing in progress
                 ['stage' => 'design', 'staff' => $staffUsers[2], 'assigned' => 9, 'completed' => 8],
                 ['stage' => 'pattern_making', 'staff' => $staffUsers[2], 'assigned' => 8, 'completed' => 7],
                 ['stage' => 'cutting', 'staff' => $staffUsers[2], 'assigned' => 7, 'completed' => 5],
-                ['stage' => 'sewing', 'staff' => $staffUsers[2], 'assigned' => 5, 'completed' => 3],
-                ['stage' => 'qc_ironing', 'staff' => $staffUsers[2], 'assigned' => 2, 'completed' => 1],
+                ['stage' => 'sewing', 'staff' => $staffUsers[2], 'assigned' => 5, 'completed' => null],
             ],
-            $jo5->id => [ // status: ready_for_fitting — sewing done, no qc_ironing yet
+            $jo5->id => [ // status: confirmed — 50% deposit confirmed, queued for design
+                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 1, 'completed' => null],
+            ],
+            $jo6->id => [ // status: awaiting_materials — waiting customer cloth drop-off
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => 1],
+            ],
+            $jo7->id => [ // status: design — sketch in progress
+                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => null],
+            ],
+            $jo8->id => [ // status: pattern_making — paper pattern drafting in progress
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
+                ['stage' => 'pattern_making', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => null],
+            ],
+            $jo9->id => [ // status: mass_cutting_printing — bulk order, sublimation & laser cutting
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
+                ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => null],
+            ],
+            $jo10->id => [ // status: ready_for_fitting — sewing done, ready for fitting appointment
                 ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 8, 'completed' => 7],
                 ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 7, 'completed' => 6],
                 ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 6, 'completed' => 4],
                 ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 4, 'completed' => 1],
             ],
-            $jo6->id => [ // status: mass_cutting_printing — bulk order, pattern_making skipped
-                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
-                ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => null],
+            $jo11->id => [ // status: final_adjustments — post-fitting shoulder/waist alteration
+                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 10, 'completed' => 9],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 9, 'completed' => 8],
+                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 6],
+                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 6, 'completed' => 2],
             ],
-            $jo7->id => [ // status: final_adjustments — reverted here after fitting
-                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 12, 'completed' => 11],
-                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 11, 'completed' => 10],
-                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 10, 'completed' => 8],
-                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 5],
+            $jo12->id => [ // status: qc_ironing — final steam press & quality control inspection
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 8, 'completed' => 7],
+                ['stage' => 'pattern_making', 'staff' => $lanangStaff, 'assigned' => 7, 'completed' => 6],
+                ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 6, 'completed' => 4],
+                ['stage' => 'sewing', 'staff' => $lanangStaff, 'assigned' => 4, 'completed' => 2],
+                ['stage' => 'qc_ironing', 'staff' => $lanangStaff, 'assigned' => 1, 'completed' => null],
             ],
-            $jo8->id => [ // status: qc_ironing — final quality check in progress
-                ['stage' => 'design', 'staff' => $matinaStaff, 'assigned' => 9, 'completed' => 8],
-                ['stage' => 'pattern_making', 'staff' => $matinaStaff, 'assigned' => 8, 'completed' => 7],
-                ['stage' => 'cutting', 'staff' => $matinaStaff, 'assigned' => 7, 'completed' => 5],
-                ['stage' => 'sewing', 'staff' => $matinaStaff, 'assigned' => 5, 'completed' => 3],
-                ['stage' => 'qc_ironing', 'staff' => $matinaStaff, 'assigned' => 2, 'completed' => null],
+            $jo13->id => [ // status: in_repair — zipper & patch repair in progress
+                ['stage' => 'sewing', 'staff' => $staffUsers[2], 'assigned' => 1, 'completed' => null],
             ],
-            $jo9->id => [ // status: completed — all staff stages already closed out
-                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 7, 'completed' => 6],
-                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 6, 'completed' => 5],
-                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 5, 'completed' => 4],
-                ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 4, 'completed' => 3],
+            $jo14->id => [ // status: balance_handover — all stages closed out, ready at counter
+                ['stage' => 'design', 'staff' => $staffUsers[0], 'assigned' => 10, 'completed' => 9],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[0], 'assigned' => 9, 'completed' => 8],
+                ['stage' => 'cutting', 'staff' => $staffUsers[0], 'assigned' => 8, 'completed' => 6],
+                ['stage' => 'sewing', 'staff' => $staffUsers[0], 'assigned' => 6, 'completed' => 3],
+                ['stage' => 'qc_ironing', 'staff' => $staffUsers[0], 'assigned' => 2, 'completed' => 1],
             ],
-            $jo10->id => [ // status: sewing — design/pattern_making/cutting done, sewing in progress
-                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
-                ['stage' => 'pattern_making', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => 1],
-                ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 1, 'completed' => null],
-                ['stage' => 'sewing', 'staff' => $lanangStaff, 'assigned' => 0, 'completed' => null],
+            $jo15->id => [ // status: completed — all stages closed out
+                ['stage' => 'design', 'staff' => $staffUsers[1], 'assigned' => 14, 'completed' => 13],
+                ['stage' => 'pattern_making', 'staff' => $staffUsers[1], 'assigned' => 13, 'completed' => 12],
+                ['stage' => 'cutting', 'staff' => $staffUsers[1], 'assigned' => 12, 'completed' => 10],
+                ['stage' => 'sewing', 'staff' => $staffUsers[1], 'assigned' => 10, 'completed' => 6],
+                ['stage' => 'qc_ironing', 'staff' => $staffUsers[1], 'assigned' => 5, 'completed' => 4],
+            ],
+            $jo16->id => [ // status: queued — cut sheet prepared, queued on cutting floor
+                ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => 1],
+                ['stage' => 'pattern_making', 'staff' => $lanangStaff, 'assigned' => 1, 'completed' => 0],
             ],
         ];
         foreach ($stageAssignments as $jobOrderId => $stages) {
@@ -1244,40 +1587,214 @@ class LocalTestSeeder extends Seeder
             }
         }
 
-        // 12. Seed 4 Payments
-        Payment::firstOrCreate(
-            ['job_order_id' => $jo1->id, 'amount' => 7500.00],
-            [
-                'payment_method' => 'gcash',
-                'recorded_by' => $owner->id,
-                'notes' => 'Downpayment for custom suit.',
-            ]
-        );
-
-        Payment::firstOrCreate(
-            ['job_order_id' => $jo3->id, 'amount' => 12000.00],
-            [
-                'payment_method' => 'gcash',
-                'recorded_by' => $owner->id,
-                'notes' => 'Full payment.',
-            ]
-        );
-
-        Payment::firstOrCreate(
-            ['job_order_id' => $jo4->id, 'amount' => 3250.00],
-            [
-                'payment_method' => 'cash',
-                'recorded_by' => $owner->id,
-                'notes' => 'Settled in cash.',
-            ]
-        );
-
+        // 12. Seed Payments with explicit types (deposit, balance, full)
+        // ORD-0002: 50% deposit paid
         Payment::firstOrCreate(
             ['job_order_id' => $jo2->id, 'amount' => 3250.00],
             [
                 'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDays(3),
+                'verified_by' => $owner->id,
                 'recorded_by' => $owner->id,
-                'notes' => 'Partial deposit via GCash.',
+                'notes' => '50% initial deposit via GCash for bulk team orders.',
+            ]
+        );
+
+        // ORD-0003: Full payment settled
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo3->id, 'amount' => 12000.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'full',
+                'source' => 'online',
+                'verified_at' => now()->subDays(5),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => 'Full payment settled via GCash for bespoke corporate suit.',
+            ]
+        );
+
+        // ORD-0004: Deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo4->id, 'amount' => 3250.00],
+            [
+                'payment_method' => 'cash',
+                'type' => 'deposit',
+                'source' => 'walk_in',
+                'verified_at' => now()->subDays(4),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% deposit settled in cash at Poblacion branch.',
+            ]
+        );
+
+        // ORD-0005: Wedding Gown 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo5->id, 'amount' => 14000.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDay(),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% initial downpayment for bespoke wedding gown via GCash.',
+            ]
+        );
+
+        // ORD-0006: Awaiting materials 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo6->id, 'amount' => 3000.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDays(2),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% initial deposit via GCash.',
+            ]
+        );
+
+        // ORD-0007: Bespoke Gown 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo7->id, 'amount' => 8000.00],
+            [
+                'payment_method' => 'cash',
+                'type' => 'deposit',
+                'source' => 'walk_in',
+                'verified_at' => now()->subDays(2),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% initial deposit in cash upon consultation.',
+            ]
+        );
+
+        // ORD-0008: Blazer 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo8->id, 'amount' => 4750.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDays(2),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% downpayment via GCash.',
+            ]
+        );
+
+        // ORD-0009: Bulk Sublimation 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo9->id, 'amount' => 4875.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDays(3),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% deposit for 15 volleyball jerseys.',
+            ]
+        );
+
+        // ORD-0010: Suit with Fitting Gate 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo10->id, 'amount' => 7000.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDays(4),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% deposit for bespoke suit via GCash.',
+            ]
+        );
+
+        // ORD-0011: Suit in Final Adjustments 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo11->id, 'amount' => 7250.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDays(6),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% deposit for custom suit.',
+            ]
+        );
+
+        // ORD-0012: Suit in QC Ironing 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo12->id, 'amount' => 5500.00],
+            [
+                'payment_method' => 'cash',
+                'type' => 'deposit',
+                'source' => 'walk_in',
+                'verified_at' => now()->subDays(5),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% deposit settled in cash.',
+            ]
+        );
+
+        // ORD-0013: Repair paid in full
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo13->id, 'amount' => 450.00],
+            [
+                'payment_method' => 'cash',
+                'type' => 'full',
+                'source' => 'walk_in',
+                'verified_at' => now()->subDay(),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => 'Full payment in cash upon repair intake.',
+            ]
+        );
+
+        // ORD-0014: Audited Order #14 — 50% deposit paid via GCash, remaining balance ₱8,250
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo14->id, 'amount' => 8250.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDays(2),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% downpayment via GCash for custom 3-piece charcoal suit.',
+            ]
+        );
+
+        // ORD-0015: Completed Barong Tagalog — paid in full
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo15->id, 'amount' => 13500.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'full',
+                'source' => 'online',
+                'verified_at' => now()->subDays(10),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => 'Full payment via GCash for Graduation Barong Tagalog.',
+            ]
+        );
+
+        // ORD-0016: Queued Order — 50% deposit paid
+        Payment::firstOrCreate(
+            ['job_order_id' => $jo16->id, 'amount' => 4100.00],
+            [
+                'payment_method' => 'gcash',
+                'type' => 'deposit',
+                'source' => 'online',
+                'verified_at' => now()->subDay(),
+                'verified_by' => $owner->id,
+                'recorded_by' => $owner->id,
+                'notes' => '50% initial deposit via GCash.',
             ]
         );
 
@@ -1494,24 +2011,7 @@ class LocalTestSeeder extends Seeder
             ]
         );
 
-        // 15. No discounts in the demo data. Earlier seeds applied a repeat-customer
-        // discount to one walk-in order and one job order; undo those on re-seed
-        // (restore the balance, drop the audit entries) so the numbers match the
-        // listed prices. Only the seeded job order is touched, never real ones.
-        if (isset($jo2) && (float) $jo2->discount_amount === 500.00) {
-            $jo2->update([
-                'balance' => (float) $jo2->balance + 500.00,
-                'discount_amount' => 0,
-            ]);
-        }
-        CatalogOrder::where('store_id', $store->id)->where('discount_amount', '>', 0)->get()->each(function (CatalogOrder $order) {
-            // Walk-in totals are stored net of discount, so add it back.
-            $order->update([
-                'total_amount' => (float) $order->total_amount + (float) $order->discount_amount,
-                'discount_amount' => 0,
-            ]);
-        });
-        AuditLog::where('store_id', $store->id)->where('action', 'discount_applied')->delete();
+        // 15. Keep discounts and rush fees in demo data for customer receipt and audit verification (Item 7 & 8)
 
         $barongService = Service::where('name', 'Barong Tagalog Tailoring')->first();
 
@@ -1576,6 +2076,192 @@ class LocalTestSeeder extends Seeder
                 'superseded_at' => null,
             ]
         );
+
+        // Joshua's (the developer's) own measurement profiles for itzjoshuawayman@gmail.com
+        $devUser = User::where('email', 'itzjoshuawayman@gmail.com')->first();
+        if ($devUser) {
+            Measurement::updateOrCreate(
+                ['store_id' => $store->id, 'customer_id' => $devUser->id, 'profile_name' => 'Bespoke Suit & Barong', 'version' => 1],
+                [
+                    'source' => 'store_owner',
+                    'metrics' => [
+                        'Chest' => '39', 'Shoulder' => '17.5', 'Sleeve' => '24.5', 'Neck' => '15.5',
+                        'Waist' => '32', 'Hip' => '39', 'Inseam' => '30',
+                    ],
+                    'notes' => 'Measured by head tailor — comfortable fit with standard posture.',
+                    'superseded_at' => null,
+                ]
+            );
+
+            $sakuragiStore = Store::find(4) ?? Store::where('name', 'like', '%Sakuragi%')->first();
+            if ($sakuragiStore) {
+                $sakuragiStore->update([
+                    'social_links' => [
+                        ['label' => 'Facebook', 'url' => 'https://www.facebook.com/sakuragi.tailoring'],
+                    ],
+                ]);
+                Measurement::updateOrCreate(
+                    ['store_id' => $sakuragiStore->id, 'customer_id' => $devUser->id, 'profile_name' => 'Polo Shirt & Corporate Casual', 'version' => 1],
+                    [
+                        'source' => 'store_owner',
+                        'status' => 'finalized',
+                        'metrics' => [
+                            'Chest' => '39', 'Shoulder' => '17.5', 'Sleeve Length' => '9.5',
+                            'Shirt Length' => '28', 'Neck' => '16', 'Armhole' => '18',
+                        ],
+                        'notes' => 'Custom polo shirt fitting — tailored fit, comfortable shoulder posture.',
+                        'superseded_at' => null,
+                    ]
+                );
+            }
+        }
+
+        // 18b. Seed Joshua's (itzjoshuawayman@gmail.com) job orders — 6 clean orders
+        // distributed across all 5 customer order tabs (All, In Production,
+        // Ready for Pickup, Completed, Cancelled). These are soft-deleted or
+        // cancelled in a targeted way so the account never floods with 15+
+        // duplicate test orders on a fresh seed.
+        $devUserForOrders = User::where('email', 'itzjoshuawayman@gmail.com')->first();
+        if ($devUserForOrders) {
+            $joshuaCustomer = $store->customers()->where('user_id', $devUserForOrders->id)->first() ?? $devUserForOrders;
+            $joshuaCustomerId = $joshuaCustomer instanceof \App\Models\Customer
+                ? $joshuaCustomer->id
+                : $store->customers()->where('user_id', $devUserForOrders->id)->value('id');
+            // Fallback: look up customer record by user_id directly
+            if (!$joshuaCustomerId) {
+                $joshuaCustomerId = \App\Models\Customer::where('user_id', $devUserForOrders->id)->value('id');
+            }
+
+            $embroideryService = Service::find(14) ?? $service1;        // Quality Embroidery & Custom Polo
+            $alterationService2 = Service::where('name', 'Alteration and Repairs for Barong')->first() ?? $repairService;
+
+            if ($joshuaCustomerId) {
+                // 1. Completed — ORD-0001: Custom Polo Shirt, GCash paid, with measurements
+                JobOrder::updateOrCreate(
+                    ['store_id' => $sakuragiStore?->id ?? $store->id, 'order_number' => 'ORD-0001'],
+                    [
+                        'tracking_code' => 'TNED8K2P',
+                        'store_branch_id' => $mainBranch->id,
+                        'customer_id' => $joshuaCustomerId,
+                        'service_id' => $embroideryService->id,
+                        'total_amount' => 650.00,
+                        'balance' => 0.00,
+                        'payment_status' => 'paid',
+                        'status' => 'completed',
+                        'garment_category' => 'polo_shirt',
+                        'due_date' => now()->subDays(30)->format('Y-m-d'),
+                        'notes' => 'Custom polo shirt with embroidered logo — completed and collected.',
+                        'intake_channel' => 'online',
+                        'fulfillment_type' => 'pickup',
+                    ]
+                );
+
+                // 2. In Production — ORD-0002: Bespoke barong in Pattern Making
+                JobOrder::updateOrCreate(
+                    ['store_id' => $store->id, 'order_number' => 'ORD-0002'],
+                    [
+                        'tracking_code' => 'TNED4M7B',
+                        'store_branch_id' => $mainBranch->id,
+                        'customer_id' => $joshuaCustomerId,
+                        'service_id' => $barongService->id,
+                        'total_amount' => 4500.00,
+                        'balance' => 2250.00,
+                        'payment_status' => 'partial',
+                        'status' => 'pattern_making',
+                        'due_date' => now()->addDays(10)->format('Y-m-d'),
+                        'notes' => 'Piña Seda barong — in pattern making stage.',
+                        'intake_channel' => 'online',
+                        'fulfillment_type' => 'pickup',
+                    ]
+                );
+
+                // 3. In Production — ORD-0003: Pending confirmation
+                JobOrder::updateOrCreate(
+                    ['store_id' => $store->id, 'order_number' => 'ORD-0003'],
+                    [
+                        'tracking_code' => 'TNED9C3X',
+                        'store_branch_id' => $mainBranch->id,
+                        'customer_id' => $joshuaCustomerId,
+                        'service_id' => $barongService->id,
+                        'total_amount' => 3200.00,
+                        'balance' => 3200.00,
+                        'payment_status' => 'unpaid',
+                        'status' => 'pending',
+                        'due_date' => now()->addDays(21)->format('Y-m-d'),
+                        'notes' => 'Corporate barong — awaiting design approval.',
+                        'intake_channel' => 'online',
+                        'fulfillment_type' => 'pickup',
+                    ]
+                );
+
+                // 4. Ready for Pickup — ORD-0005: Balance handover
+                JobOrder::updateOrCreate(
+                    ['store_id' => $store->id, 'order_number' => 'ORD-0005'],
+                    [
+                        'tracking_code' => 'TNED5P8R',
+                        'store_branch_id' => $mainBranch->id,
+                        'customer_id' => $joshuaCustomerId,
+                        'service_id' => $barongService->id,
+                        'total_amount' => 2800.00,
+                        'balance' => 1400.00,
+                        'payment_status' => 'partial',
+                        'status' => 'balance_handover',
+                        'due_date' => now()->addDays(2)->format('Y-m-d'),
+                        'notes' => 'Barong ready — customer to settle balance on pickup.',
+                        'intake_channel' => 'online',
+                        'fulfillment_type' => 'pickup',
+                    ]
+                );
+
+                // 5. Cancelled — ORD-0011: Customer changed mind before production
+                JobOrder::updateOrCreate(
+                    ['store_id' => $store->id, 'order_number' => 'ORD-0011'],
+                    [
+                        'tracking_code' => 'TNED1Q7W',
+                        'store_branch_id' => $mainBranch->id,
+                        'customer_id' => $joshuaCustomerId,
+                        'service_id' => $barongService->id,
+                        'total_amount' => 2200.00,
+                        'balance' => 2200.00,
+                        'payment_status' => 'unpaid',
+                        'status' => 'cancelled',
+                        'cancellation_reason' => 'customer_request',
+                        'due_date' => now()->subDays(5)->format('Y-m-d'),
+                        'notes' => 'Customer cancelled — changed design preference before production started.',
+                        'intake_channel' => 'online',
+                        'fulfillment_type' => 'pickup',
+                    ]
+                );
+
+                // 6. In Production (Alteration) — ORD-0012: Alteration in progress
+                JobOrder::updateOrCreate(
+                    ['store_id' => $store->id, 'order_number' => 'ORD-0012'],
+                    [
+                        'tracking_code' => 'TNED2A5L',
+                        'store_branch_id' => $mainBranch->id,
+                        'customer_id' => $joshuaCustomerId,
+                        'service_id' => $alterationService2->id,
+                        'total_amount' => 350.00,
+                        'balance' => 0.00,
+                        'payment_status' => 'paid',
+                        'status' => 'in_repair',
+                        'garment_category' => 'alteration',
+                        'due_date' => now()->addDays(3)->format('Y-m-d'),
+                        'notes' => 'Waist adjustment on existing barong — alteration in progress.',
+                        'intake_channel' => 'walk_in',
+                        'fulfillment_type' => 'pickup',
+                    ]
+                );
+
+                // Soft-delete all other Joshua orders that are not in the 6 above
+                // so a re-seed never accumulates duplicate test clutter.
+                $keepNumbers = ['ORD-0001', 'ORD-0002', 'ORD-0003', 'ORD-0005', 'ORD-0011', 'ORD-0012'];
+                JobOrder::where('customer_id', $joshuaCustomerId)
+                    ->whereNotIn('order_number', $keepNumbers)
+                    ->whereNull('deleted_at')
+                    ->update(['deleted_at' => now()]);
+            }
+        }
 
         // 19. Seed Support Tickets — otherwise the owner's "Help & Support"
         // page is always empty, with no example of an open thread or a

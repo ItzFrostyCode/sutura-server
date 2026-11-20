@@ -88,6 +88,7 @@ class Store extends Model
 
     protected $appends = [
         'active_special_hours',
+        'hidden_reason',
     ];
 
     public function resolveRouteBinding($value, $field = null)
@@ -124,6 +125,32 @@ class Store extends Model
     public function isPubliclyVisible(): bool
     {
         return $this->status === 'approved' && ! $this->is_hidden;
+    }
+
+    /**
+     * Explanation of why the store is hidden from public discovery.
+     */
+    public function getHiddenReasonAttribute(): ?string
+    {
+        if (! $this->is_hidden) {
+            return null;
+        }
+
+        if ($this->admin_hidden_at) {
+            return $this->admin_hidden_reason ?: 'Administrative moderation / review';
+        }
+
+        $activeSub = $this->subscriptions()
+            ->whereIn('status', ['active', 'trial'])
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
+            ->latest()
+            ->first();
+
+        if (! $activeSub) {
+            return 'Subscription expired or inactive';
+        }
+
+        return 'Temporarily hidden by shop owner (Maintenance / Private)';
     }
 
     public function subscriptions(): HasMany

@@ -554,13 +554,44 @@ class JobOrder extends Model
         return (int) ($this->parent_order_id ?? $this->id);
     }
 
+    /**
+     * True when the order is a garment repair (damaged item, short pipeline:
+     * pending → queued → in_repair → qc_check → ready_for_pickup → completed).
+     * Distinguished from alteration by the garment_category being explicitly
+     * 'repair', or the status being a repair-specific status.
+     */
     public function isRepairOnly(): bool
     {
-        if ($this->garment_category === 'alteration_repair') {
+        if ($this->garment_category === 'repair') {
             return true;
         }
 
-        return $this->service?->hasType(Service::TYPE_ALTERATION_REPAIR) ?? false;
+        // Legacy: orders seeded before isAlterationOnly() existed with garment_category='alteration_repair'
+        // that have a repair-specific status are treated as repairs.
+        if ($this->garment_category === 'alteration_repair' && in_array($this->status, ['queued', 'in_repair', 'qc_check'], true)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * True when the order is a garment alteration (fit adjustment on an existing
+     * garment — no designing, no mass cutting). Pipeline:
+     * pending → queued → in_repair (relabelled "In Alteration") → qc_check → ready_for_pickup → completed.
+     */
+    public function isAlterationOnly(): bool
+    {
+        if ($this->garment_category === 'alteration') {
+            return true;
+        }
+
+        // Legacy support: service-level alteration_repair tag that is NOT a pure repair
+        if ($this->service?->hasType(Service::TYPE_ALTERATION_REPAIR) && !$this->isRepairOnly()) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

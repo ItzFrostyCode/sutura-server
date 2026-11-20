@@ -71,7 +71,7 @@
         "phone": "09777044683",
         "email": "itzjoshuawayman@gmail.com",
         "business_type": "tailoring_store",
-        "social_links": null,
+        "social_links": "[{\"label\": \"Facebook\", \"url\": \"https://www.facebook.com/sakuragi.tailoring\"}]",
         "logo_path": "http://localhost:8000/storage/stores/4/catalog/Bqn1IfH0HMJQ3BIVIFH6wjUPFVHHEq6vctL9JsQ9.png",
         "banner_path": "http://localhost:8000/storage/stores/4/catalog/CSW3Bstrh04s6egYcQdqjyhgt4a8mnGAMBMRmlnD.jpg",
         "gallery_images": null,

@@ -606,6 +606,8 @@ Route::prefix('v1')->group(function () {
             // Subscription Plan Billing
             Route::get('/subscriptions/plans', [SubscriptionController::class, 'index']);
             Route::post('/stores/{store}/subscription', [SubscriptionController::class, 'subscribe']);
+            Route::post('/stores/{store}/subscription/cancel', [SubscriptionController::class, 'cancel']);
+            Route::post('/stores/{store}/subscription/resubscribe', [SubscriptionController::class, 'resubscribe']);
             // Paid plan changes: GCash receipt → admin approval (see SubscriptionUpgradeRequestController).
             Route::get('/stores/{store}/subscription/upgrade-requests', [SubscriptionUpgradeRequestController::class, 'index']);
             Route::post('/stores/{store}/subscription/upgrade-requests', [SubscriptionUpgradeRequestController::class, 'store'])->middleware('throttle:uploads');

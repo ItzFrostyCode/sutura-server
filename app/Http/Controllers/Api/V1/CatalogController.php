@@ -523,7 +523,7 @@ class CatalogController extends Controller
             // rating shape StoreController computes (loadCount/loadAvg on
             // reviews), so it reads identically to the store's own profile.
             // operating_hours: the Find a Branch pins show the same open/closed dot as /map.
-            'store:id,name,slug,logo_path,operating_hours',
+            'store:id,name,slug,logo_path,operating_hours,social_links',
             // The "Find" location sheet needs somewhere to pin on the map —
             // same branch fields PublicBookingController::getSettings()
             // already exposes for the /book page's own map.

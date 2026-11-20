@@ -136,6 +136,7 @@ class JobOrderTrackingController extends Controller
         $jobOrder->load([
             'store:id,name,slug,logo_path', 'service:id,name,service_types,image_url',
             'catalogItem:id,name,fabric_image_url', 'catalogItem.images', 'staffStages',
+            'measurement',
             'payments' => fn ($q) => $q->whereNull('verified_at')->whereNull('rejected_at'),
         ]);
 
@@ -168,6 +169,9 @@ class JobOrderTrackingController extends Controller
                 'catalog_item_name' => $jobOrder->catalogItem?->name,
                 'service_name' => $jobOrder->service?->name,
                 'is_rush' => (bool) $jobOrder->is_rush,
+                'rush_fee' => (float) ($jobOrder->rush_fee ?? 0),
+                'discount_amount' => (float) ($jobOrder->discount_amount ?? 0),
+                'balance_due_by' => $jobOrder->balance_due_by,
                 'due_date' => $jobOrder->due_date,
                 'estimated_ready_at' => $jobOrder->estimated_ready_at,
                 'pipeline' => $this->pipelineFor($jobOrder),
@@ -194,7 +198,7 @@ class JobOrderTrackingController extends Controller
                 'repair_note' => $jobOrder->custom_order_data['repair_note'] ?? null,
                 // Work on the customer's own garment: where to bring it, and the shop's drop-off check.
                 'garment_check' => \App\Support\GarmentCheck::forCustomer($jobOrder),
-                'drop_off' => \App\Support\GarmentCheck::applies($jobOrder) ? $this->dropOffFor($jobOrder) : null,
+                'drop_off' => $this->dropOffFor($jobOrder),
                 // The customer's own attachments from the online booking (inspiration photos, the design link the customer
                 // pasted, a reference link) — their data, customer-safe, so the order page shows them what they sent.
                 // Empty arrays fall back to the order's design/service image (computed above), never to a blank order.
@@ -206,6 +210,7 @@ class JobOrderTrackingController extends Controller
                 'stage_timestamps' => $this->buildStageTimestamps($jobOrder),
                 'appointments' => $this->buildCustomerSafeAppointments($jobOrder),
                 'payments' => $this->buildCustomerSafePayments($jobOrder),
+                'measurement_data' => $this->buildMeasurementData($jobOrder),
                 'store' => $jobOrder->store ? [
                     'name' => $jobOrder->store->name,
                     'slug' => $jobOrder->store->slug,
@@ -213,6 +218,56 @@ class JobOrderTrackingController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    /**
+     * Customer-safe measurement details for this order: anatomical points
+     * (chest, waist, hips, length, shoulders...), standard sizes, or team roster fit.
+     */
+    private function buildMeasurementData(JobOrder $jobOrder): ?array
+    {
+        $custom = (array) ($jobOrder->custom_order_data ?? []);
+
+        // 1. Linked Measurement model
+        $measurementModel = $jobOrder->measurement;
+        $profileMetrics = is_array($measurementModel?->metrics) ? $measurementModel->metrics : [];
+        $profileName = $measurementModel?->profile_name ?? null;
+
+        // 2. Direct inputs in custom_order_data
+        $directMetrics = is_array($custom['measurements'] ?? null)
+            ? $custom['measurements']
+            : (is_array($custom['fit'] ?? null) ? $custom['fit'] : []);
+
+        $metrics = ! empty($profileMetrics) ? $profileMetrics : $directMetrics;
+
+        $size = $custom['size'] ?? $custom['top_size'] ?? null;
+        $unit = $custom['unit'] ?? 'in';
+        $roster = is_array($custom['team_roster'] ?? null) ? $custom['team_roster'] : null;
+
+        if (empty($metrics) && empty($size) && empty($roster) && ! $jobOrder->measurement_source) {
+            return null;
+        }
+
+        return [
+            'profile_name' => $profileName,
+            'size' => $size,
+            'unit' => $unit,
+            'source' => $jobOrder->measurement_source,
+            'verified' => $jobOrder->measurements_verified_at !== null,
+            'verified_at' => $jobOrder->measurements_verified_at,
+            'metrics' => ! empty($metrics) ? $metrics : null,
+            'team_roster' => $roster ? array_map(function ($m) {
+                return [
+                    'name' => $m['name'] ?? '',
+                    'gender' => $m['gender'] ?? $m['extra']['Gender'] ?? null,
+                    'size' => $m['size'] ?? '',
+                    'bottom_size' => $m['bottomSize'] ?? $m['bottom_size'] ?? null,
+                    'cut' => $m['cut'] ?? $m['extra']['Cut'] ?? null,
+                    'number' => $m['number'] ?? $m['extra']['Jersey Number'] ?? null,
+                    'fit' => is_array($m['fit'] ?? null) ? $m['fit'] : null,
+                ];
+            }, $roster) : null,
+        ];
     }
 
     /**
@@ -229,6 +284,7 @@ class JobOrderTrackingController extends Controller
             ->map(fn ($p) => [
                 'id' => $p->id,
                 'amount' => (float) $p->amount,
+                'type' => $p->type ?: \App\Models\Payment::inferType($jobOrder, (float) $p->amount),
                 'method' => $p->method?->name ?? $p->payment_method,
                 'reference' => $p->reference,
                 'source' => $p->source,
@@ -386,16 +442,23 @@ class JobOrderTrackingController extends Controller
     }
 
     /**
-     * Which production pipeline the customer's stepper should draw — the
-     * same isRepairOnly()/isBulkOrder() signals the shop's own Kanban uses,
-     * so both sides agree. Without it the stepper always drew the full
-     * custom-tailoring stages: a repair (queued/in_repair/qc_check) matched
-     * no step at all, and a bulk order showed fitting steps it never has.
+     * Which production pipeline the customer's stepper should draw. Four distinct
+     * pipelines exist so each order type shows only the stages that actually apply:
+     *
+     *  repair     — damaged garment: queued → in_repair → qc_check → ready
+     *  alteration — fit adjustment on existing garment: queued → in_repair (shown as
+     *               "In Alteration") → qc_check → ready (no designing, no mass cutting)
+     *  bulk       — team/uniform set: design → mass_cutting_printing → cutting → sewing → ready
+     *  custom     — bespoke: design → pattern_making → cutting → sewing → fitting → ready
      */
     private function pipelineFor(JobOrder $jobOrder): string
     {
         if ($jobOrder->isRepairOnly()) {
             return 'repair';
+        }
+
+        if ($jobOrder->isAlterationOnly()) {
+            return 'alteration';
         }
 
         return $jobOrder->isBulkOrder() ? 'bulk' : 'custom';
