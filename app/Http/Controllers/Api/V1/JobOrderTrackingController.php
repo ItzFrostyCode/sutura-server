@@ -376,7 +376,7 @@ class JobOrderTrackingController extends Controller
      * design/pattern_making/cutting/sewing/qc_ironing come from the
      * job_order_staff pivot's assigned_at (when staff was put on that
      * stage — the earliest, if more than one staff worked it). Stages with
-     * no tracked timestamp anywhere (mass_cutting_printing, ready_for_fitting,
+     * no tracked timestamp anywhere (mass_cutting, ready_for_fitting,
      * completed) are left null rather than guessed — the frontend just
      * omits the date/time line for those instead of showing a wrong one.
      */
@@ -395,7 +395,7 @@ class JobOrderTrackingController extends Controller
             'in_production' => $jobOrder->production_started_at,
             'design' => $stageStart('design'),
             'pattern_making' => $stageStart('pattern_making'),
-            'mass_cutting_printing' => null,
+            'mass_cutting' => null,
             'cutting' => $stageStart('cutting'),
             'sewing' => $stageStart('sewing'),
             'ready_for_fitting' => null,

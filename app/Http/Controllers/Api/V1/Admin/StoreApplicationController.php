@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Store;
 use App\Models\StoreApplication;
 use App\Models\StoreSubscription;
-use App\Models\SubscriptionPlan;
 use App\Models\SubscriptionUpgradeRequest;
 use App\Notifications\ShopLoginIssuedNotification;
 use App\Notifications\StoreApplicationChangesRequestedNotification;
@@ -59,7 +58,8 @@ class StoreApplicationController extends Controller
                 ->orWhereHas('owner', fn ($o) => $o->whereRaw('LOWER(email) LIKE ?', [$term])->orWhereRaw('LOWER(name) LIKE ?', [$term])));
         }
 
-        $page = $query->paginate(20);
+        // Page size: ?per_page (5–50), default 20. The admin Applications page asks for 5.
+        $page = $query->paginate(max(5, min(50, (int) $request->input('per_page', 20))));
 
         return response()->json([
             'success' => true,
@@ -99,8 +99,6 @@ class StoreApplicationController extends Controller
                     ? $login
                     : ShopLogin::suggest($store->name, $store->owner_id),
                 'login_domain' => ShopLogin::domain(),
-                // False when the owner signed up with their own confirmed email: approving issues no login.
-                'issues_login' => $store->owner?->email_verified_at === null,
                 'plan_payment' => $this->planPayment($store),
             ],
         ]);
@@ -161,9 +159,7 @@ class StoreApplicationController extends Controller
         $owner = $store->owner;
         // Stores created before applications existed already have a working
         // owner login; credentials are only issued to applicants.
-        // An owner who signed up with their own email (confirmed through the emailed link) already has a login;
-        // only applicants made by the older form get an admin-issued shop login.
-        $issue = $owner && $store->application && $owner->email_verified_at === null;
+        $issue = $owner && $store->application;
         $loginEmail = null;
         $temporaryPassword = null;
 
@@ -213,11 +209,9 @@ class StoreApplicationController extends Controller
             if ($application) {
                 $application->update(['reviewed_by' => $request->user()->id, 'reviewed_at' => now()]);
 
-                // A free trial (free_trial, or billing_cycle "trial" from applications sent before 2026-11-14): the
-                // picked plan for StoreApplication::FREE_TRIAL_DAYS days, nothing to pay yet. When it runs out unpaid,
-                // app:expire-subscriptions pauses the shop (hidden, records kept).
-                $trial = $application->free_trial || $application->billing_cycle === 'trial';
-                if ($application->requested_plan_id && $trial) {
+                if ($application->requested_plan_id && $application->free_trial) {
+                    // Free trial: the picked plan for 14 days, nothing to pay yet. When it runs out
+                    // unpaid, app:expire-subscriptions pauses the shop (hidden, records kept).
                     $trialEnd = now()->addDays(StoreApplication::FREE_TRIAL_DAYS);
                     StoreSubscription::create([
                         'store_id' => $store->id,
@@ -367,53 +361,7 @@ class StoreApplicationController extends Controller
     }
 
     /**
-     * Re-issues a fresh temporary password for an approved store owner if the original
-     * modal was closed before credentials could be copied.
-     */
-    public function reissueCredentials(Request $request, Store $store): JsonResponse
-    {
-        if ($store->status !== 'approved') {
-            return response()->json(['success' => false, 'message' => 'Credentials can only be reissued for approved stores.'], 422);
-        }
-
-        $owner = $store->owner;
-        if (! $owner) {
-            return response()->json(['success' => false, 'message' => 'Store owner account not found.'], 404);
-        }
-
-        $loginEmail = $owner->email;
-        $temporaryPassword = ShopLogin::temporaryPassword();
-
-        DB::transaction(function () use ($owner, $temporaryPassword) {
-            $owner->forceFill([
-                'password' => Hash::make($temporaryPassword),
-                'password_set_at' => now(),
-                'must_change_password' => true,
-            ])->save();
-        });
-
-        try {
-            $owner->notify(new ShopLoginIssuedNotification($store->fresh(), $loginEmail, $temporaryPassword));
-        } catch (\Throwable $e) {
-            Log::warning("Store {$store->id} credential reissue email failed: {$e->getMessage()}");
-        }
-
-        AdminAudit::record($request, 'store_credentials_reissued', Store::class, $store->id, $store->name, $store->id);
-
-        return response()->json([
-            'success' => true,
-            'message' => "New temporary credentials generated for {$store->name}.",
-            'credentials' => [
-                'login_email' => $loginEmail,
-                'temporary_password' => $temporaryPassword,
-                'sent_to' => $owner->contact_email ?: $owner->email,
-            ],
-        ]);
-    }
-
-    /**
      * QUEUE_CONNECTION=sync sends mail in-request; a mail outage must not
-
      * turn an already-committed decision into a 500.
      */
     private function notifyOwner(Store $store, string $decision): void

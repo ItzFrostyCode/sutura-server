@@ -24,7 +24,7 @@ class JobOrder extends Model
      * timeline and the internal staff-assignment tracking describe the same
      * process instead of two different vocabularies.
      *
-     * - 'mass_cutting_printing' is the Bulk Order Override: a job with a
+     * - 'mass_cutting' is the Bulk Order Override: a job with a
      *   Team Roster / Size Sheet (custom_order_data.team_roster) skips
      *   'pattern_making' and goes straight here instead.
      * - 'ready_for_fitting' auto-creates a Fitting appointment for the
@@ -34,7 +34,7 @@ class JobOrder extends Model
      *   forward to 'qc_ironing' once resolved.
      */
     public const STATUSES = [
-        'pending', 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
+        'pending', 'design', 'pattern_making', 'mass_cutting', 'cutting', 'sewing',
         'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup',
         'completed', 'cancelled', 'rejected', 'on_hold',
         // Repair Override short pipeline (isRepairOnly() below) — 'pending',
@@ -59,7 +59,7 @@ class JobOrder extends Model
      * -> ready_for_fitting (Customer Fitting / Inspection) -> final_adjustments (Adjustment / Correction)
      * -> balance_handover -> completed. Older orders keep the previous meaning of ready_for_fitting.
      */
-    public const PRODUCTION_TASKS = ['design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing'];
+    public const PRODUCTION_TASKS = ['design', 'pattern_making', 'mass_cutting', 'cutting', 'sewing'];
 
     /** Statuses before any actual work has started (the order may still be re-quoted or cancelled freely). */
     public const PRE_PRODUCTION_STATUSES = ['pending', 'confirmed', 'awaiting_materials'];
@@ -68,7 +68,7 @@ class JobOrder extends Model
      * Assignable Multi-Stage Staff Assignment stages. Deliberately does NOT
      * include 'fitting' — fittings happen front-of-house with the master
      * cutter/owner directly, not a backroom production stage — nor
-     * 'mass_cutting_printing', 'final_adjustments', 'ready_for_pickup' etc.,
+     * 'mass_cutting', 'final_adjustments', 'ready_for_pickup' etc.,
      * which aren't separately staffed roles.
      */
     public const STAFF_STAGES = ['design', 'pattern_making', 'cutting', 'sewing', 'qc_ironing'];
@@ -88,7 +88,7 @@ class JobOrder extends Model
      * Pickup" and sit there having never actually passed the DP gate.
      */
     public const STAGES_REQUIRING_DOWNPAYMENT = [
-        'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing',
+        'pattern_making', 'mass_cutting', 'cutting', 'sewing',
         'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'ready_for_pickup', 'balance_handover',
         // Repair Override pipeline — same "no material committed until a
         // downpayment is logged" rule applies once a repair actually starts
@@ -374,7 +374,7 @@ class JobOrder extends Model
      * Bulk Order Override signal: a Team Roster / Size Sheet was submitted,
      * or the linked service is itself a bulk-sublimation service. Used to
      * decide whether the job's next production stage after 'design' should
-     * be 'mass_cutting_printing' instead of 'pattern_making'.
+     * be 'mass_cutting' instead of 'pattern_making'.
      */
     public function isBulkOrder(): bool
     {
@@ -399,7 +399,7 @@ class JobOrder extends Model
             return 'in_repair';
         }
 
-        return $this->isBulkOrder() ? 'mass_cutting_printing' : 'pattern_making';
+        return $this->isBulkOrder() ? 'mass_cutting' : 'pattern_making';
     }
 
     /** The first task in plain words, for messages. */
@@ -407,7 +407,7 @@ class JobOrder extends Model
     {
         return match ($this->firstProductionTask()) {
             'in_repair' => 'Repair',
-            'mass_cutting_printing' => 'Mass cutting',
+            'mass_cutting' => 'Mass cutting',
             default => 'Pattern making',
         };
     }

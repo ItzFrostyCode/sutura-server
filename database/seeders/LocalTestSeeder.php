@@ -1232,9 +1232,9 @@ class LocalTestSeeder extends Seeder
                 'total_amount' => 9750.00,
                 'balance' => 4875.00,
                 'payment_status' => 'partial',
-                'status' => 'mass_cutting_printing',
+'status' => 'mass_cutting',
                 'due_date' => now()->addDays(8)->format('Y-m-d'),
-                'notes' => '15 volleyball jerseys — bulk sublimation laser cutting & heat press.',
+                'notes' => '15 volleyball jerseys — bulk sublimation cutting (skipped Pattern Making)',
                 'intake_channel' => 'online',
                 'fulfillment_type' => 'pickup',
                 'custom_order_data' => [
@@ -1530,7 +1530,7 @@ class LocalTestSeeder extends Seeder
                 ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
                 ['stage' => 'pattern_making', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => null],
             ],
-            $jo9->id => [ // status: mass_cutting_printing — bulk order, sublimation & laser cutting
+            $jo9->id => [ // status: mass_cutting — bulk order, sublimation cutting (skipped Pattern Making)
                 ['stage' => 'design', 'staff' => $lanangStaff, 'assigned' => 3, 'completed' => 2],
                 ['stage' => 'cutting', 'staff' => $lanangStaff, 'assigned' => 2, 'completed' => null],
             ],

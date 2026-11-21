@@ -5,6 +5,7 @@ namespace App\Http\Requests\Store;
 use App\Models\JobOrder;
 use App\Models\Store;
 use App\Models\User;
+use App\Support\RosterMeasurementRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -44,17 +45,23 @@ class StoreJobOrderRequest extends FormRequest
                     $fail('This account belongs to a staff or owner user, not a customer.');
                 }
             }],
-            // The pricing option of the service this order is made from. Only its id is taken: what it covers and what one unit is are read from it on the server.
-            'pricing_id' => ['nullable', 'integer'],
             'service_id' => [
                 'required', 'integer',
                 Rule::exists('services', 'id')->where('store_id', $store?->id),
             ],
-            // assigned_staff_id is not accepted here at all anymore — no more
-            // upfront "who's doing this" pre-assignment at creation. It's
-            // purely server-derived, set automatically the moment anyone
-            // actually moves the job into a production stage (see
-            // JobOrderController::update()'s auto-attribution block).
+            'assigned_staff_id' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
+            'assigned_to' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
+            // One job order for a whole combo package (the set's services are listed with it).
+            'service_package_id' => [
+                'nullable', 'integer',
+                Rule::exists('service_packages', 'id')->where('store_id', $store?->id),
+            ],
             'measurement_id' => [
                 'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('store_id', $store?->id),
@@ -63,6 +70,8 @@ class StoreJobOrderRequest extends FormRequest
             'total_amount' => ['required', 'numeric', 'min:0'],
             'balance' => ['required', 'numeric', 'min:0', 'lte:total_amount'],
             'payment_method' => ['nullable', 'string', 'in:cash,gcash,paymaya'],
+            // Cash handed over for the first payment (empty = exact amount); change is worked out here.
+            'cash_tendered' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string'],
             'custom_order_data' => ['nullable', 'array'],
@@ -90,33 +99,11 @@ class StoreJobOrderRequest extends FormRequest
             'custom_order_data.team_roster.*.size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.top_size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.bottom_size' => ['nullable', 'string', 'max:50'],
-            // Garments for this one wearer. Different from the number of wearers: a person can need several pieces.
-            'custom_order_data.team_roster.*.qty' => ['nullable', 'integer', 'min:1', 'max:500'],
-            // The wearer's own measurements: a profile already saved (checked against the customer in the controller),
-            // or typed points that become that wearer's profile when the order is made.
-            'custom_order_data.team_roster.*.measurement_id' => ['nullable', 'integer', Rule::exists('measurements', 'id')->where('store_id', $store?->id)],
-            'custom_order_data.team_roster.*.fit_metrics' => ['nullable', 'array', 'max:30'],
-            'custom_order_data.team_roster.*.fit_metrics.*' => ['nullable', 'string', 'max:20'],
-            'custom_order_data.roster_unit' => ['nullable', 'in:in,cm'],
-            'custom_order_data.team_roster.*.measure_area' => ['nullable', 'in:top,bottom,both'],
             'custom_order_data.team_roster.*.remarks' => ['nullable', 'string', 'max:255'],
             'custom_order_data.team_roster.*.completed' => ['nullable', 'boolean'],
+            // Each person's body measurements / "measure at shop" flag (walk-in bulk orders).
+            ...RosterMeasurementRules::rules(),
             'custom_order_data.pre_existing_damage_notes' => ['nullable', 'string', 'max:2000'],
-            'custom_order_data.spec_table' => ['nullable', 'array'],
-            'custom_order_data.spec_table.columns' => ['nullable', 'array'],
-            'custom_order_data.spec_table.columns.*.id' => ['required_with:custom_order_data.spec_table.columns', 'string', 'max:100'],
-            'custom_order_data.spec_table.columns.*.key' => ['required_with:custom_order_data.spec_table.columns', 'string', 'max:100'],
-            'custom_order_data.spec_table.columns.*.label' => ['required_with:custom_order_data.spec_table.columns', 'string', 'max:100'],
-            'custom_order_data.spec_table.columns.*.type' => ['nullable', 'string', 'in:text,number,select'],
-            'custom_order_data.spec_table.rows' => ['nullable', 'array'],
-            'custom_order_data.spec_table.rows.*' => ['nullable', 'array'],
-            'custom_order_data.customization_instructions' => ['nullable', 'array'],
-            'custom_order_data.customization_instructions.*.id' => ['nullable', 'string', 'max:100'],
-            'custom_order_data.customization_instructions.*.label' => ['nullable', 'string', 'max:255'],
-            'custom_order_data.customization_instructions.*.details' => ['nullable', 'string', 'max:2000'],
-            'custom_order_data.customization_instructions.*.reference_link' => ['nullable', 'string', 'max:500'],
-            'custom_order_data.customization_instructions.*.reference_image' => ['nullable', 'string', 'max:1000'],
-            'custom_order_data.customization_instructions.*.scope' => ['nullable', 'string', 'max:100'],
             'store_branch_id' => [
                 'nullable', 'integer',
                 Rule::exists('store_branches', 'id')->where('store_id', $store?->id),
@@ -132,17 +119,6 @@ class StoreJobOrderRequest extends FormRequest
             'reference_images' => ['nullable', 'array', 'max:10'],
             'reference_images.*' => ['string', 'max:1000'],
             'reference_link' => ['nullable', 'string', 'max:500', new \App\Rules\SafeLink],
-            // Consultation first: where the design came from, a link to the customer's file, and what was said.
-            'design_source' => ['nullable', Rule::in(\App\Models\Appointment::DESIGN_SOURCES)],
-            'design_link' => ['nullable', 'string', 'max:1000', new \App\Rules\SafeLink],
-            'consultation_notes' => ['nullable', 'string', 'max:6000'],
-            // More services the same customer asked for at once: each becomes its own linked order.
-            'extra_services' => ['nullable', 'array', 'max:6'],
-            'extra_services.*.service_id' => ['required', 'integer', Rule::exists('services', 'id')->where('store_id', $store?->id)],
-            'extra_services.*.catalog_item_id' => ['nullable', 'integer', Rule::exists('catalog_items', 'id')->where('store_id', $store?->id)],
-            'extra_services.*.quantity' => ['nullable', 'integer', 'min:1', 'max:500'],
-            'extra_services.*.total_amount' => ['nullable', 'numeric', 'min:0'],
-            'extra_services.*.notes' => ['nullable', 'string', 'max:1000'],
             'material_source' => ['nullable', Rule::in(JobOrder::MATERIAL_SOURCES)],
             'garment_category' => ['nullable', 'string', \Illuminate\Validation\Rule::in(\App\Support\GarmentCategory::all())],
             'is_rush' => ['nullable', 'boolean'],
@@ -152,11 +128,6 @@ class StoreJobOrderRequest extends FormRequest
                 Rule::exists('catalog_items', 'id')->where('store_id', $store?->id),
             ],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
-            // The completed order this one follows up (a repeat order or a customer's change after pick-up).
-            'follow_up_of_id' => [
-                'nullable', 'integer',
-                Rule::exists('job_orders', 'id')->where('store_id', $store?->id)->whereNull('deleted_at'),
-            ],
         ];
     }
 }

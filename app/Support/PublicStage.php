@@ -21,7 +21,7 @@ final class PublicStage
         'pattern_making' => 'In Production',
         'queued' => 'In Production',
         'in_repair' => 'In Production',
-        'mass_cutting_printing' => 'In Production · Cutting',
+        'mass_cutting' => 'In Production · Cutting',
         'cutting' => 'In Production · Cutting',
         'sewing' => 'In Production · Stitching',
         'qc_ironing' => 'Quality Check',

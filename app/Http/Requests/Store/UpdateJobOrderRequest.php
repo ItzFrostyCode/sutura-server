@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Store;
 
 use App\Models\JobOrder;
+use App\Support\RosterMeasurementRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -22,10 +23,14 @@ class UpdateJobOrderRequest extends FormRequest
             // Store pickup only — the approved thesis explicitly excludes
             // logistics/courier/delivery management from the system's scope.
             'fulfillment_type' => ['sometimes', 'in:pickup'],
-            // assigned_staff_id is not client-settable here — it's
-            // server-derived, auto-set to whoever actually moves the job's
-            // status forward (see JobOrderController::update()'s
-            // auto-attribution block), never picked directly.
+            'assigned_staff_id' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
+            'assigned_to' => [
+                'nullable', 'integer',
+                Rule::exists('users', 'id'),
+            ],
             'measurement_id' => [
                 'nullable', 'integer',
                 Rule::exists('measurements', 'id')->where('store_id', $store?->id),
@@ -38,8 +43,6 @@ class UpdateJobOrderRequest extends FormRequest
             // user just recorded (or let anyone mark a job "paid" with no ledger entry).
             'status' => ['sometimes', Rule::in(JobOrder::STATUSES)],
             'cancellation_reason' => ['nullable', 'string', Rule::in(JobOrder::CANCELLATION_REASONS), 'required_if:status,cancelled'],
-            // How many pieces. Only changeable while the order is pending (JobOrderController::update refuses it later).
-            'quantity' => ['sometimes', 'integer', 'min:1', 'max:100000'],
             'due_date' => ['nullable', 'date'],
             // Time-of-day ETA, additive to due_date — see docs/REPAIR-WORKFLOW.md §6.
             'estimated_ready_at' => ['nullable', 'date'],
@@ -76,30 +79,10 @@ class UpdateJobOrderRequest extends FormRequest
             'custom_order_data.team_roster.*.size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.top_size' => ['nullable', 'string', 'max:50'],
             'custom_order_data.team_roster.*.bottom_size' => ['nullable', 'string', 'max:50'],
-            // Same per-wearer fields as when the order is made, so editing the team list never drops them.
-            'custom_order_data.team_roster.*.qty' => ['nullable', 'integer', 'min:1', 'max:500'],
-            'custom_order_data.team_roster.*.measurement_id' => ['nullable', 'integer', Rule::exists('measurements', 'id')->where('store_id', $store?->id)],
-            'custom_order_data.team_roster.*.fit_metrics' => ['nullable', 'array', 'max:30'],
-            'custom_order_data.team_roster.*.fit_metrics.*' => ['nullable', 'string', 'max:20'],
-            'custom_order_data.roster_unit' => ['nullable', 'in:in,cm'],
-            'custom_order_data.team_roster.*.measure_area' => ['nullable', 'in:top,bottom,both'],
             'custom_order_data.team_roster.*.remarks' => ['nullable', 'string', 'max:255'],
             'custom_order_data.team_roster.*.completed' => ['nullable', 'boolean'],
-            'custom_order_data.spec_table' => ['nullable', 'array'],
-            'custom_order_data.spec_table.columns' => ['nullable', 'array'],
-            'custom_order_data.spec_table.columns.*.id' => ['required_with:custom_order_data.spec_table.columns', 'string', 'max:100'],
-            'custom_order_data.spec_table.columns.*.key' => ['required_with:custom_order_data.spec_table.columns', 'string', 'max:100'],
-            'custom_order_data.spec_table.columns.*.label' => ['required_with:custom_order_data.spec_table.columns', 'string', 'max:100'],
-            'custom_order_data.spec_table.columns.*.type' => ['nullable', 'string', 'in:text,number,select'],
-            'custom_order_data.spec_table.rows' => ['nullable', 'array'],
-            'custom_order_data.spec_table.rows.*' => ['nullable', 'array'],
-            'custom_order_data.customization_instructions' => ['nullable', 'array'],
-            'custom_order_data.customization_instructions.*.id' => ['nullable', 'string', 'max:100'],
-            'custom_order_data.customization_instructions.*.label' => ['nullable', 'string', 'max:255'],
-            'custom_order_data.customization_instructions.*.details' => ['nullable', 'string', 'max:2000'],
-            'custom_order_data.customization_instructions.*.reference_link' => ['nullable', 'string', 'max:500'],
-            'custom_order_data.customization_instructions.*.reference_image' => ['nullable', 'string', 'max:1000'],
-            'custom_order_data.customization_instructions.*.scope' => ['nullable', 'string', 'max:100'],
+            // Each person's body measurements / "measure at shop" flag (walk-in bulk orders).
+            ...RosterMeasurementRules::rules(),
             'store_branch_id' => [
                 'nullable', 'integer',
                 Rule::exists('store_branches', 'id')->where('store_id', $store?->id),

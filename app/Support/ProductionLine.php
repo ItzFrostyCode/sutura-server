@@ -26,7 +26,7 @@ final class ProductionLine
     public static function label(string $status): string
     {
         return match ($status) {
-            'pattern_making' => 'Pattern making', 'mass_cutting_printing' => 'Mass cutting', 'cutting' => 'Cutting', 'sewing' => 'Sewing',
+            'pattern_making' => 'Pattern making', 'mass_cutting' => 'Cutting', 'cutting' => 'Cutting', 'sewing' => 'Sewing',
             'in_repair' => 'Repair', 'qc_ironing', 'qc_check' => 'Quality check', 'ready_for_pickup' => 'Ready for pick-up',
             'completed' => 'Completed', 'design' => 'Design', 'final_adjustments' => 'Fixing', default => str_replace('_', ' ', $status),
         };
@@ -35,7 +35,7 @@ final class ProductionLine
     /** Where $status sits on the line (0-based), or null when it is not on it. Pattern making and Mass cutting are the same slot. */
     public static function index(JobOrder $job, string $status): ?int
     {
-        if (in_array($status, ['pattern_making', 'mass_cutting_printing'], true)) {
+        if (in_array($status, ['pattern_making', 'mass_cutting'], true)) {
             $status = $job->firstProductionTask();
         }
         $i = array_search($status, self::steps($job), true);

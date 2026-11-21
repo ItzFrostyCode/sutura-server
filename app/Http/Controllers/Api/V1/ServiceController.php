@@ -362,6 +362,9 @@ class ServiceController extends Controller
         }
         $validated = $this->withTaxonomy($validated, $service, $store);
         $target = $this->requestedStatus($validated, null);
+        if ($service->plan_locked_at && $target === Service::STATUS_PUBLISHED) {
+            return response()->json(['success' => false, 'message' => 'This service is locked by your plan. Use Unlock to choose which services stay open.'], 422);
+        }
         unset($validated['status'], $validated['is_active']);
 
         DB::transaction(function () use ($service, $validated, $hasTiers, &$tiers, $target) {

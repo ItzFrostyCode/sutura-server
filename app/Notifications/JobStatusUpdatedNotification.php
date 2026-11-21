@@ -22,7 +22,7 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
 
     public JobOrder $jobOrder;
 
-    public string $status; // 'design', 'pattern_making', 'mass_cutting_printing', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'completed', 'cancelled', 'rejected'
+    public string $status; // 'design', 'pattern_making', 'mass_cutting', 'cutting', 'sewing', 'ready_for_fitting', 'final_adjustments', 'qc_ironing', 'completed', 'cancelled', 'rejected'
 
     // Which staff/owner made this change — lets the customer-facing
     // notification row show the actual person's avatar instead of always
@@ -74,7 +74,7 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
             'awaiting_materials' => 'Order Waiting for Materials',
             'design' => 'Order In Progress: Design',
             'pattern_making' => 'Order In Progress: Pattern Making',
-            'mass_cutting_printing' => 'Order In Progress: Mass Cutting',
+            'mass_cutting' => 'Order In Progress: Cutting',
             'cutting' => 'Order In Progress: Cutting',
             'sewing' => 'Order In Progress: Sewing & Assembly',
             'ready_for_fitting' => 'Order Ready for Fitting',
@@ -99,7 +99,7 @@ class JobStatusUpdatedNotification extends Notification implements ShouldQueue
             'awaiting_materials' => 'Your order ('.$this->jobOrder->order_number.') is confirmed, but the shop is still waiting for some materials. We will start as soon as they arrive.',
             'design' => 'Your order ('.$this->jobOrder->order_number.') is now in the design stage.',
             'pattern_making' => 'Your order ('.$this->jobOrder->order_number.') is now having its pattern drafted.',
-            'mass_cutting_printing' => 'Your order ('.$this->jobOrder->order_number.') has entered mass cutting (all pieces are being cut before sewing).',
+            'mass_cutting' => 'Your order ('.$this->jobOrder->order_number.') has entered the cutting stage.',
             'cutting' => 'Your order ('.$this->jobOrder->order_number.') has entered the cutting stage.',
             'sewing' => 'Your order ('.$this->jobOrder->order_number.') is now being sewn and assembled.',
             'ready_for_fitting' => 'Your order ('.$this->jobOrder->order_number.') is ready for fitting. We\'ve scheduled a fitting appointment and will confirm the exact time with you shortly.',

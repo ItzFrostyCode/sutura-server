@@ -7,6 +7,7 @@ use App\Models\PaymentMethod;
 use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -36,26 +37,16 @@ class PaymentMethodController extends Controller
     private function rules(Store $store): array
     {
         return [
-            'kind' => ['required', Rule::in(PaymentMethod::KINDS)],
+            // Only GCash accounts are accepted (cash is paid at the shop, no account needed).
+            'kind' => ['required', Rule::in(['gcash'])],
             'name' => ['required', 'string', 'max:80'],
             'account_name' => ['required', 'string', 'max:120'],
-            // A number, a QR code, or both: a shop that only has a QR (any QR Ph code) can still be paid.
-            'account_number' => ['nullable', 'string', 'max:80', 'required_without:qr_path'],
-            'qr_path' => ['nullable', 'string', 'max:2048', 'required_without:account_number'],
+            'account_number' => ['required', 'string', 'max:80'],
+            'qr_path' => ['nullable', 'string', 'max:2048'],
             'instructions' => ['nullable', 'string', 'max:1000'],
             'is_active' => ['sometimes', 'boolean'],
             'store_branch_id' => ['nullable', 'integer', Rule::exists('store_branches', 'id')->where('store_id', $store->id)],
         ];
-    }
-
-    /** The column is NOT NULL: a QR-only method keeps an empty number, which the customer's pay screen simply hides. */
-    private function withNumber(array $data): array
-    {
-        if (array_key_exists('account_number', $data)) {
-            $data['account_number'] = trim((string) $data['account_number']);
-        }
-
-        return $data;
     }
 
     public function index(Request $request, Store $store): JsonResponse
@@ -80,7 +71,7 @@ class PaymentMethodController extends Controller
         if ($branch !== null) {
             $data['store_branch_id'] = $branch;
         }
-        $method = $store->paymentMethods()->create($this->withNumber($data));
+        $method = $store->paymentMethods()->create($data);
 
         return response()->json(['success' => true, 'data' => $method], 201);
     }
@@ -95,20 +86,64 @@ class PaymentMethodController extends Controller
             unset($rules['store_branch_id']);
         }
         $data = $request->validate($rules);
-        $paymentMethod->update($this->withNumber($data));
+        $paymentMethod->update($data);
 
         return response()->json(['success' => true, 'data' => $paymentMethod->fresh()]);
     }
 
     public function destroy(Request $request, Store $store, PaymentMethod $paymentMethod): JsonResponse
     {
+        if ($paymentMethod->store_id !== $store->id) {
+            return response()->json(['success' => false, 'message' => 'Not found.'], 404);
+        }
+
+        // ?branch_id=X on an "Entire shop" method: remove it from that branch only.
+        // The other branches each keep it (as their own branch-only method).
+        $fromBranch = $request->integer('branch_id') ?: null;
+        if ($paymentMethod->store_branch_id === null && $fromBranch !== null) {
+            if (! $store->branches()->whereKey($fromBranch)->exists()) {
+                return response()->json(['success' => false, 'message' => 'Branch not found.'], 404);
+            }
+            // A branch manager may take a shop-wide method off their own branch, never another's.
+            $manager = $this->managerBranch($request);
+            if ($manager !== null && $manager !== $fromBranch) {
+                return response()->json(['success' => false, 'message' => 'You can only change your own branch.'], 403);
+            }
+            $this->removeFromBranch($store, $paymentMethod, $fromBranch);
+
+            return response()->json(['success' => true, 'scope' => 'branch']);
+        }
+
         if ($denied = $this->denied($request, $paymentMethod, $store)) {
             return $denied;
         }
         // Past payments keep their record (the link is nulled), so history survives.
         $paymentMethod->delete();
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'scope' => $paymentMethod->store_branch_id ? 'branch' : 'shop']);
+    }
+
+    /**
+     * Turns a shop-wide method into one branch-only method per remaining branch,
+     * leaving $branchId without it. The original row moves to one remaining
+     * branch (the main one when it stays), so payments already linked to it
+     * keep their link; the other branches get copies.
+     */
+    private function removeFromBranch(Store $store, PaymentMethod $method, int $branchId): void
+    {
+        DB::transaction(function () use ($store, $method, $branchId) {
+            $remaining = $store->branches()->whereKeyNot($branchId)->orderByDesc('is_main')->orderBy('id')->pluck('id');
+            if ($remaining->isEmpty()) {
+                $method->delete();
+
+                return;
+            }
+            $copy = $method->only(['kind', 'name', 'account_name', 'account_number', 'qr_path', 'instructions', 'is_active']);
+            foreach ($remaining->slice(1) as $otherBranch) {
+                $store->paymentMethods()->create($copy + ['store_branch_id' => $otherBranch]);
+            }
+            $method->update(['store_branch_id' => $remaining->first()]);
+        });
     }
 
     /** Customer-facing: active methods for a shop, plus the branch's own when ?branch_id is given. */
@@ -119,10 +154,13 @@ class PaymentMethodController extends Controller
         }
 
         $branch = $request->integer('branch_id') ?: null;
+        // ?any_branch=1: every active method in the shop, whichever branch it belongs to
+        // (the "Online Order" button checks whether the shop takes GCash at all).
+        $anyBranch = $request->boolean('any_branch');
         $methods = $store->paymentMethods()->where('is_active', true)
-            ->where(fn ($q) => $q->whereNull('store_branch_id')->when($branch, fn ($qq) => $qq->orWhere('store_branch_id', $branch)))
+            ->when(! $anyBranch, fn ($q) => $q->where(fn ($w) => $w->whereNull('store_branch_id')->when($branch, fn ($qq) => $qq->orWhere('store_branch_id', $branch))))
             ->orderBy('id')
-            ->get(['id', 'kind', 'name', 'account_name', 'account_number', 'qr_path', 'instructions']);
+            ->get(['id', 'store_branch_id', 'kind', 'name', 'account_name', 'account_number', 'qr_path', 'instructions']);
 
         return response()->json(['success' => true, 'data' => $methods]);
     }

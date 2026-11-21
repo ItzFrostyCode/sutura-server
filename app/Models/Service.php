@@ -68,6 +68,8 @@ class Service extends Model
         'own_fabric_deduction',
         // Rush for this service: null = the shop's rule, false = no rush, true = its own fee (App\Support\RushFee::rules).
         'rush_available', 'rush_fee_mode', 'rush_fee_percent', 'rush_fee_per_piece',
+        // Set when the shop's plan allows fewer services (App\Support\PlanLimits); is_active is then false.
+        'plan_locked_at',
     ];
 
     protected $hidden = ['department', 'service_leaf_type', 'showcase_category'];
@@ -84,6 +86,7 @@ class Service extends Model
         'rush_fee_percent' => 'decimal:2',
         'rush_fee_per_piece' => 'decimal:2',
         'is_active' => 'boolean',
+        'plan_locked_at' => 'datetime',
         // One shape for every screen (App\Support\ServiceQuestions): older {name, dropdown} rows read as {id, select}.
         'custom_fields' => \App\Casts\ServiceQuestionsCast::class,
         'roster_fields' => \App\Casts\ServiceQuestionsCast::class.':roster',

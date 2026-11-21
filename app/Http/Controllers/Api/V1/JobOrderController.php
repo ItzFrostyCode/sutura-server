@@ -1206,6 +1206,16 @@ class JobOrderController extends Controller
         $balance = (float) $validated['balance'];
         $initialPayment = $totalAmount - $balance;
 
+        // Cash the customer handed over for that first payment. Empty means the exact amount.
+        $creationMethod = $validated['payment_method'] ?? 'cash';
+        $cashTendered = isset($validated['cash_tendered']) && $creationMethod === 'cash' && $initialPayment > 0
+            ? round((float) $validated['cash_tendered'], 2)
+            : null;
+        unset($validated['cash_tendered']);
+        if ($cashTendered !== null && $cashTendered < round($initialPayment, 2)) {
+            return response()->json(['message' => "Cash tendered can't be less than the amount being paid."], 422);
+        }
+
         // A zero total is an order still waiting for its quotation — not a paid one.
         if ($balance <= 0 && $totalAmount > 0) {
             $validated['payment_status'] = 'paid';
@@ -1360,7 +1370,9 @@ class JobOrderController extends Controller
         if ($initialPayment > 0) {
             $jobOrder->payments()->create([
                 'amount' => $initialPayment,
-                'payment_method' => $validated['payment_method'] ?? 'cash',
+                'payment_method' => $creationMethod,
+                'cash_tendered' => $cashTendered,
+                'change_amount' => $cashTendered !== null ? round($cashTendered - $initialPayment, 2) : null,
                 'recorded_by' => $request->user()->id,
                 // Money already in hand at the counter: the balance was reduced for it, so it counts as verified.
                 'verified_at' => now(),
@@ -1575,7 +1587,7 @@ class JobOrderController extends Controller
             if ($newStatus === 'ready_for_fitting' && $jobOrder->fitting_requirement === 'none') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This order does not need a final fitting. Move it to QC / Ironing or Ready for Pickup instead.',
+                    'message' => 'This order does not need a final fitting. Move it to Quality Check / Ironing or Ready for Pickup instead.',
                 ], 422);
             }
             if (
@@ -1601,7 +1613,7 @@ class JobOrderController extends Controller
             // Completion photo upload stays available (upload → column →
             // print ticket) but is no longer a hard gate on reaching Ready
             // for Pickup — per explicit owner request, it's optional, not
-            // required. Was previously enforced here ("No QC Photo, No
+            // required. Was previously enforced here ("No Quality Check Photo, No
             // Ready for Pickup"); removed rather than left as dead
             // commented-out logic.
 
@@ -1627,7 +1639,7 @@ class JobOrderController extends Controller
                 if ($store->fitting_limit && $priorFittingCount >= $store->fitting_limit) {
                     return response()->json([
                         'success' => false,
-                        'message' => "This job has already used its {$store->fitting_limit} included fitting session(s), and this shop does not allow additional fittings beyond the limit. Move it to QC/Ironing or Ready for Pickup instead, or contact the customer directly.",
+                        'message' => "This job has already used its {$store->fitting_limit} included fitting session(s), and this shop does not allow additional fittings beyond the limit. Move it to Quality Check/Ironing or Ready for Pickup instead, or contact the customer directly.",
                     ], 422);
                 }
             }
@@ -1754,7 +1766,7 @@ class JobOrderController extends Controller
         // touched, completion rate — nothing there needed to change, it's
         // just populated automatically now instead of via assignStaff().
         if ($newStatus && $newStatus !== $oldStatus) {
-            $stageFor = fn (?string $status) => $status === 'mass_cutting_printing' ? 'pattern_making' : $status;
+            $stageFor = fn (?string $status) => $status === 'mass_cutting' ? 'pattern_making' : $status;
             $oldStage = $stageFor($oldStatus);
             $newStage = $stageFor($newStatus);
             $actorId = $request->user()->id;
